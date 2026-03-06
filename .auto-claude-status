@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "spec": "004-enhanced-review-gates-with-auto-verification",
+  "state": "building",
+  "subtasks": {
+    "completed": 2,
+    "total": 27,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Verification Core Infrastructure",
+    "id": null,
+    "total": 5
+  },
+  "workers": {
+    "active": 0,
+    "max": 1
+  },
+  "session": {
+    "number": 4,
+    "started_at": "2026-03-07T03:49:58.200267"
+  },
+  "last_update": "2026-03-07T03:53:32.214292"
+}
