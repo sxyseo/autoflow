@@ -1,0 +1,154 @@
+{
+  "$schema": "./config/rollback.schema.json",
+  "description": "Example configuration for automatic rollback and recovery system. Copy this file to config/rollback.json and customize for your project.",
+  "version": "1.0.0",
+  "health_checks": {
+    "enabled": true,
+    "default_timeout": 120,
+    "stop_on_first_failure": false,
+    "checks": [
+      {
+        "name": "Build Verification",
+        "command": ["python", "-m", "build", "--check"],
+        "severity": "critical",
+        "timeout": 180,
+        "description": "Verify that the project builds successfully. Failure triggers automatic rollback."
+      },
+      {
+        "name": "Unit Tests",
+        "command": ["python", "-m", "pytest", "tests/", "-x", "-v"],
+        "severity": "critical",
+        "timeout": 300,
+        "description": "Run unit tests with -x flag to stop on first failure. Critical failures trigger rollback."
+      },
+      {
+        "name": "Type Checking",
+        "command": ["mypy", "autoflow/"],
+        "severity": "warning",
+        "timeout": 120,
+        "description": "Run static type checking. Type errors are logged but don't trigger rollback."
+      },
+      {
+        "name": "Linting",
+        "command": ["flake8", "autoflow/", "--max-line-length=120"],
+        "severity": "warning",
+        "timeout": 60,
+        "description": "Check code style. Linting issues are logged but don't trigger rollback."
+      },
+      {
+        "name": "Import Validation",
+        "command": ["python", "-c", "import autoflow; print('Imports OK')"],
+        "severity": "critical",
+        "timeout": 30,
+        "description": "Verify that all imports resolve correctly. Import errors trigger rollback."
+      },
+      {
+        "name": "Configuration Validation",
+        "command": ["python", "-c", "import json; json.load(open('config/system.json'))"],
+        "severity": "critical",
+        "timeout": 10,
+        "description": "Validate configuration files are well-formed JSON. Invalid configs trigger rollback."
+      },
+      {
+        "name": "Dependency Check",
+        "command": ["python", "-m", "pip", "check"],
+        "severity": "warning",
+        "timeout": 30,
+        "description": "Check for dependency conflicts. Logged but doesn't trigger rollback."
+      },
+      {
+        "name": "Quick Smoke Test",
+        "command": ["python", "-c", "from autoflow.core import StateManager; print('Core module loads')"],
+        "severity": "critical",
+        "timeout": 15,
+        "description": "Quick smoke test to verify core modules load. Failure triggers rollback."
+      }
+    ]
+  },
+  "rollback": {
+    "enabled": true,
+    "auto_rollback_on_failure": true,
+    "create_recovery_branch": true,
+    "recovery_branch_prefix": "recovery/",
+    "preserve_failed_commits": true,
+    "max_recovery_branches": 10,
+    "checkpoint_before_dispatch": true,
+    "checkpoint_description_template": "Checkpoint before {agent_name} dispatch"
+  },
+  "recovery": {
+    "generate_runbooks": true,
+    "runbook_directory": ".autoflow/runbooks/",
+    "include_context": true,
+    "context_lines": 50,
+    "ai_assistance": true,
+    "max_runbook_age_days": 30
+  },
+  "logging": {
+    "log_rollback_events": true,
+    "log_directory": ".autoflow/logs/rollback/",
+    "verbose": true,
+    "include_stdout": true,
+    "include_stderr": true,
+    "max_log_size_mb": 100,
+    "retention_days": 90
+  },
+  "notifications": {
+    "enabled": false,
+    "on_rollback": false,
+    "on_recovery": false,
+    "channels": []
+  },
+  "thresholds": {
+    "max_critical_failures": 1,
+    "max_warning_failures": 5,
+    "consecutive_failures_trigger_rollback": 3,
+    "health_check_interval_seconds": 0,
+    "rollback_cooldown_seconds": 300
+  },
+  "examples": {
+    "critical_checks": [
+      {
+        "name": "Database Migration",
+        "command": ["alembic", "check"],
+        "severity": "critical",
+        "description": "Verify database migrations are valid"
+      },
+      {
+        "name": "API Integration Test",
+        "command": ["pytest", "tests/integration/api/", "-v"],
+        "severity": "critical",
+        "timeout": 600
+      }
+    ],
+    "warning_checks": [
+      {
+        "name": "Code Coverage",
+        "command": ["pytest", "--cov=autoflow", "--cov-fail-under=80"],
+        "severity": "warning",
+        "description": "Check test coverage (warn if below 80%)"
+      },
+      {
+        "name": "Security Scan",
+        "command": ["bandit", "-r", "autoflow/"],
+        "severity": "warning",
+        "description": "Run security linter (logged but doesn't block)"
+      }
+    ],
+    "conditional_checks": [
+      {
+        "name": "Frontend Build",
+        "command": ["npm", "run", "build"],
+        "severity": "critical",
+        "condition": "exists:package.json",
+        "description": "Build frontend if package.json exists"
+      },
+      {
+        "name": "Docker Compose Check",
+        "command": ["docker-compose", "config"],
+        "severity": "warning",
+        "condition": "exists:docker-compose.yml",
+        "description": "Validate docker-compose configuration"
+      }
+    ]
+  }
+}
