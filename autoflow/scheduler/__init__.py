@@ -9,9 +9,13 @@ Enables automated task distribution and agent health monitoring.
 
 Usage:
     from autoflow.scheduler import SchedulerDaemon
+    from autoflow.scheduler.jobs import monitor_agents, distribute_tasks
 
     daemon = SchedulerDaemon()
     await daemon.start()
+
+    # Or run jobs directly:
+    result = await monitor_agents()
 """
 
 from autoflow.scheduler.daemon import (
@@ -23,6 +27,16 @@ from autoflow.scheduler.daemon import (
     SchedulerDaemon,
     SchedulerDaemonError,
     run_daemon,
+)
+from autoflow.scheduler.jobs import (
+    JOB_REGISTRY,
+    JobResult,
+    cleanup_sessions,
+    distribute_tasks,
+    get_orchestrator,
+    health_check,
+    monitor_agents,
+    set_orchestrator,
 )
 
 __all__ = [
@@ -37,4 +51,13 @@ __all__ = [
     "DaemonStats",
     "JobInfo",
     "JobExecutionResult",
+    # Jobs
+    "JobResult",
+    "JOB_REGISTRY",
+    "monitor_agents",
+    "distribute_tasks",
+    "cleanup_sessions",
+    "health_check",
+    "set_orchestrator",
+    "get_orchestrator",
 ]
