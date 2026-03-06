@@ -21,6 +21,12 @@ from .approval import (
     create_git_commit_message_with_approval,
     extract_approval_hash_from_commit
 )
+from .verification import (
+    VerificationOrchestrator,
+    VerificationResult,
+    VerificationConfig,
+    create_verification_report
+)
 
 __all__ = [
     "CoverageTracker",
@@ -31,4 +37,8 @@ __all__ = [
     "ApprovalGate",
     "create_git_commit_message_with_approval",
     "extract_approval_hash_from_commit",
+    "VerificationOrchestrator",
+    "VerificationResult",
+    "VerificationConfig",
+    "create_verification_report",
 ]
