@@ -11,8 +11,23 @@ Skills are OpenClaw-compatible definitions that specify:
 - Agent assignments
 """
 
-# Skill components will be imported here as they are implemented
-# from autoflow.skills.registry import SkillRegistry
+from autoflow.skills.registry import (
+    SkillDefinition,
+    SkillMetadata,
+    SkillRegistry,
+    SkillRegistryError,
+    SkillStatus,
+    create_registry,
+)
+
+# SkillExecutor will be imported when implemented
 # from autoflow.skills.executor import SkillExecutor
 
-__all__ = []
+__all__ = [
+    "SkillRegistry",
+    "SkillDefinition",
+    "SkillMetadata",
+    "SkillStatus",
+    "SkillRegistryError",
+    "create_registry",
+]
