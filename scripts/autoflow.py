@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,8 +19,11 @@ SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
 RUNS_DIR = STATE_DIR / "runs"
 LOGS_DIR = STATE_DIR / "logs"
+WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
 AGENTS_FILE = STATE_DIR / "agents.json"
 BMAD_DIR = ROOT / "templates" / "bmad"
+REVIEW_STATE_FILE = "review_state.json"
+EVENTS_FILE = "events.jsonl"
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -61,8 +66,22 @@ def read_json(path: Path) -> Any:
 
 
 def ensure_state() -> None:
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR]:
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR]:
         path.mkdir(parents=True, exist_ok=True)
+
+
+def run_cmd(
+    args: list[str],
+    cwd: Path | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd or ROOT,
+        check=check,
+        capture_output=True,
+        text=True,
+    )
 
 
 @dataclass
@@ -92,6 +111,18 @@ def spec_dir(slug: str) -> Path:
     return SPECS_DIR / slug
 
 
+def task_file(spec_slug: str) -> Path:
+    return TASKS_DIR / f"{spec_slug}.json"
+
+
+def worktree_path(spec_slug: str) -> Path:
+    return WORKTREES_DIR / spec_slug
+
+
+def worktree_branch(spec_slug: str) -> str:
+    return f"codex/{slugify(spec_slug)}"
+
+
 def spec_files(slug: str) -> dict[str, Path]:
     directory = spec_dir(slug)
     return {
@@ -100,11 +131,39 @@ def spec_files(slug: str) -> dict[str, Path]:
         "metadata": directory / "metadata.json",
         "handoff": directory / "handoff.md",
         "handoffs_dir": directory / "handoffs",
+        "review_state": directory / REVIEW_STATE_FILE,
+        "events": directory / EVENTS_FILE,
     }
 
 
-def task_file(spec_slug: str) -> Path:
-    return TASKS_DIR / f"{spec_slug}.json"
+def review_state_default() -> dict[str, Any]:
+    return {
+        "approved": False,
+        "approved_by": "",
+        "approved_at": "",
+        "spec_hash": "",
+        "review_count": 0,
+        "feedback": [],
+        "invalidated_at": "",
+        "invalidated_reason": "",
+    }
+
+
+def read_json_or_default(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return read_json(path)
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def load_review_state(spec_slug: str) -> dict[str, Any]:
+    return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
+
+
+def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
+    write_json(spec_files(spec_slug)["review_state"], state)
 
 
 def load_tasks(spec_slug: str) -> dict[str, Any]:
@@ -114,11 +173,6 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     return read_json(path)
 
 
-def save_tasks(spec_slug: str, data: dict[str, Any]) -> None:
-    data["updated_at"] = now_stamp()
-    write_json(task_file(spec_slug), data)
-
-
 def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
     for task in data.get("tasks", []):
         if task["id"] == task_id:
@@ -126,19 +180,101 @@ def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
     raise SystemExit(f"unknown task: {task_id}")
 
 
-def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
-    handoffs_dir = spec_files(spec_slug)["handoffs_dir"]
-    if not handoffs_dir.exists():
+def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
+    files = spec_files(spec_slug)
+    files["events"].parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "at": now_stamp(),
+        "type": event_type,
+        "payload": payload,
+    }
+    with open(files["events"], "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+
+
+def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
+    events_path = spec_files(spec_slug)["events"]
+    if not events_path.exists():
         return []
-    return sorted(handoffs_dir.glob("*.md"))[-limit:]
+    with open(events_path, encoding="utf-8") as handle:
+        lines = handle.readlines()[-limit:]
+    return [json.loads(line) for line in lines if line.strip()]
 
 
-def update_spec_metadata(spec_slug: str, **updates: Any) -> None:
-    metadata_path = spec_files(spec_slug)["metadata"]
-    metadata = read_json(metadata_path)
-    metadata.update(updates)
-    metadata["updated_at"] = now_stamp()
-    write_json(metadata_path, metadata)
+def compute_file_hash(path: Path) -> str:
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8")
+    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def planning_contract(spec_slug: str) -> dict[str, Any]:
+    task_data = load_tasks(spec_slug)
+    tasks = []
+    for task in task_data.get("tasks", []):
+        tasks.append(
+            {
+                "id": task["id"],
+                "title": task["title"],
+                "depends_on": task.get("depends_on", []),
+                "owner_role": task["owner_role"],
+                "acceptance_criteria": task.get("acceptance_criteria", []),
+            }
+        )
+    return {"tasks": tasks}
+
+
+def compute_spec_hash(spec_slug: str) -> str:
+    files = spec_files(spec_slug)
+    spec_hash = compute_file_hash(files["spec"])
+    task_hash = hashlib.md5(
+        json.dumps(planning_contract(spec_slug), sort_keys=True).encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()
+    combined = f"{spec_hash}:{task_hash}"
+    return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
+    state = load_review_state(spec_slug)
+    if state.get("approved") and state.get("spec_hash") != compute_spec_hash(spec_slug):
+        state["approved"] = False
+        state["invalidated_at"] = now_stamp()
+        state["invalidated_reason"] = reason
+        save_review_state(spec_slug, state)
+        record_event(spec_slug, "review.invalidated", {"reason": reason})
+    return state
+
+
+def review_status_summary(spec_slug: str) -> dict[str, Any]:
+    state = sync_review_state(spec_slug)
+    current_hash = compute_spec_hash(spec_slug)
+    return {
+        "approved": state.get("approved", False),
+        "valid": bool(state.get("approved")) and state.get("spec_hash") == current_hash,
+        "approved_by": state.get("approved_by", ""),
+        "approved_at": state.get("approved_at", ""),
+        "review_count": state.get("review_count", 0),
+        "feedback_count": len(state.get("feedback", [])),
+        "spec_changed": bool(state.get("spec_hash")) and state.get("spec_hash") != current_hash,
+        "invalidated_at": state.get("invalidated_at", ""),
+        "invalidated_reason": state.get("invalidated_reason", ""),
+    }
+
+
+def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
+    data["updated_at"] = now_stamp()
+    write_json(task_file(spec_slug), data)
+    sync_review_state(spec_slug, reason=reason)
+
+
+def detect_base_branch() -> str:
+    for branch in ["main", "master"]:
+        result = run_cmd(["git", "rev-parse", "--verify", branch], check=False)
+        if result.returncode == 0:
+            return branch
+    current = run_cmd(["git", "branch", "--show-current"]).stdout.strip()
+    return current or "main"
 
 
 def load_bmad_template(role: str) -> str:
@@ -167,6 +303,69 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
         for item in run_metadata_iter()
         if item.get("spec") == spec_slug and item.get("status") != "completed"
     ]
+
+
+def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    history = [
+        item
+        for item in run_metadata_iter()
+        if item.get("spec") == spec_slug and item.get("task") == task_id
+    ]
+    return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
+
+
+def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
+    handoffs_dir = spec_files(spec_slug)["handoffs_dir"]
+    if not handoffs_dir.exists():
+        return []
+    return sorted(handoffs_dir.glob("*.md"))[-limit:]
+
+
+def worktree_context(spec_slug: str) -> str:
+    path = worktree_path(spec_slug)
+    if not path.exists():
+        return f"""## Environment Context
+
+**Working Directory:** `{ROOT}`
+**Spec Workspace Mode:** Shared repository root
+
+No isolated git worktree is configured for this spec yet.
+Use relative paths only.
+"""
+    return f"""## Environment Context
+
+**Working Directory:** `{path}`
+**Spec Workspace Mode:** Isolated git worktree
+**Parent Repository:** `{ROOT}`
+
+### Critical rules
+
+1. Stay inside the worktree path above.
+2. Do not edit files through absolute paths pointing at the parent repository.
+3. Use relative paths from the worktree for all changes and git operations.
+"""
+
+
+def recovery_context(spec_slug: str, task_id: str) -> str:
+    history = task_run_history(spec_slug, task_id, limit=5)
+    unsuccessful = [item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}]
+    if not unsuccessful:
+        return "No previous failed or blocked attempts recorded for this task."
+    lines = [
+        f"Previous unsuccessful attempts: {len(unsuccessful)}",
+        "",
+        "Recent outcomes:",
+    ]
+    for item in unsuccessful[-3:]:
+        run_dir = RUNS_DIR / item["id"]
+        summary_path = run_dir / "summary.md"
+        summary_text = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+        lines.append(
+            f"- {item['id']} ({item.get('role', 'unknown')} -> {item.get('result', 'unknown')})"
+        )
+        if summary_text:
+            lines.append(f"  {summary_text.replace(chr(10), ' ')}")
+    return "\n".join(lines)
 
 
 def default_tasks() -> list[dict[str, Any]]:
@@ -226,7 +425,7 @@ def default_tasks() -> list[dict[str, Any]]:
             "depends_on": ["T4"],
             "owner_role": "maintainer",
             "acceptance_criteria": [
-                "The system can prepare task branches.",
+                "The system can prepare isolated worktrees.",
                 "Low-risk maintenance can be scheduled and audited.",
             ],
             "notes": [],
@@ -269,6 +468,7 @@ Describe the problem this system is solving.
 - Support `codex` and `claude` style CLIs.
 - Support background execution with `tmux`.
 - Require review before marking coding work complete.
+- Prefer isolated git worktrees for implementation runs.
 
 ## Acceptance Criteria
 
@@ -284,11 +484,17 @@ Describe the problem this system is solving.
         "created_at": now_stamp(),
         "updated_at": now_stamp(),
         "status": "draft",
+        "worktree": {
+            "path": "",
+            "branch": worktree_branch(slug),
+            "base_branch": detect_base_branch(),
+        },
     }
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
     files["spec"].write_text(spec_markdown, encoding="utf-8")
     files["handoff"].write_text(handoff, encoding="utf-8")
     write_json(files["metadata"], metadata)
+    save_review_state(slug, review_state_default())
     if not task_file(slug).exists():
         write_json(
             task_file(slug),
@@ -298,6 +504,7 @@ Describe the problem this system is solving.
                 "tasks": default_tasks(),
             },
         )
+    record_event(slug, "spec.created", {"title": args.title})
     print(str(files["dir"]))
 
 
@@ -345,11 +552,19 @@ def set_task_status(args: argparse.Namespace) -> None:
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": args.note or f"status set to {args.status}"}
     )
-    save_tasks(args.spec, data)
+    save_tasks(args.spec, data, reason="task_status_updated")
+    record_event(args.spec, "task.status_updated", {"task": args.task, "status": args.status})
     print(json.dumps(task, indent=2, ensure_ascii=True))
 
 
-def write_handoff(spec_slug: str, task_id: str, role: str, summary: str, next_role: str, result: str) -> Path:
+def write_handoff(
+    spec_slug: str,
+    task_id: str,
+    role: str,
+    summary: str,
+    next_role: str,
+    result: str,
+) -> Path:
     files = spec_files(spec_slug)
     files["handoffs_dir"].mkdir(parents=True, exist_ok=True)
     handoff_path = files["handoffs_dir"] / f"{now_stamp()}-{task_id}-{slugify(role)}.md"
@@ -370,6 +585,7 @@ def write_handoff(spec_slug: str, task_id: str, role: str, summary: str, next_ro
     )
     handoff_path.write_text(handoff_text, encoding="utf-8")
     files["handoff"].write_text(handoff_text, encoding="utf-8")
+    record_event(spec_slug, "handoff.created", {"task": task_id, "role": role, "result": result})
     return handoff_path
 
 
@@ -378,16 +594,47 @@ def create_handoff(args: argparse.Namespace) -> None:
     print(str(path))
 
 
+def approve_spec(args: argparse.Namespace) -> None:
+    state = load_review_state(args.spec)
+    state["approved"] = True
+    state["approved_by"] = args.approved_by
+    state["approved_at"] = now_stamp()
+    state["spec_hash"] = compute_spec_hash(args.spec)
+    state["review_count"] = state.get("review_count", 0) + 1
+    state["invalidated_at"] = ""
+    state["invalidated_reason"] = ""
+    save_review_state(args.spec, state)
+    record_event(args.spec, "review.approved", {"approved_by": args.approved_by})
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+
+
+def invalidate_review(args: argparse.Namespace) -> None:
+    state = load_review_state(args.spec)
+    state["approved"] = False
+    state["invalidated_at"] = now_stamp()
+    state["invalidated_reason"] = args.reason
+    state["spec_hash"] = ""
+    save_review_state(args.spec, state)
+    record_event(args.spec, "review.invalidated", {"reason": args.reason})
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+
+
+def show_review_status(args: argparse.Namespace) -> None:
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+
+
 def build_prompt(spec_slug: str, role: str, task_id: str | None) -> str:
     files = spec_files(spec_slug)
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
     selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
+    review_summary = review_status_summary(spec_slug)
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
         handoff_sections.append(handoff_path.read_text(encoding="utf-8"))
+    recovery = recovery_context(spec_slug, selected_task["id"]) if selected_task else "No task selected."
     return "\n".join(
         [
             f"Role: {role}",
@@ -400,6 +647,14 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None) -> str:
             "",
             "## BMAD operating frame",
             load_bmad_template(role),
+            "",
+            worktree_context(spec_slug),
+            "",
+            "## Review state",
+            json.dumps(review_summary, indent=2, ensure_ascii=True),
+            "",
+            "## Recovery context",
+            recovery,
             "",
             "## Spec",
             files["spec"].read_text(encoding="utf-8"),
@@ -421,6 +676,11 @@ def create_run(args: argparse.Namespace) -> None:
     agents = load_agents()
     if args.agent not in agents:
         raise SystemExit(f"unknown agent: {args.agent}")
+    review_summary = review_status_summary(args.spec)
+    if args.role in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
+        raise SystemExit(
+            "spec review approval is not valid; approve the current planning contract before implementation"
+        )
     chosen_task = args.task
     if not chosen_task:
         next_candidate = next_task_data(args.spec, args.role)
@@ -441,6 +701,7 @@ def create_run(args: argparse.Namespace) -> None:
     prompt_path = run_dir / "prompt.md"
     prompt_path.write_text(build_prompt(args.spec, args.role, chosen_task), encoding="utf-8")
     branch = args.branch or f"codex/{slugify(args.spec)}-{slugify(chosen_task)}"
+    target_workdir = worktree_path(args.spec) if worktree_path(args.spec).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
     run_script = run_dir / "run.sh"
     run_script.write_text(
@@ -448,8 +709,8 @@ def create_run(args: argparse.Namespace) -> None:
             [
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
-                f"cd {shlex.quote(str(ROOT))}",
-                f"exec scripts/run-agent.sh {shlex.quote(args.agent)} {shlex.quote(str(prompt_path))}",
+                f"cd {shlex.quote(str(target_workdir))}",
+                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(args.agent)} {shlex.quote(str(prompt_path))}",
                 "",
             ]
         ),
@@ -462,7 +723,7 @@ def create_run(args: argparse.Namespace) -> None:
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": f"run {run_id} created for role {args.role}"}
     )
-    save_tasks(args.spec, tasks)
+    save_tasks(args.spec, tasks, reason="task_status_updated")
     metadata = {
         "id": run_id,
         "spec": args.spec,
@@ -470,11 +731,14 @@ def create_run(args: argparse.Namespace) -> None:
         "role": args.role,
         "agent": args.agent,
         "branch": branch,
+        "workdir": str(target_workdir),
         "created_at": now_stamp(),
         "command_preview": command,
         "status": "created",
+        "attempt_count": len(task_run_history(args.spec, chosen_task)) + 1,
     }
     write_json(run_dir / "run.json", metadata)
+    record_event(args.spec, "run.created", {"run": run_id, "task": chosen_task, "role": args.role})
     print(str(run_dir))
 
 
@@ -509,16 +773,104 @@ def complete_run(args: argparse.Namespace) -> None:
     }
     task["status"] = status_map[args.result]
     task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
-    save_tasks(metadata["spec"], tasks)
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
     next_role = "reviewer" if metadata["role"] != "reviewer" else "maintainer"
     handoff_path = write_handoff(
         metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
     )
-    print(json.dumps({"run": metadata["id"], "task_status": task["status"], "handoff": str(handoff_path)}, indent=2))
+    record_event(
+        metadata["spec"],
+        "run.completed",
+        {
+            "run": metadata["id"],
+            "task": metadata["task"],
+            "role": metadata["role"],
+            "result": args.result,
+        },
+    )
+    print(
+        json.dumps(
+            {"run": metadata["id"], "task_status": task["status"], "handoff": str(handoff_path)},
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def show_task_history(args: argparse.Namespace) -> None:
+    print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
+
+
+def show_events(args: argparse.Namespace) -> None:
+    print(json.dumps(load_events(args.spec, args.limit), indent=2, ensure_ascii=True))
+
+
+def create_worktree(args: argparse.Namespace) -> None:
+    ensure_state()
+    path = worktree_path(args.spec)
+    branch = worktree_branch(args.spec)
+    base_branch = args.base_branch or detect_base_branch()
+    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
+
+    if path.exists():
+        metadata["worktree"] = {
+            "path": str(path),
+            "branch": branch,
+            "base_branch": base_branch,
+        }
+        write_json(spec_files(args.spec)["metadata"], metadata)
+        print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+        return
+
+    branch_exists = run_cmd(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        check=False,
+    ).returncode == 0
+    if branch_exists:
+        run_cmd(["git", "worktree", "add", str(path), branch])
+    else:
+        run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch])
+
+    metadata["worktree"] = {
+        "path": str(path),
+        "branch": branch,
+        "base_branch": base_branch,
+    }
+    write_json(spec_files(args.spec)["metadata"], metadata)
+    record_event(args.spec, "worktree.created", metadata["worktree"])
+    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+
+
+def remove_worktree(args: argparse.Namespace) -> None:
+    path = worktree_path(args.spec)
+    branch = worktree_branch(args.spec)
+    if path.exists():
+        run_cmd(["git", "worktree", "remove", "--force", str(path)])
+    if args.delete_branch:
+        run_cmd(["git", "branch", "-D", branch], check=False)
+    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
+    metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    write_json(spec_files(args.spec)["metadata"], metadata)
+    record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
+    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+
+
+def list_worktrees(_: argparse.Namespace) -> None:
+    items = []
+    for metadata_path in sorted(SPECS_DIR.glob("*/metadata.json")):
+        metadata = read_json(metadata_path)
+        items.append(
+            {
+                "spec": metadata.get("slug", metadata_path.parent.name),
+                "worktree": metadata.get("worktree", {}),
+            }
+        )
+    print(json.dumps(items, indent=2, ensure_ascii=True))
 
 
 def workflow_state(args: argparse.Namespace) -> None:
     data = load_tasks(args.spec)
+    review_summary = review_status_summary(args.spec)
     active_runs = active_runs_for_spec(args.spec)
     ready = []
     blocked = []
@@ -541,11 +893,18 @@ def workflow_state(args: argparse.Namespace) -> None:
         elif task["status"] != "done":
             blocked.append(entry)
     next_entry = ready[0] if ready else None
+    blocking_reason = ""
+    if next_entry and next_entry["owner_role"] in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
+        blocking_reason = "review_approval_required"
+        next_entry = None
     payload = {
         "spec": args.spec,
+        "review_status": review_summary,
+        "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
         "active_runs": active_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
+        "blocking_reason": blocking_reason,
         "recommended_next_action": None if active_runs else next_entry,
     }
     print(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -597,19 +956,56 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_cmd.add_argument("--result", required=True)
     handoff_cmd.set_defaults(func=create_handoff)
 
-    run_cmd = sub.add_parser("new-run", help="create a runnable agent job")
-    run_cmd.add_argument("--spec", required=True)
-    run_cmd.add_argument("--role", required=True)
-    run_cmd.add_argument("--agent", required=True)
-    run_cmd.add_argument("--task")
-    run_cmd.add_argument("--branch")
-    run_cmd.set_defaults(func=create_run)
+    review_status_cmd = sub.add_parser("review-status", help="show hash-based review approval status")
+    review_status_cmd.add_argument("--spec", required=True)
+    review_status_cmd.set_defaults(func=show_review_status)
+
+    approve_cmd = sub.add_parser("approve-spec", help="approve the current spec/task contract hash")
+    approve_cmd.add_argument("--spec", required=True)
+    approve_cmd.add_argument("--approved-by", default="user")
+    approve_cmd.set_defaults(func=approve_spec)
+
+    invalidate_cmd = sub.add_parser("invalidate-review", help="manually invalidate approval state")
+    invalidate_cmd.add_argument("--spec", required=True)
+    invalidate_cmd.add_argument("--reason", default="manual_invalidation")
+    invalidate_cmd.set_defaults(func=invalidate_review)
+
+    worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
+    worktree_create_cmd.add_argument("--spec", required=True)
+    worktree_create_cmd.add_argument("--base-branch", default="")
+    worktree_create_cmd.set_defaults(func=create_worktree)
+
+    worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
+    worktree_remove_cmd.add_argument("--spec", required=True)
+    worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
+    worktree_remove_cmd.set_defaults(func=remove_worktree)
+
+    worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
+    worktree_list_cmd.set_defaults(func=list_worktrees)
+
+    run_cmd_parser = sub.add_parser("new-run", help="create a runnable agent job")
+    run_cmd_parser.add_argument("--spec", required=True)
+    run_cmd_parser.add_argument("--role", required=True)
+    run_cmd_parser.add_argument("--agent", required=True)
+    run_cmd_parser.add_argument("--task")
+    run_cmd_parser.add_argument("--branch")
+    run_cmd_parser.set_defaults(func=create_run)
 
     complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
     complete_cmd.add_argument("--run", required=True)
     complete_cmd.add_argument("--result", required=True)
     complete_cmd.add_argument("--summary", default="")
     complete_cmd.set_defaults(func=complete_run)
+
+    history_cmd = sub.add_parser("task-history", help="show run history for a task")
+    history_cmd.add_argument("--spec", required=True)
+    history_cmd.add_argument("--task", required=True)
+    history_cmd.set_defaults(func=show_task_history)
+
+    events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
+    events_cmd.add_argument("--spec", required=True)
+    events_cmd.add_argument("--limit", type=int, default=20)
+    events_cmd.set_defaults(func=show_events)
 
     workflow_cmd = sub.add_parser("workflow-state", help="show ready tasks and the next suggested action")
     workflow_cmd.add_argument("--spec", required=True)

@@ -38,11 +38,13 @@ Recommendation: start with OpenClaw + spec-driven artifacts + Taskmaster-style t
 config/
   agents.example.json
 docs/
+  auto-claude-lessons.md
   architecture.md
   method-stack.md
   control-loop.md
   continuous-iteration.md
   openclaw-integration.md
+  phase4-plan.md
 scripts/
   autoflow.py
   continuous_iteration.py
@@ -146,5 +148,9 @@ This repository now provides a minimal autonomous workflow harness:
 - an OpenClaw-oriented dispatch contract
 - BMAD role templates injected into prompts
 - a phase 3 continuous iteration loop for scheduled commit and dispatch
+- per-spec worktree support inspired by Auto-Claude
+- hash-based review approval and invalidation
+- recovery-aware prompts and per-spec event logs
+- review-gated implementation dispatch after planning changes
 
 It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.

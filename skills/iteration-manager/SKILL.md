@@ -13,7 +13,8 @@ Use `scripts/continuous_iteration.py` as the entry point.
 2. Run configured verification commands.
 3. Commit and optionally push if the worktree is dirty.
 4. Read `workflow-state`.
-5. If there is no active run, dispatch the next ready task.
+5. Ensure the spec worktree exists.
+6. If there is no active run, dispatch the next ready task.
 
 ## Rules
 

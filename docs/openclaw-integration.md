@@ -26,10 +26,13 @@ OpenClaw should not own long-lived project state directly. Instead it should cal
 1. Call `python3 scripts/autoflow.py workflow-state --spec <slug>`
 2. Pick `recommended_next_action`
 3. Map `owner_role` to an agent backend
-4. Call `scripts/workflow-dispatch.sh <slug> <role> <agent> <task-id>`
-5. Wait for the background run to finish
-6. Call `python3 scripts/autoflow.py complete-run ...`
-7. Repeat until no ready tasks remain
+4. Ensure a worktree exists for the spec
+5. Call `scripts/workflow-dispatch.sh <slug> <role> <agent> <task-id>`
+6. Wait for the background run to finish
+7. Call `python3 scripts/autoflow.py complete-run ...`
+8. Repeat until no ready tasks remain
+
+If `workflow-state` reports `review_approval_required`, do not dispatch implementation. Re-approve the spec first.
 
 ## Role to backend mapping
 

@@ -1,3 +1,4 @@
 # Auto Claude data directory
 .auto-claude/
 .autoflow/
+__pycache__/

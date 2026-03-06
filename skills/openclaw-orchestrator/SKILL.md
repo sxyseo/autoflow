@@ -11,9 +11,11 @@ Use Autoflow as the persistent state layer.
 
 1. Call `python3 scripts/autoflow.py workflow-state --spec <slug>`.
 2. Select the next ready task.
-3. Map the task role to a configured agent backend.
-4. Call `scripts/workflow-dispatch.sh <slug> <role> <agent> <task-id>`.
-5. When the run finishes, record the result with `python3 scripts/autoflow.py complete-run ...`.
+3. Check review status and active runs.
+4. Map the task role to a configured agent backend.
+5. Ensure the spec worktree exists.
+6. Call `scripts/workflow-dispatch.sh <slug> <role> <agent> <task-id>`.
+7. When the run finishes, record the result with `python3 scripts/autoflow.py complete-run ...`.
 
 ## Rules
 
