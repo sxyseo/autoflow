@@ -10,6 +10,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 
 def load_module(path: Path, name: str) -> ModuleType:
@@ -29,6 +30,10 @@ def configure_autoflow_module(module: ModuleType, root: Path) -> None:
     module.RUNS_DIR = module.STATE_DIR / "runs"
     module.LOGS_DIR = module.STATE_DIR / "logs"
     module.WORKTREES_DIR = module.STATE_DIR / "worktrees" / "tasks"
+    module.MEMORY_DIR = module.STATE_DIR / "memory"
+    module.DISCOVERY_FILE = module.STATE_DIR / "discovered_agents.json"
+    module.SYSTEM_CONFIG_FILE = module.STATE_DIR / "system.json"
+    module.SYSTEM_CONFIG_TEMPLATE = root / "config" / "system.example.json"
     module.AGENTS_FILE = module.STATE_DIR / "agents.json"
     module.BMAD_DIR = root / "templates" / "bmad"
 
@@ -39,6 +44,26 @@ class Phase4DTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         subprocess.run(["git", "init", "-b", "main"], cwd=self.root, check=True, capture_output=True)
+        (self.root / "config").mkdir(parents=True, exist_ok=True)
+        (self.root / "config" / "system.example.json").write_text(
+            json.dumps(
+                {
+                    "memory": {
+                        "enabled": True,
+                        "auto_capture_run_results": True,
+                        "default_scopes": ["spec"],
+                        "global_file": ".autoflow/memory/global.md",
+                        "spec_dir": ".autoflow/memory/specs",
+                    },
+                    "models": {"profiles": {"implementation": "gpt-5-codex", "review": "claude-sonnet-4-6"}},
+                    "tools": {"profiles": {"claude-review": ["Read", "Bash(git:*)"]}},
+                    "registry": {"acp_agents": []},
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         (self.root / "templates" / "bmad").mkdir(parents=True, exist_ok=True)
         for role in [
             "spec-writer",
@@ -57,7 +82,11 @@ class Phase4DTests(unittest.TestCase):
             self.autoflow.AGENTS_FILE,
             {
                 "agents": {
-                    "dummy": {"command": "echo", "args": ["agent"]},
+                    "dummy": {
+                        "command": "echo",
+                        "args": ["agent"],
+                        "memory_scopes": ["spec"],
+                    },
                 }
             },
         )
@@ -110,6 +139,87 @@ class Phase4DTests(unittest.TestCase):
         self.assertTrue(result["fix_request"].endswith("QA_FIX_REQUEST.md"))
         fix_request = self.autoflow.spec_files("phase4d")["qa_fix_request"].read_text(encoding="utf-8")
         self.assertIn("Reviewer found two issues", fix_request)
+
+    def test_structured_findings_are_written_to_markdown_and_json(self) -> None:
+        self.create_spec("findings-spec")
+        tasks = self.autoflow.load_tasks("findings-spec")
+        self.autoflow.task_lookup(tasks, "T1")["status"] = "in_review"
+        self.autoflow.save_tasks("findings-spec", tasks, reason="task_status_updated")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="findings-spec",
+                    role="reviewer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(out.getvalue().strip()).name
+        findings = [
+            {
+                "id": "F-1",
+                "title": "Missing test coverage",
+                "body": "Add a regression test for the retry gate.",
+                "file": "tests/test_phase4d.py",
+                "line": 10,
+                "severity": "high",
+                "category": "tests",
+            }
+        ]
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(
+                run=run_id,
+                result="needs_changes",
+                summary="Structured findings available.",
+                findings_json=json.dumps(findings),
+                findings_file="",
+            ),
+        )
+        payload = self.autoflow.load_fix_request_data("findings-spec")
+        self.assertEqual(payload["finding_count"], 1)
+        self.assertEqual(payload["findings"][0]["file"], "tests/test_phase4d.py")
+        self.assertEqual(payload["findings"][0]["severity"], "high")
+        markdown = self.autoflow.load_fix_request("findings-spec")
+        self.assertIn("| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |", markdown)
+
+    def test_build_prompt_includes_structured_fix_request_and_respects_memory_scope(self) -> None:
+        self.create_spec("prompt-spec")
+        self.autoflow.append_memory("global", "global memory", title="Global")
+        self.autoflow.append_memory("spec", "spec memory", spec_slug="prompt-spec", title="Spec")
+        self.autoflow.write_fix_request(
+            "prompt-spec",
+            "T1",
+            "Reviewer requested changes.",
+            "needs_changes",
+            findings=[
+                {
+                    "id": "F-2",
+                    "title": "Broken retry flow",
+                    "body": "Retry gate does not surface the blocker clearly.",
+                    "file": "scripts/continuous_iteration.py",
+                    "line": 42,
+                    "severity": "medium",
+                    "category": "workflow",
+                    "suggested_fix": "Return the blocker in dispatch output.",
+                }
+            ],
+        )
+        agent = self.autoflow.AgentSpec(
+            name="review-agent",
+            command="claude",
+            args=[],
+            model="claude-sonnet-4-6",
+            memory_scopes=["spec"],
+        )
+        prompt = self.autoflow.build_prompt("prompt-spec", "reviewer", "T1", agent)
+        self.assertIn('"file": "scripts/continuous_iteration.py"', prompt)
+        self.assertIn('"suggested_fix": "Return the blocker in dispatch output."', prompt)
+        self.assertIn("spec memory", prompt)
+        self.assertNotIn("global memory", prompt)
 
     def test_resume_run_creates_new_attempt_with_resume_from(self) -> None:
         self.create_spec("resume-spec")
@@ -171,6 +281,85 @@ class Phase4DTests(unittest.TestCase):
             {"id": "T3", "status": "needs_changes", "owner_role": "implementation-runner"},
         )
         self.assertEqual(gate["reason"], "max_automatic_attempts_reached")
+
+    def test_continuous_iteration_can_fallback_to_discovered_agent(self) -> None:
+        continuous = load_module(self.repo_root / "scripts" / "continuous_iteration.py", "continuous_fallback_test")
+        catalog = {"codex": {"command": "codex"}, "claude": {"command": "claude"}}
+        agent, source = continuous.select_agent_for_role(
+            {"role_agents": {"reviewer": "claude-review"}},
+            "reviewer",
+            catalog,
+        )
+        self.assertEqual(agent, "claude")
+        self.assertEqual(source, "fallback")
+
+    def test_discover_agents_includes_acp_registry(self) -> None:
+        config = self.autoflow.system_config_default()
+        config["registry"]["acp_agents"] = [
+            {
+                "name": "test-acp",
+                "transport": {"type": "stdio", "command": "acp-agent", "args": []},
+                "capabilities": {"resume": False},
+            }
+        ]
+        self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
+        with (
+            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None),
+            patch.object(self.autoflow, "run_cmd", return_value=SimpleNamespace(stdout="resume --model", stderr="", returncode=0)),
+        ):
+            payload = self.autoflow.discover_agents_registry()
+        names = [agent["name"] for agent in payload["agents"]]
+        self.assertIn("codex", names)
+        self.assertIn("test-acp", names)
+
+    def test_load_agents_applies_model_and_tool_profiles(self) -> None:
+        self.autoflow.write_json(
+            self.autoflow.AGENTS_FILE,
+            {
+                "agents": {
+                    "profiled-reviewer": {
+                        "command": "claude",
+                        "args": [],
+                        "model_profile": "review",
+                        "tool_profile": "claude-review",
+                    }
+                }
+            },
+        )
+        agents = self.autoflow.load_agents()
+        profiled = agents["profiled-reviewer"]
+        self.assertEqual(profiled.model, "claude-sonnet-4-6")
+        self.assertEqual(profiled.tools, ["Read", "Bash(git:*)"])
+        self.assertEqual(profiled.memory_scopes, ["spec"])
+
+    def test_sync_discovered_agents_materializes_catalog(self) -> None:
+        config = self.autoflow.system_config_default()
+        config["registry"]["acp_agents"] = [
+            {
+                "name": "test-acp",
+                "transport": {"type": "stdio", "command": "acp-agent", "args": []},
+                "capabilities": {"resume": False},
+            }
+        ]
+        self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
+        with (
+            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None),
+            patch.object(
+                self.autoflow,
+                "run_cmd",
+                side_effect=[
+                    SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
+                    SimpleNamespace(stdout="--continue --model", stderr="", returncode=0),
+                ],
+            ),
+        ):
+            result = self.autoflow.sync_discovered_agents()
+        catalog = self.autoflow.read_json(self.autoflow.AGENTS_FILE)
+        self.assertIn("codex", catalog["agents"])
+        self.assertIn("claude", catalog["agents"])
+        self.assertIn("test-acp", catalog["agents"])
+        self.assertEqual(catalog["agents"]["codex"]["resume"]["subcommand"], "resume")
+        self.assertEqual(result["total_agents"], 4)
 
 
 if __name__ == "__main__":

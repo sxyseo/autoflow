@@ -5,9 +5,15 @@
   },
   "agents": {
     "codex-spec": {
+      "protocol": "cli",
       "command": "codex",
       "args": [
         "--full-auto"
+      ],
+      "model_profile": "implementation",
+      "memory_scopes": [
+        "global",
+        "spec"
       ],
       "resume": {
         "mode": "subcommand",
@@ -20,9 +26,15 @@
       "supports_background": true
     },
     "codex-impl": {
+      "protocol": "cli",
       "command": "codex",
       "args": [
         "--full-auto"
+      ],
+      "model_profile": "implementation",
+      "memory_scopes": [
+        "global",
+        "spec"
       ],
       "resume": {
         "mode": "subcommand",
@@ -35,13 +47,32 @@
       "supports_background": true
     },
     "claude-review": {
+      "protocol": "cli",
       "command": "claude",
       "args": [],
+      "model_profile": "review",
+      "tool_profile": "claude-review",
+      "memory_scopes": [
+        "spec"
+      ],
       "resume": {
         "mode": "args",
         "args": [
           "--continue"
         ]
+      },
+      "supports_write": true,
+      "supports_background": true
+    },
+    "acp-example": {
+      "protocol": "acp",
+      "command": "acp-agent",
+      "args": [],
+      "transport": {
+        "type": "stdio",
+        "command": "acp-agent",
+        "args": [],
+        "prompt_mode": "argv"
       },
       "supports_write": true,
       "supports_background": true

@@ -37,6 +37,7 @@ Recommendation: start with OpenClaw + spec-driven artifacts + Taskmaster-style t
 ```text
 config/
   agents.example.json
+  system.example.json
 docs/
   auto-claude-lessons.md
   architecture.md
@@ -85,7 +86,19 @@ cp config/agents.example.json .autoflow/agents.json
 python3 scripts/autoflow.py init
 ```
 
-3. Create a spec and seed tasks.
+3. Initialize the local system config for memory, model profiles, tool profiles, and ACP registry entries.
+
+```bash
+python3 scripts/autoflow.py init-system-config
+```
+
+4. Discover local/ACP agents and materialize them into `.autoflow/agents.json` when needed.
+
+```bash
+python3 scripts/autoflow.py sync-agents
+```
+
+5. Create a spec and seed tasks.
 
 ```bash
 python3 scripts/autoflow.py new-spec \
@@ -94,7 +107,7 @@ python3 scripts/autoflow.py new-spec \
   --summary "Build a multi-agent autonomous development harness with skills, task graph, review gates, and background execution."
 ```
 
-4. Generate a run prompt for a role.
+6. Generate a run prompt for a role.
 
 ```bash
 python3 scripts/autoflow.py new-run \
@@ -104,19 +117,19 @@ python3 scripts/autoflow.py new-run \
   --task T1
 ```
 
-5. Launch the run in `tmux`.
+7. Launch the run in `tmux`.
 
 ```bash
 scripts/tmux-start.sh .autoflow/runs/<run-id>/run.sh
 ```
 
-6. Inspect the workflow state.
+8. Inspect the workflow state.
 
 ```bash
 python3 scripts/autoflow.py workflow-state --spec openclaw-autonomy
 ```
 
-7. Close a finished run and advance task state.
+9. Close a finished run and advance task state.
 
 ```bash
 python3 scripts/autoflow.py complete-run \
@@ -125,7 +138,7 @@ python3 scripts/autoflow.py complete-run \
   --summary "Implementation finished and is ready for review."
 ```
 
-8. Run one scheduled iteration tick.
+10. Run one scheduled iteration tick.
 
 ```bash
 python3 scripts/continuous_iteration.py \
@@ -134,6 +147,13 @@ python3 scripts/continuous_iteration.py \
   --commit-if-dirty \
   --dispatch \
   --push
+```
+
+11. Inspect structured reviewer findings or stored memory.
+
+```bash
+python3 scripts/autoflow.py show-fix-request --spec openclaw-autonomy
+python3 scripts/autoflow.py show-memory --scope spec --spec openclaw-autonomy
 ```
 
 ## What is implemented now
@@ -153,7 +173,42 @@ This repository now provides a minimal autonomous workflow harness:
 - hash-based review approval and invalidation
 - recovery-aware prompts and per-spec event logs
 - review-gated implementation dispatch after planning changes
-- reviewer-generated `QA_FIX_REQUEST.md` artifacts and resumable retry runs
+- reviewer-generated `QA_FIX_REQUEST.md` and `QA_FIX_REQUEST.json` artifacts with structured findings
+- structured findings in prompt context with `file`, `line`, `severity`, `category`, `suggested_fix`, and `source_run`
+- system-level memory configuration with scoped memory capture and prompt injection
+- central model/tool profiles resolved from `config/system.example.json`
+- CLI and ACP agent discovery plus `sync-agents` to materialize runnable local catalogs
+- dynamic fallback agent selection during scheduled dispatch
 - codex/claude native continuation wired through the agent runner
 
 It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.
+
+## System configuration
+
+Autoflow now has two configuration layers:
+
+- `.autoflow/agents.json`: runnable agent catalog, role bindings, protocol details, and backend-specific resume behavior
+- `.autoflow/system.json`: local memory settings, model profiles, tool profiles, and ACP registry entries
+
+Use `model_profile` and `tool_profile` in agent entries when you want a shared system-level configuration, and override with concrete `model` or `tools` on a per-agent basis when needed.
+
+## Structured QA findings
+
+Reviewer failures now produce both markdown and JSON artifacts:
+
+- `.autoflow/specs/<slug>/QA_FIX_REQUEST.md`
+- `.autoflow/specs/<slug>/QA_FIX_REQUEST.json`
+
+Each finding is machine-readable and can carry:
+
+- `file`
+- `line`
+- `end_line`
+- `severity`
+- `category`
+- `title`
+- `body`
+- `suggested_fix`
+- `source_run`
+
+Those findings are injected back into the next implementation prompt so retries can be task-driven instead of summary-driven.

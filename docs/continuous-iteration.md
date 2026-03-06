@@ -36,12 +36,15 @@ Behavior:
 2. If the worktree is dirty, commit all changes
 3. Push the current branch to GitHub if enabled
 4. Inspect `workflow-state`
-5. Ensure the spec has an isolated worktree before dispatch
-6. If no active run exists, dispatch the next ready task in `tmux`
+5. Sync discovered CLI/ACP agents into `.autoflow/agents.json`
+6. Resolve the best backend agent for the next role from explicit config plus fallback preferences
+7. Ensure the spec has an isolated worktree before dispatch
+8. If no active run exists, dispatch the next ready task in `tmux`
 
 If `review_status.valid` is false for an implementation or maintenance task, the loop must stop and wait for re-approval.
 If a task has already failed the configured number of automatic retries, the loop must stop and report the retry-limit blocker.
 If a retry run is created, the agent runner will prefer the backend's native continuation mode when configured.
+If a configured role agent is unavailable, the loop can fall back to a discovered `codex`, `claude`, or ACP-backed agent according to `agent_selection.role_preferences`.
 
 ### `scripts/git-auto-commit.sh`
 

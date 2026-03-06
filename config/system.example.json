@@ -1,0 +1,44 @@
+{
+  "memory": {
+    "enabled": true,
+    "auto_capture_run_results": true,
+    "default_scopes": [
+      "spec"
+    ],
+    "global_file": ".autoflow/memory/global.md",
+    "spec_dir": ".autoflow/memory/specs"
+  },
+  "models": {
+    "profiles": {
+      "spec": "gpt-5",
+      "implementation": "gpt-5-codex",
+      "review": "claude-sonnet-4-6"
+    }
+  },
+  "tools": {
+    "profiles": {
+      "codex-default": [],
+      "claude-review": [
+        "Read",
+        "Bash(git:*)"
+      ]
+    }
+  },
+  "registry": {
+    "acp_agents": [
+      {
+        "name": "example-acp-agent",
+        "transport": {
+          "type": "stdio",
+          "command": "acp-agent",
+          "args": [],
+          "prompt_mode": "argv"
+        },
+        "capabilities": {
+          "resume": false,
+          "task_driven": true
+        }
+      }
+    ]
+  }
+}

@@ -6,6 +6,21 @@
     "reviewer": "claude-review",
     "maintainer": "codex-impl"
   },
+  "agent_selection": {
+    "sync_before_dispatch": true,
+    "overwrite_discovered": false,
+    "role_preferences": {
+      "reviewer": [
+        "claude-review",
+        "claude"
+      ],
+      "implementation-runner": [
+        "codex-impl",
+        "codex",
+        "acp-example"
+      ]
+    }
+  },
   "verify_commands": [
     "python3 scripts/autoflow.py workflow-state --spec {spec}"
   ],

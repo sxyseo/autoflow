@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
+STATE_DIR = ROOT / ".autoflow"
+AGENTS_FILE = STATE_DIR / "agents.json"
 
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -17,6 +19,12 @@ def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
 
 def load_config(path: str) -> dict:
     return json.loads((ROOT / path).read_text(encoding="utf-8"))
+
+
+def load_json(path: Path, default: dict | None = None) -> dict:
+    if not path.exists():
+        return default or {}
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def git_dirty() -> bool:
@@ -90,6 +98,48 @@ def task_history(spec: str, task: str) -> list[dict]:
     return json.loads(result.stdout)
 
 
+def sync_agents(overwrite: bool = False) -> dict:
+    cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
+    if overwrite:
+        cmd.append("--overwrite")
+    result = run(cmd)
+    return json.loads(result.stdout)
+
+
+def load_agent_catalog() -> dict[str, dict]:
+    return load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
+
+
+def default_role_preferences(role: str) -> list[str]:
+    preferences = {
+        "spec-writer": ["codex-spec", "codex"],
+        "task-graph-manager": ["codex-spec", "codex"],
+        "implementation-runner": ["codex-impl", "codex", "acp-example"],
+        "reviewer": ["claude-review", "claude", "codex"],
+        "maintainer": ["codex-impl", "codex", "acp-example"],
+    }
+    return preferences.get(role, [])
+
+
+def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> tuple[str | None, str]:
+    selection_cfg = config.get("agent_selection", {})
+    candidates = []
+    explicit = config.get("role_agents", {}).get(role)
+    if explicit:
+        candidates.append(explicit)
+    candidates.extend(selection_cfg.get("role_preferences", {}).get(role, []))
+    candidates.extend(default_role_preferences(role))
+    seen = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate in catalog:
+            source = "configured" if candidate == explicit else "fallback"
+            return candidate, source
+    return None, "missing"
+
+
 def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict | None:
     if state.get("active_runs"):
         return {"blocked": True, "reason": "active_run_exists"}
@@ -126,14 +176,25 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
     if gate:
         return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
     role = next_action["owner_role"]
-    agent = config.get("role_agents", {}).get(role)
+    selection_cfg = config.get("agent_selection", {})
+    sync_result = None
+    if selection_cfg.get("sync_before_dispatch", True):
+        sync_result = sync_agents(overwrite=selection_cfg.get("overwrite_discovered", False))
+    catalog = load_agent_catalog()
+    agent, source = select_agent_for_role(config, role, catalog)
     if not agent:
-        return {"dispatched": False, "reason": f"no_agent_for_role:{role}", "state": state}
+        return {
+            "dispatched": False,
+            "reason": f"no_agent_for_role:{role}",
+            "state": state,
+            "agent_sync": sync_result,
+        }
     payload = {
         "spec": spec,
         "task": next_action["id"],
         "role": role,
         "agent": agent,
+        "agent_selection": source,
     }
     if dispatch:
         proc = run(
@@ -141,7 +202,7 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
             check=True,
         )
         payload["tmux_session"] = proc.stdout.strip()
-    return {"dispatched": dispatch, "payload": payload, "state": state}
+    return {"dispatched": dispatch, "payload": payload, "state": state, "agent_sync": sync_result}
 
 
 def main() -> None:

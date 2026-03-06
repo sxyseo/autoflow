@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,11 +21,16 @@ TASKS_DIR = STATE_DIR / "tasks"
 RUNS_DIR = STATE_DIR / "runs"
 LOGS_DIR = STATE_DIR / "logs"
 WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
+MEMORY_DIR = STATE_DIR / "memory"
+DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
+SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
+SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
 AGENTS_FILE = STATE_DIR / "agents.json"
 BMAD_DIR = ROOT / "templates" / "bmad"
 REVIEW_STATE_FILE = "review_state.json"
 EVENTS_FILE = "events.jsonl"
 QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
+QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -67,7 +73,7 @@ def read_json(path: Path) -> Any:
 
 
 def ensure_state() -> None:
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR]:
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -91,6 +97,58 @@ class AgentSpec:
     command: str
     args: list[str]
     resume: dict[str, Any] | None = None
+    protocol: str = "cli"
+    model: str = ""
+    model_profile: str = ""
+    tools: list[str] | None = None
+    tool_profile: str = ""
+    memory_scopes: list[str] | None = None
+    transport: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "command": self.command,
+            "args": self.args,
+            "resume": self.resume or {},
+            "protocol": self.protocol,
+            "model": self.model,
+            "model_profile": self.model_profile,
+            "tools": self.tools or [],
+            "tool_profile": self.tool_profile,
+            "memory_scopes": self.memory_scopes or [],
+            "transport": self.transport or {},
+        }
+
+
+def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def resolve_root_path(raw: str | Path) -> Path:
+    path = Path(raw)
+    return path if path.is_absolute() else ROOT / path
+
+
+def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
+    resolved = dict(spec)
+    model_profiles = system_config.get("models", {}).get("profiles", {})
+    tool_profiles = system_config.get("tools", {}).get("profiles", {})
+    if not resolved.get("model") and resolved.get("model_profile"):
+        resolved["model"] = model_profiles.get(resolved["model_profile"], "")
+    if not resolved.get("tools") and resolved.get("tool_profile"):
+        resolved["tools"] = tool_profiles.get(resolved["tool_profile"], [])
+    if not resolved.get("memory_scopes"):
+        resolved["memory_scopes"] = list(
+            system_config.get("memory", {}).get("default_scopes", ["spec"])
+        )
+    return resolved
 
 
 def load_agents() -> dict[str, AgentSpec]:
@@ -99,13 +157,22 @@ def load_agents() -> dict[str, AgentSpec]:
             f"missing {AGENTS_FILE}. copy config/agents.example.json to .autoflow/agents.json first"
         )
     data = read_json(AGENTS_FILE)
+    system_config = load_system_config()
     agents = {}
     for name, spec in data.get("agents", {}).items():
+        resolved = resolve_agent_profiles(spec, system_config)
         agents[name] = AgentSpec(
             name=name,
-            command=spec["command"],
-            args=list(spec.get("args", [])),
-            resume=spec.get("resume"),
+            command=resolved["command"],
+            args=list(resolved.get("args", [])),
+            resume=resolved.get("resume"),
+            protocol=resolved.get("protocol", "cli"),
+            model=resolved.get("model", ""),
+            model_profile=resolved.get("model_profile", ""),
+            tools=list(resolved.get("tools", [])) if resolved.get("tools") else None,
+            tool_profile=resolved.get("tool_profile", ""),
+            memory_scopes=list(resolved.get("memory_scopes", [])) if resolved.get("memory_scopes") else None,
+            transport=resolved.get("transport"),
         )
     return agents
 
@@ -137,6 +204,7 @@ def spec_files(slug: str) -> dict[str, Path]:
         "review_state": directory / REVIEW_STATE_FILE,
         "events": directory / EVENTS_FILE,
         "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
+        "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
     }
 
 
@@ -160,6 +228,88 @@ def read_json_or_default(path: Path, default: Any) -> Any:
         return read_json(path)
     except (OSError, json.JSONDecodeError):
         return default
+
+
+def system_config_default() -> dict[str, Any]:
+    if SYSTEM_CONFIG_TEMPLATE.exists():
+        return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+    return {
+        "memory": {
+            "enabled": True,
+            "auto_capture_run_results": True,
+            "global_file": str(MEMORY_DIR / "global.md"),
+            "spec_dir": str(MEMORY_DIR / "specs"),
+        },
+        "models": {
+            "profiles": {
+                "spec": "gpt-5",
+                "implementation": "gpt-5-codex",
+                "review": "claude-sonnet-4-6",
+            }
+        },
+        "tools": {
+            "profiles": {
+                "codex-default": [],
+                "claude-review": ["Read", "Bash(git:*)"],
+            }
+        },
+        "registry": {
+            "acp_agents": []
+        },
+    }
+
+
+def load_system_config() -> dict[str, Any]:
+    config = system_config_default()
+    if SYSTEM_CONFIG_FILE.exists():
+        local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
+        config = deep_merge(config, local)
+    return deep_merge(
+        {
+            "memory": {"default_scopes": ["spec"]},
+            "models": {"profiles": {}},
+            "tools": {"profiles": {}},
+            "registry": {"acp_agents": []},
+        },
+        config,
+    )
+
+
+def memory_file(scope: str, spec_slug: str | None = None) -> Path:
+    memory_cfg = load_system_config().get("memory", {})
+    if scope == "global":
+        return resolve_root_path(memory_cfg.get("global_file", MEMORY_DIR / "global.md"))
+    if spec_slug:
+        spec_dir = resolve_root_path(memory_cfg.get("spec_dir", MEMORY_DIR / "specs"))
+        return spec_dir / f"{spec_slug}.md"
+    raise SystemExit("spec scope requires a spec slug")
+
+
+def append_memory(scope: str, content: str, spec_slug: str | None = None, title: str = "") -> Path:
+    path = memory_file(scope, spec_slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    heading = title or f"Memory @ {now_stamp()}"
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(f"## {heading}\n\n{content.strip()}\n\n")
+    return path
+
+
+def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
+    config = load_system_config()
+    memory_cfg = config.get("memory", {})
+    if not memory_cfg.get("enabled", True):
+        return "Memory is disabled."
+    allowed_scopes = scopes or list(memory_cfg.get("default_scopes", ["spec"]))
+    parts = []
+    global_path = memory_file("global")
+    spec_path = memory_file("spec", spec_slug)
+    if "global" in allowed_scopes and global_path.exists():
+        parts.append("### Global memory\n")
+        parts.append(global_path.read_text(encoding="utf-8").strip())
+    if "spec" in allowed_scopes and spec_path.exists():
+        parts.append("### Spec memory\n")
+        parts.append(spec_path.read_text(encoding="utf-8").strip())
+    return "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
 
 
 def load_review_state(spec_slug: str) -> dict[str, Any]:
@@ -212,36 +362,152 @@ def load_fix_request(spec_slug: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def write_fix_request(spec_slug: str, task_id: str, reviewer_summary: str, result: str) -> Path:
-    path = spec_files(spec_slug)["qa_fix_request"]
-    content = "\n".join(
+def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
+    return read_json_or_default(
+        spec_files(spec_slug)["qa_fix_request_json"],
+        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+    )
+
+
+def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if findings:
+        normalized = []
+        for index, finding in enumerate(findings, start=1):
+            start_line = finding.get("line", finding.get("start_line"))
+            end_line = finding.get("end_line")
+            normalized.append(
+                {
+                    "id": finding.get("id") or f"F{index}",
+                    "title": finding.get("title") or "Follow-up required",
+                    "body": finding.get("body") or summary,
+                    "file": finding.get("file", ""),
+                    "line": int(start_line) if start_line not in (None, "") else None,
+                    "end_line": int(end_line) if end_line not in (None, "") else None,
+                    "severity": finding.get("severity", "medium"),
+                    "category": finding.get("category", "general"),
+                    "suggested_fix": finding.get("suggested_fix", ""),
+                    "source_run": finding.get("source_run", ""),
+                }
+            )
+        return normalized
+    return [
+        {
+            "id": "F1",
+            "title": "Follow-up required",
+            "body": summary,
+            "file": "",
+            "line": None,
+            "end_line": None,
+            "severity": "medium",
+            "category": "general",
+            "suggested_fix": "",
+            "source_run": "",
+        }
+    ]
+
+
+def format_fix_request_markdown(task_id: str, summary: str, result: str, findings: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# QA Fix Request: {task_id}",
+        "",
+        f"- created_at: {now_stamp()}",
+        f"- result: {result}",
+        f"- finding_count: {len(findings)}",
+        "",
+        "## Summary",
+        "",
+        summary,
+        "",
+        "## Findings",
+        "",
+        "| ID | Severity | Category | File | Line | Title |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for finding in findings:
+        line_display = ""
+        if finding.get("line") is not None:
+            line_display = str(finding["line"])
+            if finding.get("end_line") is not None and finding["end_line"] != finding["line"]:
+                line_display = f"{line_display}-{finding['end_line']}"
+        lines.append(
+            f"| {finding['id']} | {finding['severity']} | {finding['category']} | "
+            f"{finding.get('file', '')} | {line_display} | {finding['title']} |"
+        )
+    lines.extend(["", "## Details", ""])
+    for finding in findings:
+        lines.extend(
+            [
+                f"### {finding['id']}: {finding['title']}",
+                "",
+                f"- severity: {finding['severity']}",
+                f"- category: {finding['category']}",
+                f"- file: {finding.get('file', '')}",
+                f"- line: {finding.get('line', '')}",
+                f"- end_line: {finding.get('end_line', '')}",
+                f"- suggested_fix: {finding.get('suggested_fix', '')}",
+                f"- source_run: {finding.get('source_run', '')}",
+                "",
+                finding["body"],
+                "",
+            ]
+        )
+    lines.extend(
         [
-            f"# QA Fix Request: {task_id}",
-            "",
-            f"- created_at: {now_stamp()}",
-            f"- result: {result}",
-            "",
-            "## Required follow-up",
-            "",
-            reviewer_summary,
-            "",
             "## Retry policy",
             "",
             "- Read this file before retrying the implementation task.",
+            "- Address findings in severity order where possible.",
             "- Change approach instead of repeating the same edits.",
             "- Leave a handoff note explaining what changed in the retry.",
             "",
         ]
     )
+    return "\n".join(lines)
+
+
+def write_fix_request(
+    spec_slug: str,
+    task_id: str,
+    reviewer_summary: str,
+    result: str,
+    findings: list[dict[str, Any]] | None = None,
+) -> Path:
+    path = spec_files(spec_slug)["qa_fix_request"]
+    json_path = spec_files(spec_slug)["qa_fix_request_json"]
+    normalized = normalize_findings(reviewer_summary, findings)
+    payload = {
+        "task": task_id,
+        "result": result,
+        "summary": reviewer_summary,
+        "created_at": now_stamp(),
+        "finding_count": len(normalized),
+        "findings": normalized,
+    }
+    content = format_fix_request_markdown(task_id, reviewer_summary, result, normalized)
+    content = "\n".join(
+        [content]
+    )
     path.write_text(content, encoding="utf-8")
-    record_event(spec_slug, "qa.fix_request_created", {"task": task_id, "result": result})
+    write_json(json_path, payload)
+    record_event(
+        spec_slug,
+        "qa.fix_request_created",
+        {"task": task_id, "result": result, "finding_count": len(normalized)},
+    )
     return path
 
 
 def clear_fix_request(spec_slug: str) -> None:
-    path = spec_files(spec_slug)["qa_fix_request"]
-    if path.exists():
-        path.unlink()
+    paths = [
+        spec_files(spec_slug)["qa_fix_request"],
+        spec_files(spec_slug)["qa_fix_request_json"],
+    ]
+    removed = False
+    for path in paths:
+        if path.exists():
+            path.unlink()
+            removed = True
+    if removed:
         record_event(spec_slug, "qa.fix_request_cleared", {})
 
 
@@ -338,6 +604,103 @@ def native_resume_preview(agent: AgentSpec) -> list[str]:
     if mode == "args":
         return [agent.command, *agent.args, *resume_args, "<prompt>"]
     return []
+
+
+def discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
+    executable = shutil.which(command)
+    if not executable:
+        return None
+    help_result = run_cmd([command, "--help"], check=False)
+    help_text = (help_result.stdout or "") + (help_result.stderr or "")
+    capabilities = {
+        "resume": "resume" in help_text.lower() or "--continue" in help_text,
+        "model_flag": "--model" in help_text or " -m," in help_text,
+    }
+    protocol = "cli"
+    return {
+        "name": name,
+        "protocol": protocol,
+        "command": command,
+        "path": executable,
+        "capabilities": capabilities,
+    }
+
+
+def discover_agents_registry() -> dict[str, Any]:
+    config = load_system_config()
+    discovered = []
+    for name, command in [("codex", "codex"), ("claude", "claude")]:
+        item = discover_cli_agent(name, command)
+        if item:
+            discovered.append(item)
+    for agent in config.get("registry", {}).get("acp_agents", []):
+        discovered.append(
+            {
+                "name": agent.get("name", "acp-agent"),
+                "protocol": "acp",
+                "transport": agent.get("transport", {}),
+                "capabilities": agent.get("capabilities", {}),
+            }
+        )
+    payload = {
+        "discovered_at": now_stamp(),
+        "agents": discovered,
+        "system_config": {
+            "memory": config.get("memory", {}),
+            "models": config.get("models", {}),
+            "tools": config.get("tools", {}),
+        },
+    }
+    write_json(DISCOVERY_FILE, payload)
+    return payload
+
+
+def discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
+    if agent.get("protocol") == "acp":
+        return {
+            "protocol": "acp",
+            "command": agent.get("transport", {}).get("command", agent.get("name", "acp-agent")),
+            "args": [],
+            "transport": agent.get("transport", {}),
+            "memory_scopes": ["spec"],
+        }
+    resume = None
+    if agent.get("name") == "codex" and agent.get("capabilities", {}).get("resume"):
+        resume = {"mode": "subcommand", "subcommand": "resume", "args": ["--last"]}
+    elif agent.get("name") == "claude" and agent.get("capabilities", {}).get("resume"):
+        resume = {"mode": "args", "args": ["--continue"]}
+    return {
+        "protocol": "cli",
+        "command": agent.get("command", agent.get("name", "")),
+        "args": [],
+        "resume": resume,
+        "memory_scopes": ["spec"],
+    }
+
+
+def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
+    ensure_state()
+    discovered = discover_agents_registry()
+    existing = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
+    if AGENTS_FILE.exists():
+        existing = read_json_or_default(AGENTS_FILE, existing)
+        existing.setdefault("defaults", {"workspace": ".", "shell": "bash"})
+        existing.setdefault("agents", {})
+    merged = dict(existing["agents"])
+    added = []
+    for agent in discovered.get("agents", []):
+        name = agent["name"]
+        if name in merged and not overwrite:
+            continue
+        merged[name] = discovered_agent_to_config(agent)
+        added.append(name)
+    payload = {"defaults": existing["defaults"], "agents": merged}
+    write_json(AGENTS_FILE, payload)
+    return {
+        "agents_file": str(AGENTS_FILE),
+        "added": added,
+        "total_agents": len(merged),
+    }
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
@@ -444,6 +807,18 @@ def resume_context(run_id: str | None) -> str:
             summary_text or "No previous summary recorded.",
         ]
     )
+
+
+def parse_findings(args: argparse.Namespace) -> list[dict[str, Any]] | None:
+    findings_json = getattr(args, "findings_json", "")
+    findings_file = getattr(args, "findings_file", "")
+    if findings_json:
+        loaded = json.loads(findings_json)
+        return loaded if isinstance(loaded, list) else loaded.get("findings", [])
+    if findings_file:
+        loaded = read_json(Path(findings_file))
+        return loaded if isinstance(loaded, list) else loaded.get("findings", [])
+    return None
 
 
 def default_tasks() -> list[dict[str, Any]]:
@@ -701,7 +1076,13 @@ def show_review_status(args: argparse.Namespace) -> None:
     print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
 
 
-def build_prompt(spec_slug: str, role: str, task_id: str | None, resume_from: str | None = None) -> str:
+def build_prompt(
+    spec_slug: str,
+    role: str,
+    task_id: str | None,
+    agent: AgentSpec,
+    resume_from: str | None = None,
+) -> str:
     files = spec_files(spec_slug)
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
@@ -709,6 +1090,8 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None, resume_from: st
     selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
     review_summary = review_status_summary(spec_slug)
     fix_request = load_fix_request(spec_slug)
+    fix_request_data = load_fix_request_data(spec_slug)
+    memory_context = load_memory_context(spec_slug, agent.memory_scopes)
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
@@ -724,10 +1107,31 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None, resume_from: st
             "Follow the selected task acceptance criteria.",
             "Keep changes scoped and leave a concise handoff summary.",
             "",
+            "## Backend configuration",
+            json.dumps(
+                {
+                    "agent": agent.name,
+                    "protocol": agent.protocol,
+                    "command": agent.command,
+                    "model": agent.model,
+                    "model_profile": agent.model_profile,
+                    "tools": agent.tools or [],
+                    "tool_profile": agent.tool_profile,
+                    "memory_scopes": agent.memory_scopes or [],
+                    "native_resume_supported": bool(agent.resume),
+                    "transport": agent.transport or {},
+                },
+                indent=2,
+                ensure_ascii=True,
+            ),
+            "",
             "## BMAD operating frame",
             load_bmad_template(role),
             "",
             worktree_context(spec_slug),
+            "",
+            "## Memory context",
+            memory_context,
             "",
             "## Review state",
             json.dumps(review_summary, indent=2, ensure_ascii=True),
@@ -738,7 +1142,10 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None, resume_from: st
             "## Resume context",
             resume_context(resume_from),
             "",
-            "## QA fix request",
+            "## QA fix request (structured)",
+            json.dumps(fix_request_data, indent=2, ensure_ascii=True),
+            "",
+            "## QA fix request (markdown)",
             fix_request or "No QA fix request present.",
             "",
             "## Spec",
@@ -776,7 +1183,10 @@ def create_run_record(
         suffix += 1
     run_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = run_dir / "prompt.md"
-    prompt_path.write_text(build_prompt(spec_slug, role, task_id, resume_from=resume_from), encoding="utf-8")
+    prompt_path.write_text(
+        build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
+        encoding="utf-8",
+    )
     branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
     target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
@@ -813,6 +1223,7 @@ def create_run_record(
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
         "native_resume_supported": bool(agent.resume),
         "native_resume_command_preview": native_resume_preview(agent),
+        "agent_config": agent.to_dict(),
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
@@ -898,9 +1309,11 @@ def complete_run(args: argparse.Namespace) -> None:
     if not metadata_path.exists():
         raise SystemExit(f"unknown run: {args.run}")
     metadata = read_json(metadata_path)
+    findings = parse_findings(args)
     metadata["status"] = "completed"
     metadata["result"] = args.result
     metadata["completed_at"] = now_stamp()
+    metadata["findings_count"] = len(findings or [])
     write_json(metadata_path, metadata)
     summary = args.summary or f"Run {args.run} completed with result {args.result}."
     (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
@@ -925,9 +1338,18 @@ def complete_run(args: argparse.Namespace) -> None:
     next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
     fix_request_path = ""
     if metadata["role"] == "reviewer" and args.result in {"needs_changes", "blocked", "failed"}:
-        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result))
+        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result, findings=findings))
     if metadata["role"] == "implementation-runner" and args.result == "success":
         clear_fix_request(metadata["spec"])
+    memory_cfg = load_system_config().get("memory", {})
+    if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
+        for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
+            append_memory(
+                scope,
+                f"role={metadata['role']}\nresult={args.result}\nsummary={summary}",
+                spec_slug=metadata["spec"],
+                title=f"{metadata['task']} {metadata['role']} {args.result}",
+            )
     handoff_path = write_handoff(
         metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
     )
@@ -962,6 +1384,48 @@ def show_task_history(args: argparse.Namespace) -> None:
 
 def show_events(args: argparse.Namespace) -> None:
     print(json.dumps(load_events(args.spec, args.limit), indent=2, ensure_ascii=True))
+
+
+def show_fix_request(args: argparse.Namespace) -> None:
+    print(json.dumps(load_fix_request_data(args.spec), indent=2, ensure_ascii=True))
+
+
+def create_fix_request_cmd(args: argparse.Namespace) -> None:
+    findings = parse_findings(args)
+    path = write_fix_request(args.spec, args.task, args.summary, args.result, findings=findings)
+    print(str(path))
+
+
+def show_system_config(_: argparse.Namespace) -> None:
+    print(json.dumps(load_system_config(), indent=2, ensure_ascii=True))
+
+
+def init_system_config(_: argparse.Namespace) -> None:
+    ensure_state()
+    if not SYSTEM_CONFIG_FILE.exists():
+        write_json(SYSTEM_CONFIG_FILE, system_config_default())
+    print(str(SYSTEM_CONFIG_FILE))
+
+
+def discover_agents_cmd(_: argparse.Namespace) -> None:
+    print(json.dumps(discover_agents_registry(), indent=2, ensure_ascii=True))
+
+
+def sync_agents_cmd(args: argparse.Namespace) -> None:
+    print(json.dumps(sync_discovered_agents(overwrite=args.overwrite), indent=2, ensure_ascii=True))
+
+
+def write_memory_cmd(args: argparse.Namespace) -> None:
+    path = append_memory(args.scope, args.content, spec_slug=args.spec, title=args.title)
+    print(str(path))
+
+
+def show_memory_cmd(args: argparse.Namespace) -> None:
+    path = memory_file(args.scope, args.spec)
+    if not path.exists():
+        print("")
+        return
+    print(path.read_text(encoding="utf-8"))
 
 
 def create_worktree(args: argparse.Namespace) -> None:
@@ -1061,6 +1525,7 @@ def workflow_state(args: argparse.Namespace) -> None:
         "review_status": review_summary,
         "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
         "fix_request_present": bool(load_fix_request(args.spec)),
+        "fix_request": load_fix_request_data(args.spec),
         "active_runs": active_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
@@ -1116,6 +1581,19 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_cmd.add_argument("--result", required=True)
     handoff_cmd.set_defaults(func=create_handoff)
 
+    fix_request_cmd = sub.add_parser("create-fix-request", help="write a structured QA fix request artifact")
+    fix_request_cmd.add_argument("--spec", required=True)
+    fix_request_cmd.add_argument("--task", required=True)
+    fix_request_cmd.add_argument("--summary", required=True)
+    fix_request_cmd.add_argument("--result", required=True)
+    fix_request_cmd.add_argument("--findings-json", default="")
+    fix_request_cmd.add_argument("--findings-file", default="")
+    fix_request_cmd.set_defaults(func=create_fix_request_cmd)
+
+    show_fix_cmd = sub.add_parser("show-fix-request", help="show the structured QA fix request data")
+    show_fix_cmd.add_argument("--spec", required=True)
+    show_fix_cmd.set_defaults(func=show_fix_request)
+
     review_status_cmd = sub.add_parser("review-status", help="show hash-based review approval status")
     review_status_cmd.add_argument("--spec", required=True)
     review_status_cmd.set_defaults(func=show_review_status)
@@ -1143,6 +1621,31 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
 
+    init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
+    init_system_cmd.set_defaults(func=init_system_config)
+
+    system_cmd = sub.add_parser("show-system-config", help="show system memory/model/tool config")
+    system_cmd.set_defaults(func=show_system_config)
+
+    discover_cmd = sub.add_parser("discover-agents", help="probe local agents and merge ACP registry entries")
+    discover_cmd.set_defaults(func=discover_agents_cmd)
+
+    sync_cmd = sub.add_parser("sync-agents", help="merge discovered CLI/ACP agents into .autoflow/agents.json")
+    sync_cmd.add_argument("--overwrite", action="store_true")
+    sync_cmd.set_defaults(func=sync_agents_cmd)
+
+    write_memory = sub.add_parser("write-memory", help="append to global or spec memory")
+    write_memory.add_argument("--scope", choices=["global", "spec"], required=True)
+    write_memory.add_argument("--spec")
+    write_memory.add_argument("--title", default="")
+    write_memory.add_argument("--content", required=True)
+    write_memory.set_defaults(func=write_memory_cmd)
+
+    show_memory = sub.add_parser("show-memory", help="show stored memory context")
+    show_memory.add_argument("--scope", choices=["global", "spec"], required=True)
+    show_memory.add_argument("--spec")
+    show_memory.set_defaults(func=show_memory_cmd)
+
     run_cmd_parser = sub.add_parser("new-run", help="create a runnable agent job")
     run_cmd_parser.add_argument("--spec", required=True)
     run_cmd_parser.add_argument("--role", required=True)
@@ -1160,6 +1663,8 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--run", required=True)
     complete_cmd.add_argument("--result", required=True)
     complete_cmd.add_argument("--summary", default="")
+    complete_cmd.add_argument("--findings-json", default="")
+    complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
 
     history_cmd = sub.add_parser("task-history", help="show run history for a task")
