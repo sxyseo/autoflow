@@ -17,15 +17,16 @@ from autoflow.agents.base import (
     ResumeMode,
 )
 from autoflow.agents.claude_code import ClaudeCodeAdapter
+from autoflow.agents.codex import CodexAdapter
 
 # Agent adapters will be imported here as they are implemented
-# from autoflow.agents.codex import CodexAdapter
 # from autoflow.agents.openclaw import OpenClawAdapter
 
 __all__ = [
     "AgentAdapter",
     "AgentConfig",
     "ClaudeCodeAdapter",
+    "CodexAdapter",
     "ExecutionResult",
     "ExecutionStatus",
     "ResumeMode",
