@@ -22,6 +22,7 @@ RUNS_DIR = STATE_DIR / "runs"
 LOGS_DIR = STATE_DIR / "logs"
 WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
 MEMORY_DIR = STATE_DIR / "memory"
+STRATEGY_MEMORY_DIR = MEMORY_DIR / "strategy"
 DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
 SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
 SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
@@ -73,7 +74,7 @@ def read_json(path: Path) -> Any:
 
 
 def ensure_state() -> None:
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR]:
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -310,6 +311,237 @@ def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
         parts.append("### Spec memory\n")
         parts.append(spec_path.read_text(encoding="utf-8").strip())
     return "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
+
+
+def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
+    if scope == "global":
+        return STRATEGY_MEMORY_DIR / "global.json"
+    if spec_slug:
+        return STRATEGY_MEMORY_DIR / "specs" / f"{spec_slug}.json"
+    raise SystemExit("spec scope requires a spec slug")
+
+
+def strategy_memory_default() -> dict[str, Any]:
+    return {
+        "updated_at": "",
+        "reflections": [],
+        "planner_notes": [],
+        "stats": {
+            "by_role": {},
+            "by_result": {},
+            "finding_categories": {},
+            "severity": {},
+            "files": {},
+        },
+        "playbook": [],
+    }
+
+
+def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
+    return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
+
+
+def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
+    payload["updated_at"] = now_stamp()
+    path = strategy_memory_file(scope, spec_slug)
+    write_json(path, payload)
+    return path
+
+
+def increment_counter(counters: dict[str, int], key: str) -> None:
+    if not key:
+        return
+    counters[key] = counters.get(key, 0) + 1
+
+
+def derive_strategy_actions(
+    role: str,
+    result: str,
+    findings: list[dict[str, Any]],
+    stats: dict[str, Any],
+) -> list[str]:
+    actions: list[str] = []
+    categories = {finding.get("category", "") for finding in findings if finding.get("category")}
+    severities = {finding.get("severity", "") for finding in findings if finding.get("severity")}
+    files = [finding.get("file", "") for finding in findings if finding.get("file")]
+
+    if any(level in severities for level in {"critical", "high"}):
+        actions.append("Address the highest-severity findings before broad refactors or new features.")
+    if "tests" in categories or any("test" in path.lower() for path in files):
+        actions.append("Add or update a regression test before sending the task back to review.")
+    if "workflow" in categories or "infra" in categories:
+        actions.append("Re-run the relevant control-plane command locally before retrying the task.")
+    if result in {"needs_changes", "blocked", "failed"}:
+        actions.append("Start the retry from the structured fix request instead of reusing the prior edit plan.")
+    if role in {"implementation-runner", "maintainer"} and result == "success":
+        actions.append("Keep the validated edit path small and capture the exact verification steps in the handoff.")
+
+    recurring_categories = [
+        category
+        for category, count in stats.get("finding_categories", {}).items()
+        if count >= 2
+    ]
+    if recurring_categories:
+        actions.append(
+            "Review recurring blocker categories first: " + ", ".join(sorted(recurring_categories))
+        )
+    return actions
+
+
+def rebuild_playbook(memory: dict[str, Any]) -> list[dict[str, Any]]:
+    playbook: list[dict[str, Any]] = []
+    for category, count in sorted(
+        memory.get("stats", {}).get("finding_categories", {}).items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
+        rule = f"Before retrying work that touches {category}, review prior findings and front-load verification."
+        if category == "tests":
+            rule = "If tests-related findings recur, write the regression test before or alongside the fix."
+        elif category == "workflow":
+            rule = "If workflow findings recur, validate control-plane commands and state transitions before code edits."
+        playbook.append(
+            {
+                "category": category,
+                "evidence_count": count,
+                "rule": rule,
+            }
+        )
+    for file_path, count in sorted(
+        memory.get("stats", {}).get("files", {}).items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
+        if count < 2:
+            continue
+        playbook.append(
+            {
+                "file": file_path,
+                "evidence_count": count,
+                "rule": f"Treat {file_path} as a hotspot and review existing findings before editing it again.",
+            }
+        )
+    return playbook[:8]
+
+
+def record_reflection(
+    spec_slug: str,
+    run_metadata: dict[str, Any],
+    result: str,
+    summary: str,
+    findings: list[dict[str, Any]] | None = None,
+) -> list[Path]:
+    normalized = (
+        normalize_findings(summary, findings)
+        if findings or result in {"needs_changes", "blocked", "failed"}
+        else []
+    )
+    updated_paths: list[Path] = []
+    for scope in ["global", "spec"]:
+        memory = load_strategy_memory(scope, spec_slug if scope == "spec" else None)
+        stats = memory.setdefault(
+            "stats",
+            {
+                "by_role": {},
+                "by_result": {},
+                "finding_categories": {},
+                "severity": {},
+                "files": {},
+            },
+        )
+        increment_counter(stats.setdefault("by_role", {}), run_metadata.get("role", "unknown"))
+        increment_counter(stats.setdefault("by_result", {}), result)
+        for finding in normalized:
+            increment_counter(stats.setdefault("finding_categories", {}), finding.get("category", "general"))
+            increment_counter(stats.setdefault("severity", {}), finding.get("severity", "medium"))
+            increment_counter(stats.setdefault("files", {}), finding.get("file", ""))
+        reflection = {
+            "at": now_stamp(),
+            "run": run_metadata.get("id", ""),
+            "task": run_metadata.get("task", ""),
+            "role": run_metadata.get("role", ""),
+            "result": result,
+            "summary": summary,
+            "findings": normalized,
+            "recommended_actions": derive_strategy_actions(
+                run_metadata.get("role", ""),
+                result,
+                normalized,
+                stats,
+            ),
+        }
+        reflections = memory.setdefault("reflections", [])
+        reflections.append(reflection)
+        memory["reflections"] = reflections[-25:]
+        memory["playbook"] = rebuild_playbook(memory)
+        updated_paths.append(save_strategy_memory(scope, memory, spec_slug if scope == "spec" else None))
+    return updated_paths
+
+
+def add_planner_note(
+    spec_slug: str,
+    title: str,
+    content: str,
+    category: str = "strategy",
+    scope: str = "spec",
+) -> Path:
+    memory = load_strategy_memory(scope, spec_slug if scope == "spec" else None)
+    notes = memory.setdefault("planner_notes", [])
+    notes.append(
+        {
+            "at": now_stamp(),
+            "title": title,
+            "category": category,
+            "content": content.strip(),
+        }
+    )
+    memory["planner_notes"] = notes[-25:]
+    return save_strategy_memory(scope, memory, spec_slug if scope == "spec" else None)
+
+
+def strategy_summary(spec_slug: str) -> dict[str, Any]:
+    spec_memory = load_strategy_memory("spec", spec_slug)
+    recent = spec_memory.get("reflections", [])[-5:]
+    return {
+        "updated_at": spec_memory.get("updated_at", ""),
+        "playbook": spec_memory.get("playbook", []),
+        "planner_notes": spec_memory.get("planner_notes", [])[-5:],
+        "recent_reflections": recent,
+        "stats": spec_memory.get("stats", {}),
+    }
+
+
+def render_strategy_context(spec_slug: str) -> str:
+    summary = strategy_summary(spec_slug)
+    lines = ["## Strategy memory", ""]
+    playbook = summary.get("playbook", [])
+    if playbook:
+        lines.append("### Playbook")
+        lines.append("")
+        for item in playbook[:5]:
+            target = item.get("category") or item.get("file") or "general"
+            lines.append(f"- {target}: {item['rule']} (evidence={item['evidence_count']})")
+        lines.append("")
+    notes = summary.get("planner_notes", [])
+    if notes:
+        lines.append("### Planner notes")
+        lines.append("")
+        for note in notes[-3:]:
+            lines.append(f"- {note['title']} [{note['category']}]")
+            lines.append(f"  {note['content']}")
+        lines.append("")
+    reflections = summary.get("recent_reflections", [])
+    if reflections:
+        lines.append("### Recent reflections")
+        lines.append("")
+        for item in reflections[-3:]:
+            lines.append(
+                f"- {item['task']} / {item['role']} -> {item['result']}: {item['summary']}"
+            )
+            for action in item.get("recommended_actions", [])[:2]:
+                lines.append(f"  action: {action}")
+        lines.append("")
+    if len(lines) <= 2:
+        lines.append("No strategy memory recorded yet.")
+    return "\n".join(lines).strip()
 
 
 def load_review_state(spec_slug: str) -> dict[str, Any]:
@@ -1092,6 +1324,7 @@ def build_prompt(
     fix_request = load_fix_request(spec_slug)
     fix_request_data = load_fix_request_data(spec_slug)
     memory_context = load_memory_context(spec_slug, agent.memory_scopes)
+    strategy_context = render_strategy_context(spec_slug)
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
@@ -1132,6 +1365,8 @@ def build_prompt(
             "",
             "## Memory context",
             memory_context,
+            "",
+            strategy_context,
             "",
             "## Review state",
             json.dumps(review_summary, indent=2, ensure_ascii=True),
@@ -1341,6 +1576,7 @@ def complete_run(args: argparse.Namespace) -> None:
         fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result, findings=findings))
     if metadata["role"] == "implementation-runner" and args.result == "success":
         clear_fix_request(metadata["spec"])
+    strategy_paths = record_reflection(metadata["spec"], metadata, args.result, summary, findings=findings)
     memory_cfg = load_system_config().get("memory", {})
     if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
         for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
@@ -1371,6 +1607,7 @@ def complete_run(args: argparse.Namespace) -> None:
                 "task_status": task["status"],
                 "handoff": str(handoff_path),
                 "fix_request": fix_request_path,
+                "strategy_memory": [str(path) for path in strategy_paths],
             },
             indent=2,
             ensure_ascii=True,
@@ -1426,6 +1663,80 @@ def show_memory_cmd(args: argparse.Namespace) -> None:
         print("")
         return
     print(path.read_text(encoding="utf-8"))
+
+
+def show_strategy_cmd(args: argparse.Namespace) -> None:
+    print(json.dumps(strategy_summary(args.spec), indent=2, ensure_ascii=True))
+
+
+def add_planner_note_cmd(args: argparse.Namespace) -> None:
+    path = add_planner_note(args.spec, args.title, args.content, category=args.category, scope=args.scope)
+    print(str(path))
+
+
+def taskmaster_payload(spec_slug: str) -> dict[str, Any]:
+    tasks = load_tasks(spec_slug)
+    return {
+        "project": spec_slug,
+        "exported_at": now_stamp(),
+        "tasks": [
+            {
+                "id": task["id"],
+                "title": task["title"],
+                "status": task["status"],
+                "dependencies": task.get("depends_on", []),
+                "owner_role": task["owner_role"],
+                "acceptanceCriteria": task.get("acceptance_criteria", []),
+                "notes": task.get("notes", []),
+            }
+            for task in tasks.get("tasks", [])
+        ],
+    }
+
+
+def export_taskmaster_cmd(args: argparse.Namespace) -> None:
+    payload = taskmaster_payload(args.spec)
+    if args.output:
+        output = Path(args.output)
+        write_json(output, payload)
+        print(str(output))
+        return
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
+    depends = entry.get("depends_on", entry.get("dependencies", [])) or []
+    criteria = entry.get("acceptance_criteria", entry.get("acceptanceCriteria", [])) or []
+    status = entry.get("status", "todo")
+    if status not in VALID_TASK_STATUSES:
+        status = "todo"
+    return {
+        "id": entry.get("id") or f"T{index}",
+        "title": entry.get("title", entry.get("name", f"Task {index}")),
+        "status": status,
+        "depends_on": depends,
+        "owner_role": entry.get("owner_role", entry.get("role", "implementation-runner")),
+        "acceptance_criteria": criteria,
+        "notes": entry.get("notes", []),
+    }
+
+
+def import_taskmaster_cmd(args: argparse.Namespace) -> None:
+    payload = read_json(Path(args.input))
+    tasks_input = payload if isinstance(payload, list) else payload.get("tasks", [])
+    normalized = [
+        normalize_imported_task(item, index)
+        for index, item in enumerate(tasks_input, start=1)
+    ]
+    data = {
+        "spec_slug": args.spec,
+        "updated_at": now_stamp(),
+        "tasks": normalized,
+    }
+    write_json(task_file(args.spec), data)
+    sync_review_state(args.spec, reason="taskmaster_import")
+    record_event(args.spec, "taskmaster.imported", {"task_count": len(normalized), "source": args.input})
+    print(json.dumps({"spec": args.spec, "task_count": len(normalized)}, indent=2, ensure_ascii=True))
 
 
 def create_worktree(args: argparse.Namespace) -> None:
@@ -1526,6 +1837,7 @@ def workflow_state(args: argparse.Namespace) -> None:
         "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
         "fix_request_present": bool(load_fix_request(args.spec)),
         "fix_request": load_fix_request_data(args.spec),
+        "strategy_summary": strategy_summary(args.spec),
         "active_runs": active_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
@@ -1645,6 +1957,28 @@ def build_parser() -> argparse.ArgumentParser:
     show_memory.add_argument("--scope", choices=["global", "spec"], required=True)
     show_memory.add_argument("--spec")
     show_memory.set_defaults(func=show_memory_cmd)
+
+    strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
+    strategy_cmd.add_argument("--spec", required=True)
+    strategy_cmd.set_defaults(func=show_strategy_cmd)
+
+    planner_cmd = sub.add_parser("add-planner-note", help="append a planner strategy note to strategy memory")
+    planner_cmd.add_argument("--spec", required=True)
+    planner_cmd.add_argument("--title", required=True)
+    planner_cmd.add_argument("--content", required=True)
+    planner_cmd.add_argument("--category", default="strategy")
+    planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
+    planner_cmd.set_defaults(func=add_planner_note_cmd)
+
+    export_taskmaster = sub.add_parser("export-taskmaster", help="export Autoflow tasks in a Taskmaster-friendly JSON shape")
+    export_taskmaster.add_argument("--spec", required=True)
+    export_taskmaster.add_argument("--output", default="")
+    export_taskmaster.set_defaults(func=export_taskmaster_cmd)
+
+    import_taskmaster = sub.add_parser("import-taskmaster", help="import task data from a Taskmaster-style JSON file")
+    import_taskmaster.add_argument("--spec", required=True)
+    import_taskmaster.add_argument("--input", required=True)
+    import_taskmaster.set_defaults(func=import_taskmaster_cmd)
 
     run_cmd_parser = sub.add_parser("new-run", help="create a runnable agent job")
     run_cmd_parser.add_argument("--spec", required=True)

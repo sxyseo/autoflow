@@ -46,6 +46,38 @@ If a task has already failed the configured number of automatic retries, the loo
 If a retry run is created, the agent runner will prefer the backend's native continuation mode when configured.
 If a configured role agent is unavailable, the loop can fall back to a discovered `codex`, `claude`, or ACP-backed agent according to `agent_selection.role_preferences`.
 
+### `scripts/autonomy_orchestrator.py`
+
+This is the outer-loop entry point for OpenClaw-style scheduling or timed automation.
+
+Example:
+
+```bash
+python3 scripts/autonomy_orchestrator.py tick \
+  --spec openclaw-autonomy \
+  --config config/autonomy.example.json \
+  --commit-if-dirty \
+  --dispatch \
+  --push
+```
+
+It adds:
+
+- CLI health checks for `codex`, `claude`, and `tmux`
+- Taskmaster import/export hooks
+- a coordination brief for outer orchestrators
+- one stable command for scheduled jobs to call
+
+### `scripts/cli_healthcheck.py`
+
+Use this for scheduled monitoring of local coding backends.
+
+Example:
+
+```bash
+python3 scripts/cli_healthcheck.py --require codex --require claude
+```
+
 ### `scripts/git-auto-commit.sh`
 
 This is a low-level helper when you only want commit and push behavior without dispatch logic.

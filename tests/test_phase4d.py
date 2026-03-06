@@ -31,6 +31,7 @@ def configure_autoflow_module(module: ModuleType, root: Path) -> None:
     module.LOGS_DIR = module.STATE_DIR / "logs"
     module.WORKTREES_DIR = module.STATE_DIR / "worktrees" / "tasks"
     module.MEMORY_DIR = module.STATE_DIR / "memory"
+    module.STRATEGY_MEMORY_DIR = module.MEMORY_DIR / "strategy"
     module.DISCOVERY_FILE = module.STATE_DIR / "discovered_agents.json"
     module.SYSTEM_CONFIG_FILE = module.STATE_DIR / "system.json"
     module.SYSTEM_CONFIG_TEMPLATE = root / "config" / "system.example.json"
@@ -220,6 +221,78 @@ class Phase4DTests(unittest.TestCase):
         self.assertIn('"suggested_fix": "Return the blocker in dispatch output."', prompt)
         self.assertIn("spec memory", prompt)
         self.assertNotIn("global memory", prompt)
+
+    def test_complete_run_records_strategy_reflection_and_playbook(self) -> None:
+        self.create_spec("strategy-spec")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="strategy-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(out.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(
+                run=run_id,
+                result="needs_changes",
+                summary="Planner needs better tests.",
+                findings_json=json.dumps(
+                    [
+                        {
+                            "title": "Missing tests",
+                            "body": "Add test coverage before retrying.",
+                            "category": "tests",
+                            "severity": "high",
+                            "file": "tests/test_phase4d.py",
+                            "line": 1,
+                        }
+                    ]
+                ),
+                findings_file="",
+            ),
+        )
+        self.assertEqual(len(result["strategy_memory"]), 2)
+        summary = self.autoflow.strategy_summary("strategy-spec")
+        self.assertEqual(summary["recent_reflections"][-1]["result"], "needs_changes")
+        self.assertTrue(any(item["category"] == "tests" for item in summary["playbook"]))
+
+    def test_taskmaster_export_import_round_trip(self) -> None:
+        self.create_spec("taskmaster-spec")
+        export_path = self.root / "taskmaster.json"
+        with redirect_stdout(io.StringIO()):
+            self.autoflow.export_taskmaster_cmd(
+                SimpleNamespace(spec="taskmaster-spec", output=str(export_path))
+            )
+        exported = json.loads(export_path.read_text(encoding="utf-8"))
+        self.assertEqual(exported["tasks"][0]["id"], "T1")
+        imported = {
+            "tasks": [
+                {
+                    "id": "X1",
+                    "title": "Imported task",
+                    "status": "todo",
+                    "dependencies": [],
+                    "role": "maintainer",
+                    "acceptanceCriteria": ["Imported criteria"],
+                }
+            ]
+        }
+        export_path.write_text(json.dumps(imported) + "\n", encoding="utf-8")
+        result = self.capture_json_output(
+            self.autoflow.import_taskmaster_cmd,
+            SimpleNamespace(spec="taskmaster-spec", input=str(export_path)),
+        )
+        self.assertEqual(result["task_count"], 1)
+        tasks = self.autoflow.load_tasks("taskmaster-spec")
+        self.assertEqual(tasks["tasks"][0]["id"], "X1")
+        self.assertEqual(tasks["tasks"][0]["owner_role"], "maintainer")
 
     def test_resume_run_creates_new_attempt_with_resume_from(self) -> None:
         self.create_spec("resume-spec")

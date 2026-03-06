@@ -37,8 +37,10 @@ Recommendation: start with OpenClaw + spec-driven artifacts + Taskmaster-style t
 ```text
 config/
   agents.example.json
+  autonomy.example.json
   system.example.json
 docs/
+  ai-pipeline-lessons.md
   auto-claude-lessons.md
   architecture.md
   method-stack.md
@@ -46,9 +48,13 @@ docs/
   continuous-iteration.md
   openclaw-integration.md
   phase4-plan.md
+  phase5-plan.md
 scripts/
   agent_runner.py
   autoflow.py
+  autonomy_orchestrator.py
+  cli_healthcheck.py
+  ci_check.sh
   continuous_iteration.py
   git-auto-commit.sh
   git-prepare-branch.sh
@@ -141,9 +147,9 @@ python3 scripts/autoflow.py complete-run \
 10. Run one scheduled iteration tick.
 
 ```bash
-python3 scripts/continuous_iteration.py \
+python3 scripts/autonomy_orchestrator.py tick \
   --spec openclaw-autonomy \
-  --config config/continuous-iteration.example.json \
+  --config config/autonomy.example.json \
   --commit-if-dirty \
   --dispatch \
   --push
@@ -154,6 +160,7 @@ python3 scripts/continuous_iteration.py \
 ```bash
 python3 scripts/autoflow.py show-fix-request --spec openclaw-autonomy
 python3 scripts/autoflow.py show-memory --scope spec --spec openclaw-autonomy
+python3 scripts/autoflow.py show-strategy --spec openclaw-autonomy
 ```
 
 ## What is implemented now
@@ -176,9 +183,14 @@ This repository now provides a minimal autonomous workflow harness:
 - reviewer-generated `QA_FIX_REQUEST.md` and `QA_FIX_REQUEST.json` artifacts with structured findings
 - structured findings in prompt context with `file`, `line`, `severity`, `category`, `suggested_fix`, and `source_run`
 - system-level memory configuration with scoped memory capture and prompt injection
+- cumulative planner/reflection strategy memory with playbook generation
 - central model/tool profiles resolved from `config/system.example.json`
 - CLI and ACP agent discovery plus `sync-agents` to materialize runnable local catalogs
 - dynamic fallback agent selection during scheduled dispatch
+- Taskmaster-friendly task import/export
+- outer-loop autonomy orchestration for OpenClaw-style schedulers
+- CLI health monitoring for `codex`, `claude`, and `tmux`
+- repo-local CI checks plus GitHub Actions coverage for automated iterations
 - codex/claude native continuation wired through the agent runner
 
 It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.
@@ -212,3 +224,21 @@ Each finding is machine-readable and can carry:
 - `source_run`
 
 Those findings are injected back into the next implementation prompt so retries can be task-driven instead of summary-driven.
+
+## Strategy memory
+
+Autoflow now keeps a separate strategy layer in `.autoflow/memory/strategy/`.
+
+- reflections are recorded automatically when runs complete
+- planner notes can be appended with `add-planner-note`
+- repeated blockers are turned into a lightweight playbook
+- the playbook is injected into later prompts so planning and retries compound instead of resetting
+
+## Outer orchestration
+
+Use `scripts/autonomy_orchestrator.py` when you want one stable entry point for:
+
+- scheduled health monitoring
+- Taskmaster sync
+- OpenClaw-facing coordination briefs
+- commit/dispatch loops that respect Autoflow gates

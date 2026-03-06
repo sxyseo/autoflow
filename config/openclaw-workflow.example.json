@@ -3,23 +3,13 @@
   "description": "Example outer-loop contract for OpenClaw-style orchestration around Autoflow state.",
   "steps": [
     {
-      "id": "inspect-state",
-      "command": "python3 scripts/autoflow.py workflow-state --spec <slug>",
+      "id": "coordination-brief",
+      "command": "python3 scripts/autonomy_orchestrator.py coordination-brief --spec <slug> --config config/autonomy.example.json",
       "output": "json"
     },
     {
-      "id": "create-run",
-      "command": "python3 scripts/autoflow.py new-run --spec <slug> --role <role> --agent <agent> --task <task>",
-      "output": "run_dir"
-    },
-    {
-      "id": "launch-background",
-      "command": "scripts/tmux-start.sh <run_dir>/run.sh",
-      "output": "tmux_session"
-    },
-    {
-      "id": "close-run",
-      "command": "python3 scripts/autoflow.py complete-run --run <run_id> --result <result> --summary <summary>",
+      "id": "outer-tick",
+      "command": "python3 scripts/autonomy_orchestrator.py tick --spec <slug> --config config/autonomy.example.json --dispatch",
       "output": "json"
     }
   ]

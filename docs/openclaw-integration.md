@@ -23,18 +23,18 @@ OpenClaw should not own long-lived project state directly. Instead it should cal
 
 ## Suggested loop
 
-1. Call `python3 scripts/autoflow.py workflow-state --spec <slug>`
-2. Pick `recommended_next_action`
-3. Map `owner_role` to an agent backend
-4. Ensure a worktree exists for the spec
-5. Call `scripts/workflow-dispatch.sh <slug> <role> <agent> <task-id>`
-6. Wait for the background run to finish
-7. Call `python3 scripts/autoflow.py complete-run ...`
-8. Repeat until no ready tasks remain
+1. Call `python3 scripts/autonomy_orchestrator.py coordination-brief --spec <slug>`
+2. Read `workflow_state`, `strategy`, `health`, and `proposed_dispatch`
+3. If a task is ready, ensure the role/agent selection still satisfies your outer policy
+4. Call `python3 scripts/autonomy_orchestrator.py tick --spec <slug> --dispatch`
+5. Wait for the background run to finish
+6. Call `python3 scripts/autoflow.py complete-run ...`
+7. Repeat until no ready tasks remain
 
 If `workflow-state` reports `review_approval_required`, do not dispatch implementation. Re-approve the spec first.
 If the retry policy blocks a task, stop and surface the blocker instead of silently re-running the same task.
 If a retry run exists, let the configured backend use its native continuation mode instead of starting a brand-new session blindly.
+If the strategy playbook shows recurring blockers, feed that back into planning instead of continuing blind retries.
 
 ## Role to backend mapping
 

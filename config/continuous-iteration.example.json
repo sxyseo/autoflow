@@ -22,6 +22,7 @@
     }
   },
   "verify_commands": [
+    "bash scripts/ci_check.sh",
     "python3 scripts/autoflow.py workflow-state --spec {spec}"
   ],
   "commit": {
