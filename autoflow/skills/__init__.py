@@ -19,15 +19,28 @@ from autoflow.skills.registry import (
     SkillStatus,
     create_registry,
 )
-
-# SkillExecutor will be imported when implemented
-# from autoflow.skills.executor import SkillExecutor
+from autoflow.skills.executor import (
+    SkillExecutor,
+    SkillExecutorError,
+    SkillExecutionContext,
+    SkillExecutionResult,
+    SkillExecutionStatus,
+    create_executor,
+)
 
 __all__ = [
+    # Registry
     "SkillRegistry",
     "SkillDefinition",
     "SkillMetadata",
     "SkillStatus",
     "SkillRegistryError",
     "create_registry",
+    # Executor
+    "SkillExecutor",
+    "SkillExecutorError",
+    "SkillExecutionContext",
+    "SkillExecutionResult",
+    "SkillExecutionStatus",
+    "create_executor",
 ]
