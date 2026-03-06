@@ -24,6 +24,7 @@ AGENTS_FILE = STATE_DIR / "agents.json"
 BMAD_DIR = ROOT / "templates" / "bmad"
 REVIEW_STATE_FILE = "review_state.json"
 EVENTS_FILE = "events.jsonl"
+QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -133,6 +134,7 @@ def spec_files(slug: str) -> dict[str, Path]:
         "handoffs_dir": directory / "handoffs",
         "review_state": directory / REVIEW_STATE_FILE,
         "events": directory / EVENTS_FILE,
+        "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
     }
 
 
@@ -199,6 +201,46 @@ def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
     with open(events_path, encoding="utf-8") as handle:
         lines = handle.readlines()[-limit:]
     return [json.loads(line) for line in lines if line.strip()]
+
+
+def load_fix_request(spec_slug: str) -> str:
+    path = spec_files(spec_slug)["qa_fix_request"]
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def write_fix_request(spec_slug: str, task_id: str, reviewer_summary: str, result: str) -> Path:
+    path = spec_files(spec_slug)["qa_fix_request"]
+    content = "\n".join(
+        [
+            f"# QA Fix Request: {task_id}",
+            "",
+            f"- created_at: {now_stamp()}",
+            f"- result: {result}",
+            "",
+            "## Required follow-up",
+            "",
+            reviewer_summary,
+            "",
+            "## Retry policy",
+            "",
+            "- Read this file before retrying the implementation task.",
+            "- Change approach instead of repeating the same edits.",
+            "- Leave a handoff note explaining what changed in the retry.",
+            "",
+        ]
+    )
+    path.write_text(content, encoding="utf-8")
+    record_event(spec_slug, "qa.fix_request_created", {"task": task_id, "result": result})
+    return path
+
+
+def clear_fix_request(spec_slug: str) -> None:
+    path = spec_files(spec_slug)["qa_fix_request"]
+    if path.exists():
+        path.unlink()
+        record_event(spec_slug, "qa.fix_request_cleared", {})
 
 
 def compute_file_hash(path: Path) -> str:
@@ -366,6 +408,28 @@ def recovery_context(spec_slug: str, task_id: str) -> str:
         if summary_text:
             lines.append(f"  {summary_text.replace(chr(10), ' ')}")
     return "\n".join(lines)
+
+
+def resume_context(run_id: str | None) -> str:
+    if not run_id:
+        return "No resume context."
+    run_dir = RUNS_DIR / run_id
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        return f"Requested resume source `{run_id}` was not found."
+    metadata = read_json(metadata_path)
+    summary_path = run_dir / "summary.md"
+    summary_text = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+    return "\n".join(
+        [
+            f"Resuming from run: {run_id}",
+            f"Previous role: {metadata.get('role', '')}",
+            f"Previous result: {metadata.get('result', 'unfinished')}",
+            f"Attempt count so far: {metadata.get('attempt_count', 1)}",
+            "",
+            summary_text or "No previous summary recorded.",
+        ]
+    )
 
 
 def default_tasks() -> list[dict[str, Any]]:
@@ -623,13 +687,14 @@ def show_review_status(args: argparse.Namespace) -> None:
     print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
 
 
-def build_prompt(spec_slug: str, role: str, task_id: str | None) -> str:
+def build_prompt(spec_slug: str, role: str, task_id: str | None, resume_from: str | None = None) -> str:
     files = spec_files(spec_slug)
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
     selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
     review_summary = review_status_summary(spec_slug)
+    fix_request = load_fix_request(spec_slug)
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
@@ -656,6 +721,12 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None) -> str:
             "## Recovery context",
             recovery,
             "",
+            "## Resume context",
+            resume_context(resume_from),
+            "",
+            "## QA fix request",
+            fix_request or "No QA fix request present.",
+            "",
             "## Spec",
             files["spec"].read_text(encoding="utf-8"),
             "",
@@ -669,6 +740,70 @@ def build_prompt(spec_slug: str, role: str, task_id: str | None) -> str:
             "\n".join(handoff_sections) if handoff_sections else "No handoffs yet.",
         ]
     )
+
+
+def create_run_record(
+    spec_slug: str,
+    role: str,
+    agent_name: str,
+    task_id: str,
+    branch: str | None = None,
+    resume_from: str | None = None,
+) -> Path:
+    agents = load_agents()
+    agent = agents[agent_name]
+    run_id_base = f"{now_stamp()}-{slugify(role)}-{slugify(spec_slug)}-{slugify(task_id)}"
+    run_id = run_id_base
+    run_dir = RUNS_DIR / run_id
+    suffix = 1
+    while run_dir.exists():
+        run_id = f"{run_id_base}-{suffix}"
+        run_dir = RUNS_DIR / run_id
+        suffix += 1
+    run_dir.mkdir(parents=True, exist_ok=False)
+    prompt_path = run_dir / "prompt.md"
+    prompt_path.write_text(build_prompt(spec_slug, role, task_id, resume_from=resume_from), encoding="utf-8")
+    branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
+    target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
+    command = [agent.command, *agent.args, str(prompt_path)]
+    run_script = run_dir / "run.sh"
+    run_script.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                f"cd {shlex.quote(str(target_workdir))}",
+                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    summary_path = run_dir / "summary.md"
+    summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
+    os.chmod(run_script, 0o755)
+    metadata = {
+        "id": run_id,
+        "spec": spec_slug,
+        "task": task_id,
+        "role": role,
+        "agent": agent_name,
+        "branch": branch,
+        "workdir": str(target_workdir),
+        "created_at": now_stamp(),
+        "command_preview": command,
+        "status": "created",
+        "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
+        "resume_from": resume_from or "",
+        "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
+        "retry_policy": {
+            "max_automatic_attempts": 3,
+            "requires_fix_request_after_review_failure": True,
+        },
+    }
+    write_json(run_dir / "run.json", metadata)
+    record_event(spec_slug, "run.created", {"run": run_id, "task": task_id, "role": role})
+    return run_dir
 
 
 def create_run(args: argparse.Namespace) -> None:
@@ -694,52 +829,48 @@ def create_run(args: argparse.Namespace) -> None:
         raise SystemExit(f"task {chosen_task} belongs to role {task['owner_role']}, not {args.role}")
     if task["status"] not in {"todo", "needs_changes", "in_progress", "in_review"}:
         raise SystemExit(f"task {chosen_task} is not runnable from status {task['status']}")
-    agent = agents[args.agent]
-    run_id = f"{now_stamp()}-{slugify(args.role)}-{slugify(args.spec)}-{slugify(chosen_task)}"
-    run_dir = RUNS_DIR / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-    prompt_path = run_dir / "prompt.md"
-    prompt_path.write_text(build_prompt(args.spec, args.role, chosen_task), encoding="utf-8")
-    branch = args.branch or f"codex/{slugify(args.spec)}-{slugify(chosen_task)}"
-    target_workdir = worktree_path(args.spec) if worktree_path(args.spec).exists() else ROOT
-    command = [agent.command, *agent.args, str(prompt_path)]
-    run_script = run_dir / "run.sh"
-    run_script.write_text(
-        "\n".join(
-            [
-                "#!/usr/bin/env bash",
-                "set -euo pipefail",
-                f"cd {shlex.quote(str(target_workdir))}",
-                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(args.agent)} {shlex.quote(str(prompt_path))}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    summary_path = run_dir / "summary.md"
-    summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
-    os.chmod(run_script, 0o755)
     task["status"] = "in_progress"
     task.setdefault("notes", []).append(
-        {"at": now_stamp(), "note": f"run {run_id} created for role {args.role}"}
+        {"at": now_stamp(), "note": f"run pending for role {args.role}"}
     )
     save_tasks(args.spec, tasks, reason="task_status_updated")
-    metadata = {
-        "id": run_id,
-        "spec": args.spec,
-        "task": chosen_task,
-        "role": args.role,
-        "agent": args.agent,
-        "branch": branch,
-        "workdir": str(target_workdir),
-        "created_at": now_stamp(),
-        "command_preview": command,
-        "status": "created",
-        "attempt_count": len(task_run_history(args.spec, chosen_task)) + 1,
-    }
-    write_json(run_dir / "run.json", metadata)
-    record_event(args.spec, "run.created", {"run": run_id, "task": chosen_task, "role": args.role})
+    run_dir = create_run_record(
+        args.spec,
+        args.role,
+        args.agent,
+        chosen_task,
+        branch=args.branch,
+        resume_from=getattr(args, "resume_from", None),
+    )
     print(str(run_dir))
+
+
+def resume_run(args: argparse.Namespace) -> None:
+    run_dir = RUNS_DIR / args.run
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {args.run}")
+    metadata = read_json(metadata_path)
+    review_summary = review_status_summary(metadata["spec"])
+    if metadata["role"] in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
+        raise SystemExit(
+            "spec review approval is not valid; approve the current planning contract before resuming implementation"
+        )
+    tasks = load_tasks(metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
+    task["status"] = "in_progress"
+    task.setdefault("notes", []).append({"at": now_stamp(), "note": f"retry created from {args.run}"})
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    new_run = create_run_record(
+        metadata["spec"],
+        metadata["role"],
+        metadata["agent"],
+        metadata["task"],
+        branch=metadata.get("branch"),
+        resume_from=args.run,
+    )
+    record_event(metadata["spec"], "run.resumed", {"from": args.run, "task": metadata["task"]})
+    print(str(new_run))
 
 
 def complete_run(args: argparse.Namespace) -> None:
@@ -774,7 +905,12 @@ def complete_run(args: argparse.Namespace) -> None:
     task["status"] = status_map[args.result]
     task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
-    next_role = "reviewer" if metadata["role"] != "reviewer" else "maintainer"
+    next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
+    fix_request_path = ""
+    if metadata["role"] == "reviewer" and args.result in {"needs_changes", "blocked", "failed"}:
+        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result))
+    if metadata["role"] == "implementation-runner" and args.result == "success":
+        clear_fix_request(metadata["spec"])
     handoff_path = write_handoff(
         metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
     )
@@ -786,11 +922,17 @@ def complete_run(args: argparse.Namespace) -> None:
             "task": metadata["task"],
             "role": metadata["role"],
             "result": args.result,
+            "fix_request": fix_request_path,
         },
     )
     print(
         json.dumps(
-            {"run": metadata["id"], "task_status": task["status"], "handoff": str(handoff_path)},
+            {
+                "run": metadata["id"],
+                "task_status": task["status"],
+                "handoff": str(handoff_path),
+                "fix_request": fix_request_path,
+            },
             indent=2,
             ensure_ascii=True,
         )
@@ -901,6 +1043,7 @@ def workflow_state(args: argparse.Namespace) -> None:
         "spec": args.spec,
         "review_status": review_summary,
         "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
+        "fix_request_present": bool(load_fix_request(args.spec)),
         "active_runs": active_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
@@ -989,7 +1132,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd_parser.add_argument("--agent", required=True)
     run_cmd_parser.add_argument("--task")
     run_cmd_parser.add_argument("--branch")
+    run_cmd_parser.add_argument("--resume-from")
     run_cmd_parser.set_defaults(func=create_run)
+
+    resume_cmd = sub.add_parser("resume-run", help="create a retry run from an earlier run record")
+    resume_cmd.add_argument("--run", required=True)
+    resume_cmd.set_defaults(func=resume_run)
 
     complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
     complete_cmd.add_argument("--run", required=True)

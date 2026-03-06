@@ -35,9 +35,10 @@ Evolve Autoflow from a prompt-and-run harness into a safer autonomous delivery l
 - Phase 4A
 - Phase 4B
 - Phase 4C
+- Phase 4D (first batch)
 
 ## Next candidates
 
-1. Create a `QA_FIX_REQUEST.md` style artifact for reviewer failures.
-2. Add resumable run sessions tied to previous task attempts.
-3. Add more explicit human input and pause files.
+1. Add more explicit human input and pause files.
+2. Add agent-native session continuation hooks where the backend supports them.
+3. Add richer reviewer findings structure instead of summary-only fix requests.

@@ -40,6 +40,7 @@ Behavior:
 6. If no active run exists, dispatch the next ready task in `tmux`
 
 If `review_status.valid` is false for an implementation or maintenance task, the loop must stop and wait for re-approval.
+If a task has already failed the configured number of automatic retries, the loop must stop and report the retry-limit blocker.
 
 ### `scripts/git-auto-commit.sh`
 
@@ -51,4 +52,5 @@ This is a low-level helper when you only want commit and push behavior without d
 - Prefer one worktree per spec instead of running all tasks from the repo root.
 - Keep reviewer runs separate from implementation runs.
 - Do not dispatch a new task while another task for the same spec is still active.
+- Require `QA_FIX_REQUEST.md` before retrying reviewer-rejected implementation work.
 - Add stronger verification commands before allowing direct push to `main`.

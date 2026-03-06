@@ -2,3 +2,4 @@
 .auto-claude/
 .autoflow/
 __pycache__/
+.idea/

@@ -10,10 +10,11 @@ Execute one task at a time.
 ## Workflow
 
 1. Read the spec, the selected task, and the latest reviewer handoff.
-2. Work only inside the task scope.
-3. Make the smallest set of changes that satisfies acceptance criteria.
-4. Run local verification where possible.
-5. Produce:
+2. If `QA_FIX_REQUEST.md` exists, read it before making changes.
+3. Work only inside the task scope.
+4. Make the smallest set of changes that satisfies acceptance criteria.
+5. Run local verification where possible.
+6. Produce:
    - code changes
    - a run summary
    - unresolved risks
@@ -23,3 +24,4 @@ Execute one task at a time.
 - Do not expand scope on your own.
 - If the task is underspecified, write back the blocker instead of improvising a redesign.
 - Leave the repository in a runnable state.
+- On retries, explicitly change approach instead of repeating the same attempt.

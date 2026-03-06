@@ -152,5 +152,6 @@ This repository now provides a minimal autonomous workflow harness:
 - hash-based review approval and invalidation
 - recovery-aware prompts and per-spec event logs
 - review-gated implementation dispatch after planning changes
+- reviewer-generated `QA_FIX_REQUEST.md` artifacts and resumable retry runs
 
 It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.

@@ -53,8 +53,10 @@ def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
     return results
 
 
-def auto_commit(config: dict, spec: str, push: bool) -> dict:
+def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     commit_cfg = config.get("commit", {})
+    if state.get("active_runs") and not commit_cfg.get("allow_during_active_runs", False):
+        return {"committed": False, "reason": "active_run_exists"}
     verify_commands = config.get("verify_commands", [])
     verify_results = run_verify_commands(verify_commands, spec) if verify_commands else []
     if any(item["returncode"] != 0 for item in verify_results):
@@ -83,13 +85,46 @@ def workflow_state(spec: str) -> dict:
     return json.loads(result.stdout)
 
 
+def task_history(spec: str, task: str) -> list[dict]:
+    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
+    return json.loads(result.stdout)
+
+
+def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict | None:
+    if state.get("active_runs"):
+        return {"blocked": True, "reason": "active_run_exists"}
+    if state.get("blocking_reason"):
+        return {"blocked": True, "reason": state["blocking_reason"]}
+    if not next_action:
+        return {"blocked": True, "reason": "no_ready_task"}
+
+    retry_cfg = config.get("retry_policy", {})
+    max_attempts = retry_cfg.get("max_automatic_attempts", 3)
+    history = task_history(state["spec"], next_action["id"])
+    unsuccessful = [
+        item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}
+    ]
+    if len(unsuccessful) >= max_attempts:
+        return {
+            "blocked": True,
+            "reason": "max_automatic_attempts_reached",
+            "attempts": len(unsuccessful),
+        }
+    if (
+        retry_cfg.get("require_fix_request_for_retry", True)
+        and next_action.get("status") == "needs_changes"
+        and not state.get("fix_request_present")
+    ):
+        return {"blocked": True, "reason": "missing_fix_request"}
+    return None
+
+
 def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
     state = workflow_state(spec)
     next_action = state.get("recommended_next_action")
-    if state.get("active_runs"):
-        return {"dispatched": False, "reason": "active_run_exists", "state": state}
-    if not next_action:
-        return {"dispatched": False, "reason": "no_ready_task", "state": state}
+    gate = dispatch_gate(config, state, next_action)
+    if gate:
+        return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
     role = next_action["owner_role"]
     agent = config.get("role_agents", {}).get(role)
     if not agent:
@@ -120,8 +155,9 @@ def main() -> None:
 
     config = load_config(args.config)
     result = {"spec": args.spec}
+    initial_state = workflow_state(args.spec)
     if args.commit_if_dirty:
-        result["commit"] = auto_commit(config, args.spec, args.push)
+        result["commit"] = auto_commit(config, args.spec, args.push, initial_state)
     result["dispatch"] = dispatch_next(config, args.spec, args.dispatch)
     print(json.dumps(result, indent=2, ensure_ascii=True))
 

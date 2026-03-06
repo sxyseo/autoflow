@@ -21,3 +21,4 @@ Use `scripts/continuous_iteration.py` as the entry point.
 - Prefer a dedicated automation branch unless the repository already has strong protections.
 - Do not dispatch multiple implementation tasks concurrently by default.
 - If verification fails, stop before commit or push.
+- If retry limits are hit, stop and report the blocker instead of dispatching again.

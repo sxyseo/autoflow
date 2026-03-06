@@ -15,8 +15,9 @@ Review the output of another role.
    - missing tests
    - architectural regressions
    - mismatch with the spec
-3. Write findings first, ordered by severity.
-4. Mark the task as `needs_changes` or `done`.
+3. If the task should be retried, leave a clear summary suitable for `QA_FIX_REQUEST.md`.
+4. Write findings first, ordered by severity.
+5. Mark the task as `needs_changes` or `done`.
 
 ## Rules
 

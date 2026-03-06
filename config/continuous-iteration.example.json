@@ -11,6 +11,11 @@
   ],
   "commit": {
     "message_prefix": "autoflow",
-    "push": true
+    "push": true,
+    "allow_during_active_runs": false
+  },
+  "retry_policy": {
+    "max_automatic_attempts": 3,
+    "require_fix_request_for_retry": true
   }
 }
