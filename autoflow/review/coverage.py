@@ -26,18 +26,75 @@ class CoverageThreshold:
         branches: Branch coverage threshold (optional)
         functions: Function coverage threshold (optional)
         lines: Line coverage threshold (optional)
+        module_overrides: Per-module threshold overrides (optional)
+            Maps module patterns to threshold overrides.
+            Patterns can be exact file paths or glob patterns.
+            Example: {"autoflow/core/*": {"minimum": 90.0}}
     """
     minimum: float = 80.0
     branches: Optional[float] = None
     functions: Optional[float] = None
     lines: Optional[float] = None
+    module_overrides: Dict[str, Dict[str, float]] = field(default_factory=dict)
+
+    def get_threshold_for_module(self, module_path: str) -> 'CoverageThreshold':
+        """
+        Get threshold configuration for a specific module.
+
+        Checks module overrides for matching patterns and returns
+        a threshold with overrides applied. Patterns are matched
+        in order, with first match taking precedence.
+
+        Args:
+            module_path: Path to module file (e.g., "autoflow/core/module.py")
+
+        Returns:
+            CoverageThreshold with module-specific overrides applied
+        """
+        # Normalize path for matching
+        normalized_path = module_path.replace("\\", "/")
+
+        # Check for exact match first
+        if normalized_path in self.module_overrides:
+            override = self.module_overrides[normalized_path]
+            return CoverageThreshold(
+                minimum=override.get("minimum", self.minimum),
+                branches=override.get("branches", self.branches),
+                functions=override.get("functions", self.functions),
+                lines=override.get("lines", self.lines),
+                module_overrides=self.module_overrides
+            )
+
+        # Check for pattern matches (e.g., "autoflow/core/*")
+        # Sort patterns by specificity (longer first)
+        patterns = sorted(
+            self.module_overrides.keys(),
+            key=lambda p: len(p),
+            reverse=True
+        )
+
+        import fnmatch
+        for pattern in patterns:
+            if fnmatch.fnmatch(normalized_path, pattern):
+                override = self.module_overrides[pattern]
+                return CoverageThreshold(
+                    minimum=override.get("minimum", self.minimum),
+                    branches=override.get("branches", self.branches),
+                    functions=override.get("functions", self.functions),
+                    lines=override.get("lines", self.lines),
+                    module_overrides=self.module_overrides
+                )
+
+        # No override found, return self
+        return self
 
     def check_passes(
         self,
         total: float,
         branches: Optional[float] = None,
         functions: Optional[float] = None,
-        lines: Optional[float] = None
+        lines: Optional[float] = None,
+        module_path: Optional[str] = None
     ) -> bool:
         """
         Check if coverage meets all configured thresholds.
@@ -47,23 +104,27 @@ class CoverageThreshold:
             branches: Branch coverage percentage
             functions: Function coverage percentage
             lines: Line coverage percentage
+            module_path: Optional module path for per-module thresholds
 
         Returns:
             True if all thresholds are met
         """
-        if total < self.minimum:
+        # Get module-specific threshold if module_path provided
+        threshold = self.get_threshold_for_module(module_path) if module_path else self
+
+        if total < threshold.minimum:
             return False
 
-        if self.branches is not None and branches is not None:
-            if branches < self.branches:
+        if threshold.branches is not None and branches is not None:
+            if branches < threshold.branches:
                 return False
 
-        if self.functions is not None and functions is not None:
-            if functions < self.functions:
+        if threshold.functions is not None and functions is not None:
+            if functions < threshold.functions:
                 return False
 
-        if self.lines is not None and lines is not None:
-            if lines < self.lines:
+        if threshold.lines is not None and lines is not None:
+            if lines < threshold.lines:
                 return False
 
         return True
@@ -73,7 +134,8 @@ class CoverageThreshold:
         total: float,
         branches: Optional[float] = None,
         functions: Optional[float] = None,
-        lines: Optional[float] = None
+        lines: Optional[float] = None,
+        module_path: Optional[str] = None
     ) -> List[str]:
         """
         Get list of metrics that fail thresholds.
@@ -83,26 +145,42 @@ class CoverageThreshold:
             branches: Branch coverage percentage
             functions: Function coverage percentage
             lines: Line coverage percentage
+            module_path: Optional module path for per-module thresholds
 
         Returns:
             List of failing metric names
         """
+        # Get module-specific threshold if module_path provided
+        threshold = self.get_threshold_for_module(module_path) if module_path else self
+
         failing = []
 
-        if total < self.minimum:
-            failing.append(f"total coverage ({total:.1f}% < {self.minimum:.1f}%)")
+        if total < threshold.minimum:
+            msg = f"total coverage ({total:.1f}% < {threshold.minimum:.1f}%)"
+            if module_path:
+                msg = f"{module_path}: {msg}"
+            failing.append(msg)
 
-        if self.branches is not None and branches is not None:
-            if branches < self.branches:
-                failing.append(f"branch coverage ({branches:.1f}% < {self.branches:.1f}%)")
+        if threshold.branches is not None and branches is not None:
+            if branches < threshold.branches:
+                msg = f"branch coverage ({branches:.1f}% < {threshold.branches:.1f}%)"
+                if module_path:
+                    msg = f"{module_path}: {msg}"
+                failing.append(msg)
 
-        if self.functions is not None and functions is not None:
-            if functions < self.functions:
-                failing.append(f"function coverage ({functions:.1f}% < {self.functions:.1f}%)")
+        if threshold.functions is not None and functions is not None:
+            if functions < threshold.functions:
+                msg = f"function coverage ({functions:.1f}% < {threshold.functions:.1f}%)"
+                if module_path:
+                    msg = f"{module_path}: {msg}"
+                failing.append(msg)
 
-        if self.lines is not None and lines is not None:
-            if lines < self.lines:
-                failing.append(f"line coverage ({lines:.1f}% < {self.lines:.1f}%)")
+        if threshold.lines is not None and lines is not None:
+            if lines < threshold.lines:
+                msg = f"line coverage ({lines:.1f}% < {threshold.lines:.1f}%)"
+                if module_path:
+                    msg = f"{module_path}: {msg}"
+                failing.append(msg)
 
         return failing
 
@@ -180,12 +258,14 @@ class CoverageTracker:
                 with open(config_file, "r") as f:
                     config = json.load(f)
                     coverage_config = config.get("coverage", {})
+                    thresholds = coverage_config.get("thresholds", {})
 
                     return CoverageThreshold(
-                        minimum=coverage_config.get("minimum", 80.0),
-                        branches=coverage_config.get("branches"),
-                        functions=coverage_config.get("functions"),
-                        lines=coverage_config.get("lines")
+                        minimum=thresholds.get("minimum", 80.0),
+                        branches=thresholds.get("branches"),
+                        functions=thresholds.get("functions"),
+                        lines=thresholds.get("lines"),
+                        module_overrides=coverage_config.get("module_overrides", {})
                     )
             except (json.JSONDecodeError, IOError):
                 pass
@@ -285,12 +365,17 @@ class CoverageTracker:
             files=files
         )
 
-    def check_thresholds(self, report: CoverageReport) -> Tuple[bool, List[str]]:
+    def check_thresholds(
+        self,
+        report: CoverageReport,
+        check_per_module: bool = False
+    ) -> Tuple[bool, List[str]]:
         """
         Check if coverage report meets configured thresholds.
 
         Args:
             report: CoverageReport to check
+            check_per_module: If True, also check per-module thresholds
 
         Returns:
             Tuple of (passes, failing_metrics)
@@ -301,6 +386,34 @@ class CoverageTracker:
             functions=report.functions,
             lines=report.lines
         )
+
+        # Check per-module thresholds if enabled
+        if check_per_module:
+            for module_path, coverage in report.files.items():
+                module_threshold = self.threshold.get_threshold_for_module(module_path)
+                if not module_threshold.check_passes(coverage):
+                    module_failing = module_threshold.get_failing_metrics(coverage, module_path=module_path)
+                    failing.append(f"{module_path}: {', '.join(module_failing)}")
+
+        return len(failing) == 0, failing
+
+    def check_module_threshold(
+        self,
+        module_path: str,
+        coverage: float
+    ) -> Tuple[bool, List[str]]:
+        """
+        Check if a specific module meets its coverage threshold.
+
+        Args:
+            module_path: Path to module file
+            coverage: Coverage percentage for the module
+
+        Returns:
+            Tuple of (passes, failing_metrics)
+        """
+        module_threshold = self.threshold.get_threshold_for_module(module_path)
+        failing = module_threshold.get_failing_metrics(coverage, module_path=module_path)
 
         return len(failing) == 0, failing
 
