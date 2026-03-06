@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "workspace": ".",
+    "shell": "bash"
+  },
+  "agents": {
+    "codex-spec": {
+      "command": "codex",
+      "args": [
+        "--full-auto"
+      ],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "codex-impl": {
+      "command": "codex",
+      "args": [
+        "--full-auto"
+      ],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "claude-review": {
+      "command": "claude",
+      "args": [],
+      "supports_write": true,
+      "supports_background": true
+    }
+  }
+}
