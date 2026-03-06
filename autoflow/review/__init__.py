@@ -8,15 +8,15 @@ automatic test execution, coverage analysis, and QA findings management.
 __version__ = "1.0.0"
 
 # Import main components for easy access
-from .verification import VerificationOrchestrator
-from .coverage import CoverageTracker
-from .qa_findings import QAFindings, SeverityLevel
-from .approval import ApprovalGate
+# Only import modules that exist - others will be added as they're implemented
+from .coverage import (
+    CoverageTracker,
+    CoverageThreshold,
+    CoverageReport
+)
 
 __all__ = [
-    "VerificationOrchestrator",
     "CoverageTracker",
-    "QAFindings",
-    "SeverityLevel",
-    "ApprovalGate",
+    "CoverageThreshold",
+    "CoverageReport",
 ]
