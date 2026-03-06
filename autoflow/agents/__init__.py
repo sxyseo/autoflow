@@ -9,10 +9,23 @@ This module provides unified adapters for different AI agents:
 All adapters follow a common interface for consistent task execution.
 """
 
+from autoflow.agents.base import (
+    AgentAdapter,
+    AgentConfig,
+    ExecutionResult,
+    ExecutionStatus,
+    ResumeMode,
+)
+
 # Agent adapters will be imported here as they are implemented
-# from autoflow.agents.base import AgentAdapter, ExecutionResult, ResumeMode
 # from autoflow.agents.claude_code import ClaudeCodeAdapter
 # from autoflow.agents.codex import CodexAdapter
 # from autoflow.agents.openclaw import OpenClawAdapter
 
-__all__ = []
+__all__ = [
+    "AgentAdapter",
+    "AgentConfig",
+    "ExecutionResult",
+    "ExecutionStatus",
+    "ResumeMode",
+]
