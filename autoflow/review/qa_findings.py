@@ -145,7 +145,7 @@ class QAFindingReport:
         source: Source of the findings (e.g., "test", "coverage", "lint")
     """
     findings: List[QAFinding] = field(default_factory=list)
-    timestamp: str = field(default_factory="")
+    timestamp: str = ""
     source: str = ""
 
     def to_dict(self) -> dict:
