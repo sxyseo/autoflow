@@ -8,13 +8,17 @@ Usage:
     python3 scripts/test_runner.py discover
     python3 scripts/test_runner.py run [--auto-retry] [--max-attempts N]
     python3 scripts/test_runner.py coverage [--threshold N]
-    python3 scripts/test_runner.py detect-flaky [--runs N]
+    python3 scripts/test_runner.py detect-flaky [--runs N] [--quarantine]
+    python3 scripts/test_runner.py quarantine list
+    python3 scripts/test_runner.py quarantine remove <test_name>
 """
 
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,6 +30,98 @@ from test_framework import (
     FlakyTestDetector,
     TestFile,
 )
+
+
+# Path to flaky tests configuration
+FLAKY_TESTS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "flaky_tests.json"
+
+
+def load_quarantine_config() -> dict:
+    """Load the flaky tests quarantine configuration.
+
+    Returns:
+        Dictionary containing quarantined tests and metadata.
+    """
+    if not FLAKY_TESTS_CONFIG_PATH.exists():
+        return {
+            "quarantined_tests": {},
+            "metadata": {
+                "description": "Flaky tests that have been quarantined.",
+                "created_at": None,
+                "last_updated": None
+            }
+        }
+
+    with open(FLAKY_TESTS_CONFIG_PATH, "r") as f:
+        return json.load(f)
+
+
+def save_quarantine_config(config: dict) -> None:
+    """Save the flaky tests quarantine configuration.
+
+    Args:
+        config: Dictionary containing quarantined tests and metadata.
+    """
+    FLAKY_TESTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Update timestamp
+    config["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+    if config["metadata"]["created_at"] is None:
+        config["metadata"]["created_at"] = config["metadata"]["last_updated"]
+
+    with open(FLAKY_TESTS_CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def add_to_quarantine(test_name: str, pass_rate: float, runs: int, passed: int) -> None:
+    """Add a test to the quarantine.
+
+    Args:
+        test_name: Full test name (e.g., "tests/test_file.py::test_function").
+        pass_rate: Pass rate of the test (0.0 to 1.0).
+        runs: Number of runs performed.
+        passed: Number of passed runs.
+    """
+    config = load_quarantine_config()
+
+    config["quarantined_tests"][test_name] = {
+        "pass_rate": pass_rate,
+        "runs": runs,
+        "passed": passed,
+        "failed": runs - passed,
+        "quarantined_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    save_quarantine_config(config)
+
+
+def remove_from_quarantine(test_name: str) -> bool:
+    """Remove a test from the quarantine.
+
+    Args:
+        test_name: Full test name to remove.
+
+    Returns:
+        True if the test was removed, False if it wasn't in quarantine.
+    """
+    config = load_quarantine_config()
+
+    if test_name in config["quarantined_tests"]:
+        del config["quarantined_tests"][test_name]
+        save_quarantine_config(config)
+        return True
+
+    return False
+
+
+def get_quarantined_tests() -> dict[str, dict]:
+    """Get all quarantined tests.
+
+    Returns:
+        Dictionary of test names to their quarantine info.
+    """
+    config = load_quarantine_config()
+    return config.get("quarantined_tests", {})
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
@@ -156,6 +252,7 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
 
     runs = args.runs if args.runs else config.flaky_min_runs
     test_path = args.test if args.test else None
+    quarantine = args.quarantine if hasattr(args, "quarantine") else False
 
     print(f"Detecting flaky tests ({runs} runs)...\n")
 
@@ -167,12 +264,97 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
 
     print(f"Found {len(flaky_tests)} flaky tests:\n")
 
+    quarantined_count = 0
     for test_name, info in sorted(flaky_tests.items(), key=lambda x: -x[1]["pass_rate"]):
         print(f"  {test_name}")
         print(f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']})")
         print(f"    Quarantine recommended: {'Yes' if info['is_flaky'] else 'No'}")
+
+        # Auto-quarantine if flag is set and test is flaky
+        if quarantine and info["is_flaky"]:
+            add_to_quarantine(
+                test_name=test_name,
+                pass_rate=info["pass_rate"],
+                runs=info["runs"],
+                passed=info["passed"]
+            )
+            print(f"    Status: QUARANTINED")
+            quarantined_count += 1
+
         print()
 
+    if quarantine and quarantined_count > 0:
+        print(f"\n{quarantined_count} test(s) have been quarantined.")
+        print(f"Run 'python3 scripts/test_runner.py quarantine list' to view all quarantined tests.")
+
+    return 0
+
+
+def cmd_quarantine_list(args: argparse.Namespace) -> int:
+    """List all quarantined tests.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    quarantined = get_quarantined_tests()
+
+    if not quarantined:
+        print("No tests are currently quarantined.")
+        return 0
+
+    print(f"Quarantined tests ({len(quarantined)}):\n")
+
+    for test_name, info in sorted(quarantined.items()):
+        print(f"  {test_name}")
+        print(f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']} passed)")
+        print(f"    Quarantined at: {info.get('quarantined_at', 'unknown')}")
+        print()
+
+    return 0
+
+
+def cmd_quarantine_remove(args: argparse.Namespace) -> int:
+    """Remove a test from quarantine.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 if test not found).
+    """
+    test_name = args.test_name
+
+    if remove_from_quarantine(test_name):
+        print(f"Removed '{test_name}' from quarantine.")
+        return 0
+    else:
+        print(f"Test '{test_name}' is not in quarantine.")
+        return 1
+
+
+def cmd_quarantine_clear(args: argparse.Namespace) -> int:
+    """Clear all tests from quarantine.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    config = load_quarantine_config()
+    count = len(config.get("quarantined_tests", {}))
+
+    if count == 0:
+        print("No tests are currently quarantined.")
+        return 0
+
+    config["quarantined_tests"] = {}
+    save_quarantine_config(config)
+
+    print(f"Cleared {count} test(s) from quarantine.")
     return 0
 
 
@@ -191,6 +373,9 @@ Examples:
     python3 scripts/test_runner.py run --auto-retry --max-attempts 3
     python3 scripts/test_runner.py coverage --threshold 80
     python3 scripts/test_runner.py detect-flaky --runs 10
+    python3 scripts/test_runner.py detect-flaky --runs 5 --quarantine
+    python3 scripts/test_runner.py quarantine list
+    python3 scripts/test_runner.py quarantine remove "tests/test_file.py::test_name"
         """
     )
 
@@ -250,11 +435,67 @@ Examples:
         type=str,
         help="Specific test path to check"
     )
+    flaky_parser.add_argument(
+        "--quarantine",
+        action="store_true",
+        help="Automatically quarantine detected flaky tests"
+    )
+
+    # Quarantine command (with subcommands)
+    quarantine_parser = subparsers.add_parser(
+        "quarantine",
+        help="Manage quarantined flaky tests"
+    )
+    quarantine_subparsers = quarantine_parser.add_subparsers(
+        dest="quarantine_command",
+        help="Quarantine action"
+    )
+
+    # Quarantine list
+    quarantine_list_parser = quarantine_subparsers.add_parser(
+        "list",
+        help="List all quarantined tests"
+    )
+
+    # Quarantine remove
+    quarantine_remove_parser = quarantine_subparsers.add_parser(
+        "remove",
+        help="Remove a test from quarantine"
+    )
+    quarantine_remove_parser.add_argument(
+        "test_name",
+        help="Full test name to remove from quarantine"
+    )
+
+    # Quarantine clear
+    quarantine_clear_parser = quarantine_subparsers.add_parser(
+        "clear",
+        help="Clear all tests from quarantine"
+    )
 
     args = parser.parse_args()
 
     if args.command is None:
         parser.print_help()
+        return 0
+
+    # Handle quarantine subcommands
+    if args.command == "quarantine":
+        if args.quarantine_command is None:
+            quarantine_parser.print_help()
+            return 0
+
+        quarantine_handlers = {
+            "list": cmd_quarantine_list,
+            "remove": cmd_quarantine_remove,
+            "clear": cmd_quarantine_clear,
+        }
+
+        handler = quarantine_handlers.get(args.quarantine_command)
+        if handler:
+            return handler(args)
+
+        quarantine_parser.print_help()
         return 0
 
     # Route to appropriate command handler
