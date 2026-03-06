@@ -6,10 +6,35 @@ This module provides cron-based scheduling for continuous operation:
 - Job definitions: Monitoring and task distribution
 
 Enables automated task distribution and agent health monitoring.
+
+Usage:
+    from autoflow.scheduler import SchedulerDaemon
+
+    daemon = SchedulerDaemon()
+    await daemon.start()
 """
 
-# Scheduler components will be imported here as they are implemented
-# from autoflow.scheduler.daemon import SchedulerDaemon
-# from autoflow.scheduler.jobs import monitor_agents, distribute_tasks
+from autoflow.scheduler.daemon import (
+    DaemonStatus,
+    DaemonStats,
+    JobExecutionResult,
+    JobInfo,
+    JobStatus,
+    SchedulerDaemon,
+    SchedulerDaemonError,
+    run_daemon,
+)
 
-__all__ = []
+__all__ = [
+    # Daemon
+    "SchedulerDaemon",
+    "SchedulerDaemonError",
+    "run_daemon",
+    # Status enums
+    "DaemonStatus",
+    "JobStatus",
+    # Data models
+    "DaemonStats",
+    "JobInfo",
+    "JobExecutionResult",
+]
