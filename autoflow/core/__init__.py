@@ -16,12 +16,23 @@ from autoflow.core.config import (
     merge_configs,
     config_to_json5,
 )
+from autoflow.core.state import (
+    StateManager,
+    Task,
+    TaskStatus,
+    Run,
+    RunStatus,
+    Spec,
+    Memory,
+    read_json,
+    write_json,
+)
 
 # Core components will be imported here as they are implemented
 # from autoflow.core.orchestrator import AutoflowOrchestrator
-# from autoflow.core.state import StateManager
 
 __all__ = [
+    # Config
     "Config",
     "SystemConfig",
     "load_config",
@@ -29,4 +40,14 @@ __all__ = [
     "get_state_dir",
     "merge_configs",
     "config_to_json5",
+    # State
+    "StateManager",
+    "Task",
+    "TaskStatus",
+    "Run",
+    "RunStatus",
+    "Spec",
+    "Memory",
+    "read_json",
+    "write_json",
 ]
