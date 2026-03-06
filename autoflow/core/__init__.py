@@ -28,8 +28,16 @@ from autoflow.core.state import (
     write_json,
 )
 
-# Core components will be imported here as they are implemented
-# from autoflow.core.orchestrator import AutoflowOrchestrator
+# Orchestrator
+from autoflow.core.orchestrator import (
+    AutoflowOrchestrator,
+    OrchestratorStatus,
+    OrchestratorStats,
+    CyclePhase,
+    CycleResult,
+    OrchestratorError,
+    TaskResult,
+)
 
 __all__ = [
     # Config
@@ -50,4 +58,12 @@ __all__ = [
     "Memory",
     "read_json",
     "write_json",
+    # Orchestrator
+    "AutoflowOrchestrator",
+    "OrchestratorStatus",
+    "OrchestratorStats",
+    "CyclePhase",
+    "CycleResult",
+    "OrchestratorError",
+    "TaskResult",
 ]
