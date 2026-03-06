@@ -1,0 +1,206 @@
+{
+  // ===========================================
+  // Autoflow Settings Configuration
+  // ===========================================
+  // Copy this file to settings.json5 and customize
+  // for your environment.
+  // ===========================================
+
+  // OpenClaw integration settings
+  openclaw: {
+    // URL of the OpenClaw gateway server
+    gateway_url: "http://localhost:3000",
+
+    // Path to OpenClaw configuration file
+    config_path: "~/.openclaw/config.json5",
+
+    // Additional directories to load skills from
+    extra_dirs: [
+      "./skills",
+      "./templates/bmad",
+    ],
+  },
+
+  // Agent configurations
+  agents: {
+    // Claude Code CLI configuration
+    "claude-code": {
+      // Command to invoke Claude Code
+      command: "claude",
+
+      // Default arguments
+      args: ["--print"],
+
+      // Resume mode: "native" (Claude has built-in resume)
+      resume_mode: "native",
+
+      // Default timeout in seconds
+      timeout: 300,
+
+      // Maximum retries on failure
+      max_retries: 3,
+    },
+
+    // Codex CLI configuration
+    "codex": {
+      // Command to invoke Codex
+      command: "codex",
+
+      // Default arguments for JSON output
+      args: ["exec", "--json"],
+
+      // Resume mode: "reprompt" (Codex needs re-prompting)
+      resume_mode: "reprompt",
+
+      // Approval policy for automation
+      approval_policy: "never",
+
+      // Sandbox mode for file access
+      sandbox_mode: "full-access",
+
+      // Default timeout in seconds
+      timeout: 300,
+
+      // Maximum retries on failure
+      max_retries: 3,
+    },
+
+    // OpenClaw session adapter
+    "openclaw": {
+      // Use OpenClaw's native session management
+      resume_mode: "native",
+
+      // Default timeout in seconds
+      timeout: 600,
+    },
+  },
+
+  // Scheduler configuration
+  scheduler: {
+    // Enable the scheduler daemon
+    enabled: true,
+
+    // Log level for scheduler
+    log_level: "INFO",
+
+    // Scheduled jobs
+    jobs: [
+      {
+        // Monitor agent health
+        id: "monitor-agents",
+        cron: "*/5 * * * *",  // Every 5 minutes
+        handler: "autoflow.scheduler.jobs:monitor_agents",
+        enabled: true,
+      },
+      {
+        // Distribute pending tasks
+        id: "distribute-tasks",
+        cron: "*/10 * * * *",  // Every 10 minutes
+        handler: "autoflow.scheduler.jobs:distribute_tasks",
+        enabled: true,
+      },
+      {
+        // Clean up stale sessions
+        id: "cleanup-sessions",
+        cron: "0 * * * *",  // Every hour
+        handler: "autoflow.scheduler.jobs:cleanup_sessions",
+        enabled: true,
+      },
+      {
+        // Health check
+        id: "health-check",
+        cron: "*/15 * * * *",  // Every 15 minutes
+        handler: "autoflow.scheduler.jobs:health_check",
+        enabled: true,
+      },
+    ],
+  },
+
+  // CI gates configuration
+  ci: {
+    // Require all gates to pass before commit
+    require_all: true,
+
+    // Gate definitions
+    gates: [
+      {
+        type: "test",
+        command: "pytest tests/ -v",
+        timeout: 300,
+        required: true,
+      },
+      {
+        type: "lint",
+        command: "ruff check .",
+        timeout: 60,
+        required: true,
+      },
+      {
+        type: "security",
+        command: "bandit -r autoflow/",
+        timeout: 120,
+        required: false,
+      },
+      {
+        type: "typecheck",
+        command: "mypy autoflow/",
+        timeout: 120,
+        required: false,
+      },
+    ],
+  },
+
+  // Tmux session management
+  tmux: {
+    // Base name for autoflow sessions
+    session_prefix: "autoflow",
+
+    // Kill sessions after inactivity (seconds)
+    inactivity_timeout: 3600,  // 1 hour
+
+    // Maximum number of concurrent sessions
+    max_sessions: 10,
+  },
+
+  // State management
+  state: {
+    // Directory for state files (relative to project root)
+    directory: ".autoflow",
+
+    // Backup interval in seconds
+    backup_interval: 300,  // 5 minutes
+
+    // Maximum number of backups to keep
+    max_backups: 10,
+  },
+
+  // Code review settings
+  review: {
+    // Enable multi-agent cross-review
+    enabled: true,
+
+    // Agents to use for review
+    reviewers: ["claude-code", "codex"],
+
+    // Require approval before merge
+    require_approval: true,
+
+    // Maximum review rounds
+    max_rounds: 3,
+  },
+
+  // Logging configuration
+  logging: {
+    // Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level: "INFO",
+
+    // Log file path (relative to state directory)
+    file: "logs/autoflow.log",
+
+    // Maximum log file size in MB
+    max_size: 10,
+
+    // Number of backup log files
+    backup_count: 5,
+  },
+}
