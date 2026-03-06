@@ -14,9 +14,21 @@ from .coverage import (
     CoverageThreshold,
     CoverageReport
 )
+from .approval import (
+    ApprovalToken,
+    ApprovalGateConfig,
+    ApprovalGate,
+    create_git_commit_message_with_approval,
+    extract_approval_hash_from_commit
+)
 
 __all__ = [
     "CoverageTracker",
     "CoverageThreshold",
     "CoverageReport",
+    "ApprovalToken",
+    "ApprovalGateConfig",
+    "ApprovalGate",
+    "create_git_commit_message_with_approval",
+    "extract_approval_hash_from_commit",
 ]
