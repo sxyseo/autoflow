@@ -21,8 +21,21 @@ from autoflow.ci.verifier import (
     create_verifier,
 )
 
-# Gate components will be imported here as they are implemented
-# from autoflow.ci.gates import TestGate, LintGate, SecurityGate
+from autoflow.ci.gates import (
+    BaseGate,
+    GateConfig,
+    GateResult,
+    GateRunner,
+    GateRunnerResult,
+    GateSeverity,
+    GateStatus,
+    LintGate,
+    SecurityGate,
+    TestGate,
+    TypeCheckGate,
+    create_default_gates,
+    create_default_runner,
+)
 
 __all__ = [
     # Verifier
@@ -35,8 +48,18 @@ __all__ = [
     "CheckType",
     "VerificationResult",
     "create_verifier",
-    # Gates (future)
-    # "TestGate",
-    # "LintGate",
-    # "SecurityGate",
+    # Gates
+    "BaseGate",
+    "GateConfig",
+    "GateResult",
+    "GateRunner",
+    "GateRunnerResult",
+    "GateSeverity",
+    "GateStatus",
+    "LintGate",
+    "SecurityGate",
+    "TestGate",
+    "TypeCheckGate",
+    "create_default_gates",
+    "create_default_runner",
 ]
