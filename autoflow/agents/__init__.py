@@ -18,9 +18,7 @@ from autoflow.agents.base import (
 )
 from autoflow.agents.claude_code import ClaudeCodeAdapter
 from autoflow.agents.codex import CodexAdapter
-
-# Agent adapters will be imported here as they are implemented
-# from autoflow.agents.openclaw import OpenClawAdapter
+from autoflow.agents.openclaw import OpenClawAdapter, OpenClawRuntime, SpawnResult
 
 __all__ = [
     "AgentAdapter",
@@ -29,5 +27,8 @@ __all__ = [
     "CodexAdapter",
     "ExecutionResult",
     "ExecutionStatus",
+    "OpenClawAdapter",
+    "OpenClawRuntime",
     "ResumeMode",
+    "SpawnResult",
 ]
