@@ -90,6 +90,7 @@ class AgentSpec:
     name: str
     command: str
     args: list[str]
+    resume: dict[str, Any] | None = None
 
 
 def load_agents() -> dict[str, AgentSpec]:
@@ -104,6 +105,7 @@ def load_agents() -> dict[str, AgentSpec]:
             name=name,
             command=spec["command"],
             args=list(spec.get("args", [])),
+            resume=spec.get("resume"),
         )
     return agents
 
@@ -324,6 +326,18 @@ def load_bmad_template(role: str) -> str:
     if not path.exists():
         return "No BMAD template configured for this role."
     return path.read_text(encoding="utf-8")
+
+
+def native_resume_preview(agent: AgentSpec) -> list[str]:
+    if not agent.resume:
+        return []
+    mode = agent.resume.get("mode", "none")
+    resume_args = list(agent.resume.get("args", []))
+    if mode == "subcommand":
+        return [agent.command, *agent.args, agent.resume.get("subcommand", "resume"), *resume_args, "<prompt>"]
+    if mode == "args":
+        return [agent.command, *agent.args, *resume_args, "<prompt>"]
+    return []
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
@@ -766,6 +780,7 @@ def create_run_record(
     branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
     target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
+    run_json_path = run_dir / "run.json"
     run_script = run_dir / "run.sh"
     run_script.write_text(
         "\n".join(
@@ -773,7 +788,7 @@ def create_run_record(
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
                 f"cd {shlex.quote(str(target_workdir))}",
-                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))}",
+                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}",
                 "",
             ]
         ),
@@ -796,12 +811,14 @@ def create_run_record(
         "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
+        "native_resume_supported": bool(agent.resume),
+        "native_resume_command_preview": native_resume_preview(agent),
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
         },
     }
-    write_json(run_dir / "run.json", metadata)
+    write_json(run_json_path, metadata)
     record_event(spec_slug, "run.created", {"run": run_id, "task": task_id, "role": role})
     return run_dir
 

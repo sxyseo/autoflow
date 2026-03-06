@@ -9,6 +9,13 @@
       "args": [
         "--full-auto"
       ],
+      "resume": {
+        "mode": "subcommand",
+        "subcommand": "resume",
+        "args": [
+          "--last"
+        ]
+      },
       "supports_write": true,
       "supports_background": true
     },
@@ -17,12 +24,25 @@
       "args": [
         "--full-auto"
       ],
+      "resume": {
+        "mode": "subcommand",
+        "subcommand": "resume",
+        "args": [
+          "--last"
+        ]
+      },
       "supports_write": true,
       "supports_background": true
     },
     "claude-review": {
       "command": "claude",
       "args": [],
+      "resume": {
+        "mode": "args",
+        "args": [
+          "--continue"
+        ]
+      },
       "supports_write": true,
       "supports_background": true
     }

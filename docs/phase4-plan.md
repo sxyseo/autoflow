@@ -36,6 +36,7 @@ Evolve Autoflow from a prompt-and-run harness into a safer autonomous delivery l
 - Phase 4B
 - Phase 4C
 - Phase 4D (first batch)
+- Phase 4D (native continuation wiring)
 
 ## Next candidates
 

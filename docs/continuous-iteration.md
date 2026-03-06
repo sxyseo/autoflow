@@ -41,6 +41,7 @@ Behavior:
 
 If `review_status.valid` is false for an implementation or maintenance task, the loop must stop and wait for re-approval.
 If a task has already failed the configured number of automatic retries, the loop must stop and report the retry-limit blocker.
+If a retry run is created, the agent runner will prefer the backend's native continuation mode when configured.
 
 ### `scripts/git-auto-commit.sh`
 

@@ -46,6 +46,7 @@ docs/
   openclaw-integration.md
   phase4-plan.md
 scripts/
+  agent_runner.py
   autoflow.py
   continuous_iteration.py
   git-auto-commit.sh
@@ -153,5 +154,6 @@ This repository now provides a minimal autonomous workflow harness:
 - recovery-aware prompts and per-spec event logs
 - review-gated implementation dispatch after planning changes
 - reviewer-generated `QA_FIX_REQUEST.md` artifacts and resumable retry runs
+- codex/claude native continuation wired through the agent runner
 
 It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.

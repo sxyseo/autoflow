@@ -34,6 +34,7 @@ OpenClaw should not own long-lived project state directly. Instead it should cal
 
 If `workflow-state` reports `review_approval_required`, do not dispatch implementation. Re-approve the spec first.
 If the retry policy blocks a task, stop and surface the blocker instead of silently re-running the same task.
+If a retry run exists, let the configured backend use its native continuation mode instead of starting a brand-new session blindly.
 
 ## Role to backend mapping
 
