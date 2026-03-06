@@ -1,0 +1,148 @@
+#!/bin/bash
+
+#############################################
+# Autoflow Pre-Commit Hook
+#
+# Runs tests and checks coverage before
+# allowing commits to proceed.
+# Part of Enhanced Review Gates system.
+#############################################
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Configuration
+VERBOSE=${VERBOSE:-0}
+SKIP_TESTS=${SKIP_TESTS:-0}
+SKIP_COVERAGE=${SKIP_COVERAGE:-0}
+
+#############################################
+# HELPER FUNCTIONS
+#############################################
+
+print_header() {
+    echo ""
+    echo "========================================"
+    echo "$1"
+    echo "========================================"
+}
+
+print_section() {
+    echo ""
+    echo -e "${BLUE}▶ $1${NC}"
+}
+
+success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+#############################################
+# CHECK SKIP FLAGS
+#############################################
+
+if [ "$SKIP_TESTS" = "1" ]; then
+    warning "Skipping tests (SKIP_TESTS=1)"
+fi
+
+if [ "$SKIP_COVERAGE" = "1" ]; then
+    warning "Skipping coverage check (SKIP_COVERAGE=1)"
+fi
+
+#############################################
+# RUN TESTS
+#############################################
+
+if [ "$SKIP_TESTS" != "1" ]; then
+    print_header "RUNNING TESTS"
+
+    TEST_RUNNER="$PROJECT_ROOT/scripts/run_tests.py"
+
+    if [ ! -f "$TEST_RUNNER" ]; then
+        error "Test runner not found: $TEST_RUNNER"
+        exit 1
+    fi
+
+    if [ "$VERBOSE" = "1" ]; then
+        print_section "Executing test suite"
+    fi
+
+    # Run tests and capture output
+    if python3 "$TEST_RUNNER"; then
+        success "All tests passed"
+    else
+        error "Tests failed"
+        echo ""
+        echo "Commit blocked due to test failures."
+        echo "Fix failing tests and try again."
+        echo ""
+        echo "To skip tests (not recommended):"
+        echo "  SKIP_TESTS=1 git commit"
+        echo ""
+        exit 1
+    fi
+fi
+
+#############################################
+# CHECK COVERAGE
+#############################################
+
+if [ "$SKIP_COVERAGE" != "1" ]; then
+    print_header "CHECKING COVERAGE"
+
+    COVERAGE_SCRIPT="$PROJECT_ROOT/scripts/coverage_report.py"
+
+    if [ ! -f "$COVERAGE_SCRIPT" ]; then
+        warning "Coverage script not found: $COVERAGE_SCRIPT"
+        warning "Skipping coverage check"
+    else
+        if [ "$VERBOSE" = "1" ]; then
+            print_section "Executing coverage analysis"
+        fi
+
+        # Check coverage against thresholds
+        if python3 "$COVERAGE_SCRIPT" --check; then
+            success "Coverage meets thresholds"
+        else
+            error "Coverage thresholds not met"
+            echo ""
+            echo "Commit blocked due to insufficient coverage."
+            echo "Improve test coverage and try again."
+            echo ""
+            echo "To view detailed coverage report:"
+            echo "  python3 scripts/coverage_report.py --show-files"
+            echo ""
+            echo "To skip coverage check (not recommended):"
+            echo "  SKIP_COVERAGE=1 git commit"
+            echo ""
+            exit 1
+        fi
+    fi
+fi
+
+#############################################
+# SUCCESS
+#############################################
+
+print_header "PRE-COMMIT CHECKS PASSED"
+success "All verification checks completed successfully"
+echo ""
+
+exit 0
