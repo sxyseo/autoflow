@@ -1,244 +1,868 @@
 # Autoflow
 
-Autoflow is a thin control plane for autonomous software delivery. It is designed to let OpenClaw or other agent hosts run a repeatable loop around spec creation, task decomposition, implementation, review, and maintenance while delegating concrete coding work to `codex`, `claude`, or other CLI agents.
+<div align="center">
 
-The initial goal is not full autonomy. The initial goal is a reliable harness:
+**Autonomous Software Delivery Control Plane**
 
-- explicit specs and task state
-- deterministic prompt assembly
-- swappable agent backends
-- background execution via `tmux`
-- review and merge gates
-- resumable runs with logs
+Inspired by OpenAI's "Harness Engineering" philosophy and AI-driven development workflows
 
-## Why this shape
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-OpenAI's Harness Engineering article argues that strong agents come from a strong harness: evaluation, orchestration, checkpoints, and clear contracts around tool use. This repository applies that idea to software development:
+**[English](README.md) | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)**
 
-- `spec` defines intent
-- `tasks` define work units and dependencies
-- `skills` define reusable workflows
-- `runs` store concrete executions
-- `agents.json` maps logical roles to concrete CLIs
+</div>
 
-## Proposed stack
+---
 
-Use OpenClaw as the outer orchestrator. Use this repository as the workflow contract that OpenClaw executes. Use other methods as focused subsystems rather than one merged meta-framework:
+## Table of Contents
 
-- Taskmaster AI: task graph and execution backlog
-- BMAD: role framing and delivery checkpoints
-- Spec Driven Development: spec-first artifact flow
-- Symphony: optional future orchestrator for structured multi-agent workflows
+- [Overview](#overview)
+- [Philosophy](#philosophy)
+- [Key Concepts](#key-concepts)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Advanced Topics](#advanced-topics)
+- [Best Practices](#best-practices)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-Recommendation: start with OpenClaw + spec-driven artifacts + Taskmaster-style task graph. Add BMAD role prompts next. Add Symphony only after the single-node harness is stable.
+## Overview
 
-## Repository layout
+**Autoflow** is a thin control plane for autonomous software delivery. It enables AI agents to run repeatable loops around spec creation, task decomposition, implementation, review, and maintenance while delegating concrete coding work to various AI agent backends.
 
-```text
-config/
-  agents.example.json
-  autonomy.example.json
-  system.example.json
-docs/
-  ai-pipeline-lessons.md
-  auto-claude-lessons.md
-  architecture.md
-  method-stack.md
-  control-loop.md
-  continuous-iteration.md
-  openclaw-integration.md
-  phase4-plan.md
-  phase5-plan.md
-scripts/
-  agent_runner.py
-  autoflow.py
-  autonomy_orchestrator.py
-  cli_healthcheck.py
-  ci_check.sh
-  continuous_iteration.py
-  git-auto-commit.sh
-  git-prepare-branch.sh
-  run-agent.sh
-  tmux-start.sh
-  workflow-dispatch.sh
-skills/
-  iteration-manager/
-  openclaw-orchestrator/
-  spec-writer/
-  task-graph-manager/
-  implementation-runner/
-  reviewer/
-  maintainer/
-templates/
-  bmad/
+### What Makes Autoflow Different
+
+Unlike traditional development tools, Autoflow is built from the ground up for **AI-driven development**:
+
+- **State as Source of Truth**: Every spec, task, run, and decision is explicitly tracked
+- **Deterministic Prompts**: Reusable skills and templates ensure consistent agent behavior
+- **Swappable Backends**: Use OpenClaw, Claude Code, Codex, or custom agents interchangeably
+- **Background Execution**: Agents run autonomously via `tmux` without blocking workflows
+- **Automated Gates**: Review, testing, and merge checks prevent bad commits
+- **Full Recovery**: Every run is logged and resumable for transparency and debugging
+
+### The Goal: Reliable AI Autonomy
+
+The initial goal is **not** full autonomy—it's a **reliable harness** where:
+
+- Humans define goals, boundaries, and acceptance criteria
+- AI operates autonomously within those constraints
+- Every change is tested, reviewed, and committed atomically
+- Failed iterations automatically trigger fixes, not human intervention
+
+## Philosophy
+
+### Harness Engineering
+
+Autoflow is inspired by [OpenAI's Harness Engineering](https://openai.com/index/harness-engineering/) philosophy: **strong agents come from strong harnesses**.
+
+A harness provides:
+- **Evaluation**: Clear metrics for success and failure
+- **Orchestration**: Coordinated multi-agent workflows
+- **Checkpoints**: Recoverable state and rollback capability
+- **Contracts**: Well-defined interfaces for tool use
+
+### AI Self-Completion Loops
+
+Autoflow enables autonomous development cycles:
+
+```
+Traditional AI Coding:
+Human discovers issue → Human writes prompt → AI writes code → Human verifies → (repeat)
+
+Autoflow Workflow:
+AI discovers issue → AI fixes → AI tests → AI commits → (loop every 1-2 minutes)
+```
+
+**Key insights**:
+1. **Automated testing is prerequisite**: Every commit must pass tests
+2. **AI self-completion loops**: AI discovers, fixes, tests, and commits autonomously
+3. **Fine-grained commits**: Small changes (few lines) enable safe, fast iteration
+4. **Human-in-the-loop for rules, not execution**: Humans set boundaries; AI handles execution
+
+### Spec-Driven Development
+
+Autoflow applies spec-driven development principles:
+
+- **Spec** defines intent, constraints, and acceptance criteria
+- **Tasks** define work units with dependencies and status
+- **Skills** define reusable workflows for each role
+- **Runs** store concrete executions with full context
+- **Agents** map logical roles to concrete AI backends
+
+## Key Concepts
+
+### State Hierarchy
+
+```
 .autoflow/
-  specs/
-  tasks/
-  runs/
-  logs/
+├── specs/           # Product intent and constraints
+│   └── <slug>/
+│       ├── SPEC.md              # Requirements and constraints
+│       ├── TASKS.json           # Task graph and status
+│       ├── QA_FIX_REQUEST.md    # Review findings (markdown)
+│       ├── QA_FIX_REQUEST.json  # Review findings (structured)
+│       └── events.jsonl         # Event log
+├── tasks/           # Task definitions and status
+├── runs/            # Per-execution prompts, logs, outputs
+│   └── <timestamp>-<role>-<spec>-<task>/
+│       ├── prompt.md            # Full prompt sent to agent
+│       ├── summary.md           # Agent's summary
+│       ├── run.sh               # Execution script
+│       └── metadata.json        # Run metadata
+├── memory/          # Scoped memory capture
+│   ├── global.md                # Cross-spec lessons
+│   └── specs/
+│       └── <slug>.md            # Per-spec context
+├── worktrees/       # Per-spec git worktrees
+└── logs/            # Execution logs
 ```
 
-## Quick start
+### Task Status Workflow
 
-1. Copy the agent config.
-
-```bash
-cp config/agents.example.json .autoflow/agents.json
+```
+todo → in_progress → in_review → done
+                   ↓           ↑
+              needs_changes    |
+                   ↓           |
+                blocked ←─────┘
+                   ↓
+                  todo
 ```
 
-2. Create the local state directories.
+**Valid statuses**:
+- `todo`: Ready to start
+- `in_progress`: Currently being executed
+- `in_review`: Awaiting review
+- `done`: Completed and approved
+- `needs_changes`: Review found issues
+- `blocked`: Waiting on dependencies
+
+### Run Results
+
+**Valid results**:
+- `success`: Task completed successfully
+- `needs_changes`: Completed but requires fixes
+- `blocked`: Cannot proceed due to dependencies
+- `failed`: Execution failed
+
+### Skills and Roles
+
+Autoflow defines **skills** as reusable workflows:
+
+| Skill | Role | Description |
+|-------|------|-------------|
+| `spec-writer` | Planner | Convert intent into structured specs |
+| `task-graph-manager` | Architect | Derive and refine execution graph |
+| `implementation-runner` | Implementer | Execute coding slices with bounded scope |
+| `reviewer` | Quality Assurance | Run review, regression, and merge checks |
+| `maintainer` | Operator | Issue triage, dependency bumps, cleanup |
+
+Each skill includes:
+- **Workflow description**: Step-by-step process
+- **Role framing**: Templates for consistent agent behavior
+- **Rules and constraints**: What the agent can and cannot do
+- **Output format**: Expected artifacts and handoffs
+
+### Agent Protocols
+
+Autoflow supports multiple agent protocols:
+
+#### CLI Protocol (codex, claude)
+
+```json
+{
+  "protocol": "cli",
+  "command": "claude",
+  "args": ["--full-auto"],
+  "model_profile": "implementation",
+  "memory_scopes": ["global", "spec"],
+  "resume": {
+    "mode": "subcommand",
+    "subcommand": "resume",
+    "args": ["--last"]
+  }
+}
+```
+
+#### ACP Protocol (acp-agent)
+
+```json
+{
+  "protocol": "acp",
+  "transport": {
+    "type": "stdio",
+    "command": "my-agent",
+    "args": []
+  },
+  "prompt_mode": "argv"
+}
+```
+
+## Architecture
+
+### Four-Layer System
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Layer 4: Governance                         │
+│              Review Gates, CI/CD, Branch Policy              │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────┴─────────────────────────────────┐
+│                  Layer 3: Execution                          │
+│           Spec, Role, Agent, Prompt, Workspace               │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────┴─────────────────────────────────┐
+│                  Layer 2: Roles (Skills)                     │
+│    Spec-Writer, Task-Graph-Manager, Implementation-Runner,   │
+│              Reviewer, Maintainer, Iteration-Manager         │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────┴─────────────────────────────────┐
+│                  Layer 1: Control Plane                      │
+│              State, Config, Memory, Discovery                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Component Diagram
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      External Orchestrator                    │
+│                    (Cron / Human / Custom)                    │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Autoflow Control Plane                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │  Specs   │  │  Tasks   │  │   Runs   │  │  Memory  │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
+│       │             │             │             │           │
+│       └─────────────┴─────────────┴─────────────┘           │
+│                           │                                 │
+│  ┌────────────────────────┴────────────────────────────┐    │
+│  │                    Skill System                     │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐           │    │
+│  │  │ Spec     │ │ Task     │ │Implement │           │    │
+│  │  │ Writer   │ │ Graph    │ │ Runner   │           │    │
+│  │  └──────────┘ └──────────┘ └──────────┘           │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐           │    │
+│  │  │ Reviewer │ │Maintainer│ │Iteration │           │    │
+│  │  └──────────┘ └──────────┘ └──────────┘           │    │
+│  └────────────────────────┬────────────────────────────┘    │
+│                           │                                 │
+│  ┌────────────────────────┴────────────────────────────┐    │
+│  │                 Agent Registry                      │    │
+│  │  CLI (claude, codex) │ ACP (custom) │ Orchestrate   │    │
+│  └────────────────────────┬────────────────────────────┘    │
+└───────────────────────────┼─────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      Execution Layer                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │  tmux    │  │  Agent   │  │  Git     │  │  Worktree│  │
+│  │ Sessions │  │  Runner  │  │  Operations│  │ Isolation│  │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Features
+
+### 1. Explicit State Management
+
+Every aspect of the development process is explicitly tracked:
+
+- **Specs**: Intent, requirements, constraints, acceptance criteria
+- **Tasks**: Work units with dependencies, status, and assignments
+- **Runs**: Complete execution history with prompts, outputs, and metadata
+- **Memory**: Scoped learning capture across specs and runs
+- **Events**: Per-spec event logs for audit and recovery
+
+### 2. Deterministic Prompt Assembly
+
+Autoflow ensures consistent agent behavior through:
+
+- **Skill definitions**: Reusable workflows with clear steps
+- **Role templates**: Role-framing for consistent agent personas
+- **Context injection**: Automated inclusion of relevant state, memory, and findings
+- **Prompt versioning**: Full prompt stored with each run for reproducibility
+
+### 3. Swappable Agent Backends
+
+Support for multiple AI backends through unified protocols:
+
+- **CLI Protocol**: For command-line agents (claude, codex)
+- **ACP Protocol**: For Agent Communication Protocol agents
+- **Native continuation**: Agent-specific resume mechanisms
+- **Dynamic fallback**: Automatic agent selection on failures
+
+### 4. Background Execution
+
+Autonomous operation via `tmux`:
+
+- **Non-blocking**: Runs execute in background without disrupting workflows
+- **Attachable**: Monitor runs in real-time or review logs later
+- **Resumable**: Native continuation support for interrupted runs
+- **Resource-managed**: Concurrent run limits per agent and spec
+
+### 5. Review and Merge Gates
+
+Automated quality checks prevent bad commits:
+
+- **Structured findings**: Machine-readable QA artifacts with location, severity, and fixes
+- **Hash-based approval**: Implementation hash must match approved review
+- **Gate enforcement**: System blocks implementation after planning changes
+- **Task-driven retries**: Structured findings injected into fix prompts
+
+### 6. Memory and Learning
+
+Accumulated wisdom across runs:
+
+- **Global memory**: Cross-spec lessons and patterns
+- **Spec memory**: Per-spec context and history
+- **Strategy memory**: Playbooks for repeated blockers
+- **Auto-capture**: Memory extracted from successful runs
+- **Prompt injection**: Context automatically included based on agent config
+
+### 7. Worktree Isolation
+
+Safe parallel development:
+
+- **Per-spec worktrees**: Isolated git working trees
+- **Clean main repo**: Main branch remains pristine
+- **Atomic merges**: Changes merged only after approval
+- **Easy rollback**: Revert worktree on failure
+
+### 8. Continuous Iteration
+
+Scheduled autonomous development:
+
+- **Tick-based loop**: Check, commit, dispatch, push
+- **Auto-commit**: Descriptive commits with prefixed messages
+- **Verification**: Pre-commit tests and checks
+- **Progress tracking**: Automatic task state advancement
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Git
+- tmux
+- An AI agent backend (Claude Code, Codex, or custom)
+
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/your-org/autoflow.git
+cd autoflow
+
+# (Optional) Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Initialization
+
+```bash
+# 1. Setup local state directories
 python3 scripts/autoflow.py init
-```
 
-3. Initialize the local system config for memory, model profiles, tool profiles, and ACP registry entries.
-
-```bash
+# 2. Initialize system configuration
 python3 scripts/autoflow.py init-system-config
-```
 
-4. Discover local/ACP agents and materialize them into `.autoflow/agents.json` when needed.
+# 3. Copy and customize agent configuration
+cp config/agents.example.json .autoflow/agents.json
 
-```bash
+# 4. Edit agent configuration to add your AI backends
+# Edit .autoflow/agents.json to configure your agents
+
+# 5. Discover and sync local/ACP agents
 python3 scripts/autoflow.py sync-agents
 ```
 
-5. Create a spec and seed tasks.
+### Create Your First Spec
 
 ```bash
 python3 scripts/autoflow.py new-spec \
-  --slug openclaw-autonomy \
-  --title "OpenClaw autonomous development system" \
-  --summary "Build a multi-agent autonomous development harness with skills, task graph, review gates, and background execution."
+  --slug my-first-project \
+  --title "My First AI Project" \
+  --summary "Build an amazing AI-powered application"
 ```
 
-6. Generate a run prompt for a role.
+### Generate Task Graph
 
 ```bash
-python3 scripts/autoflow.py new-run \
-  --spec openclaw-autonomy \
-  --role spec-writer \
-  --agent codex-spec \
-  --task T1
+# Let AI decompose your spec into tasks
+python3 scripts/autoflow.py init-tasks --spec my-first-project
+
+# View the workflow state
+python3 scripts/autoflow.py workflow-state --spec my-first-project
 ```
 
-7. Launch the run in `tmux`.
+### Start Autonomous Development
 
 ```bash
-scripts/tmux-start.sh .autoflow/runs/<run-id>/run.sh
-```
-
-8. Inspect the workflow state.
-
-```bash
-python3 scripts/autoflow.py workflow-state --spec openclaw-autonomy
-```
-
-9. Close a finished run and advance task state.
-
-```bash
-python3 scripts/autoflow.py complete-run \
-  --run <run-id> \
-  --result success \
-  --summary "Implementation finished and is ready for review."
-```
-
-10. Run one scheduled iteration tick.
-
-```bash
-python3 scripts/autonomy_orchestrator.py tick \
-  --spec openclaw-autonomy \
-  --config config/autonomy.example.json \
+# Enable continuous iteration
+python3 scripts/continuous_iteration.py \
+  --spec my-first-project \
+  --config config/continuous-iteration.example.json \
   --commit-if-dirty \
   --dispatch \
   --push
 ```
 
-11. Inspect structured reviewer findings or stored memory.
+That's it! Autoflow will now:
+1. Check for completed work
+2. Commit changes with descriptive messages
+3. Run verification tests
+4. Dispatch next ready task
+5. Launch agent in background
+6. Repeat every 2-5 minutes
 
-```bash
-python3 scripts/autoflow.py show-fix-request --spec openclaw-autonomy
-python3 scripts/autoflow.py show-memory --scope spec --spec openclaw-autonomy
-python3 scripts/autoflow.py show-strategy --spec openclaw-autonomy
+## Configuration
+
+### Agent Configuration (`.autoflow/agents.json`)
+
+```json
+{
+  "agents": {
+    "claude-impl": {
+      "name": "Claude Implementation Agent",
+      "protocol": "cli",
+      "command": "claude",
+      "args": ["--full-auto"],
+      "model_profile": "implementation",
+      "tool_profile": "default",
+      "memory_scopes": ["global", "spec"],
+      "roles": ["implementation-runner", "maintainer"],
+      "max_concurrent": 3,
+      "resume": {
+        "mode": "subcommand",
+        "subcommand": "resume",
+        "args": ["--last"]
+      }
+    },
+    "codex-spec": {
+      "name": "Codex Specification Agent",
+      "protocol": "cli",
+      "command": "codex",
+      "args": ["--full-auto"],
+      "model_profile": "spec",
+      "tool_profile": "spec-tools",
+      "memory_scopes": ["global"],
+      "roles": ["spec-writer", "task-graph-manager"],
+      "max_concurrent": 2
+    }
+  }
+}
 ```
 
-## What is implemented now
+### System Configuration (`.autoflow/system.json`)
 
-This repository now provides a minimal autonomous workflow harness:
+```json
+{
+  "memory": {
+    "enabled": true,
+    "scopes": ["global", "spec", "strategy"],
+    "auto_capture": true,
+    "global_memory_path": ".autoflow/memory/global.md",
+    "spec_memory_dir": ".autoflow/memory/specs",
+    "strategy_memory_dir": ".autoflow/memory/strategy"
+  },
+  "model_profiles": {
+    "spec": {
+      "model": "claude-sonnet-4-6",
+      "temperature": 0.7,
+      "max_tokens": 8192
+    },
+    "implementation": {
+      "model": "claude-sonnet-4-6",
+      "temperature": 0.3,
+      "max_tokens": 16384
+    },
+    "review": {
+      "model": "claude-opus-4-6",
+      "temperature": 0.2,
+      "max_tokens": 16384
+    }
+  },
+  "tool_profiles": {
+    "default": {
+      "allowed_tools": ["read", "write", "edit", "bash", "search"],
+      "denied_tools": []
+    },
+    "spec-tools": {
+      "allowed_tools": ["read", "write", "edit", "search"],
+      "denied_tools": ["bash"]
+    }
+  },
+  "acp_registry": {
+    "enabled": true,
+    "discovery_paths": [
+      "/usr/local/bin/acp-agents/*",
+      "~/.local/share/acp-agents/*"
+    ]
+  }
+}
+```
 
-- repository structure and docs
-- reusable skill definitions
-- agent mapping config
-- a Python control-plane CLI with task lifecycle support
-- shell wrappers for local agent execution, branch prep, auto-commit, and `tmux`
-- handoff artifacts and a review gate
-- an OpenClaw-oriented dispatch contract
-- BMAD role templates injected into prompts
-- a phase 3 continuous iteration loop for scheduled commit and dispatch
-- per-spec worktree support inspired by Auto-Claude
-- hash-based review approval and invalidation
-- recovery-aware prompts and per-spec event logs
-- review-gated implementation dispatch after planning changes
-- reviewer-generated `QA_FIX_REQUEST.md` and `QA_FIX_REQUEST.json` artifacts with structured findings
-- structured findings in prompt context with `file`, `line`, `severity`, `category`, `suggested_fix`, and `source_run`
-- system-level memory configuration with scoped memory capture and prompt injection
-- cumulative planner/reflection strategy memory with playbook generation
-- central model/tool profiles resolved from `config/system.example.json`
-- CLI and ACP agent discovery plus `sync-agents` to materialize runnable local catalogs
-- dynamic fallback agent selection during scheduled dispatch
-- Taskmaster-friendly task import/export
-- outer-loop autonomy orchestration for OpenClaw-style schedulers
-- CLI health monitoring for `codex`, `claude`, and `tmux`
-- repo-local CI checks plus GitHub Actions coverage for automated iterations
-- codex/claude native continuation wired through the agent runner
+### Continuous Iteration Configuration
 
-It still does not integrate directly with Taskmaster AI or Symphony APIs. BMAD is currently used as a prompt-template layer, not yet as a richer handoff framework.
+```json
+{
+  "spec": "my-first-project",
+  "role_agents": {
+    "spec-writer": "codex-spec",
+    "task-graph-manager": "codex-spec",
+    "implementation-runner": "claude-impl",
+    "reviewer": "claude-review",
+    "maintainer": "claude-impl"
+  },
+  "verify_commands": [
+    "python3 -m pytest tests/ -v",
+    "python3 scripts/ci_check.sh"
+  ],
+  "commit": {
+    "enabled": true,
+    "message_prefix": "autoflow:",
+    "push": true,
+    "require_active_run": false
+  },
+  "dispatch": {
+    "enabled": true,
+    "max_concurrent_runs": 5,
+    "dispatch_interval_seconds": 120
+  },
+  "retry_policy": {
+    "max_attempts": 3,
+    "require_fix_request": true,
+    "backoff_multiplier": 2
+  }
+}
+```
 
-## System configuration
+## Usage
 
-Autoflow now has two configuration layers:
+### Basic Commands
 
-- `.autoflow/agents.json`: runnable agent catalog, role bindings, protocol details, and backend-specific resume behavior
-- `.autoflow/system.json`: local memory settings, model profiles, tool profiles, and ACP registry entries
+#### Spec Management
 
-Use `model_profile` and `tool_profile` in agent entries when you want a shared system-level configuration, and override with concrete `model` or `tools` on a per-agent basis when needed.
+```bash
+# Create a new spec
+python3 scripts/autoflow.py new-spec \
+  --slug <spec-slug> \
+  --title "<title>" \
+  --summary "<summary>"
 
-## Structured QA findings
+# Update existing spec
+python3 scripts/autoflow.py update-spec --slug <spec-slug>
 
-Reviewer failures now produce both markdown and JSON artifacts:
+# View spec details
+python3 scripts/autoflow.py show-spec --slug <spec-slug>
+```
 
-- `.autoflow/specs/<slug>/QA_FIX_REQUEST.md`
-- `.autoflow/specs/<slug>/QA_FIX_REQUEST.json`
+#### Task Management
 
-Each finding is machine-readable and can carry:
+```bash
+# Initialize tasks for a spec
+python3 scripts/autoflow.py init-tasks --spec <spec-slug>
 
-- `file`
-- `line`
-- `end_line`
-- `severity`
-- `category`
-- `title`
-- `body`
-- `suggested_fix`
-- `source_run`
+# Show workflow state
+python3 scripts/autoflow.py workflow-state --spec <spec-slug>
 
-Those findings are injected back into the next implementation prompt so retries can be task-driven instead of summary-driven.
+# Update task status
+python3 scripts/autoflow.py update-task \
+  --spec <spec-slug> \
+  --task <task-id> \
+  --status <status>
 
-## Strategy memory
+# Show task history
+python3 scripts/autoflow.py task-history \
+  --spec <spec-slug> \
+  --task <task-id>
+```
 
-Autoflow now keeps a separate strategy layer in `.autoflow/memory/strategy/`.
+#### Run Management
 
-- reflections are recorded automatically when runs complete
-- planner notes can be appended with `add-planner-note`
-- repeated blockers are turned into a lightweight playbook
-- the playbook is injected into later prompts so planning and retries compound instead of resetting
+```bash
+# Create a new run
+python3 scripts/autoflow.py new-run \
+  --spec <spec-slug> \
+  --role <role> \
+  --agent <agent-name> \
+  --task <task-id>
 
-## Outer orchestration
+# Launch run in tmux
+scripts/tmux-start.sh .autoflow/runs/<run-id>/run.sh
 
-Use `scripts/autonomy_orchestrator.py` when you want one stable entry point for:
+# Attach to running session
+tmux attach -t autoflow-run-<timestamp>
 
-- scheduled health monitoring
-- Taskmaster sync
-- OpenClaw-facing coordination briefs
-- commit/dispatch loops that respect Autoflow gates
+# Complete a run
+python3 scripts/autoflow.py complete-run \
+  --run <run-id> \
+  --result <success|needs_changes|blocked|failed> \
+  --summary "<summary>"
+```
+
+#### Memory and Learning
+
+```bash
+# Show scoped memory
+python3 scripts/autoflow.py show-memory --scope global
+python3 scripts/autoflow.py show-memory --scope spec --spec <spec-slug>
+
+# Capture memory from completed run
+python3 scripts/autoflow.py capture-memory --run <run-id>
+
+# Add planner note
+python3 scripts/autoflow.py add-planner-note \
+  --spec <spec-slug> \
+  --note "<note>"
+```
+
+#### Worktree Management
+
+```bash
+# Create or refresh per-spec worktree
+python3 scripts/autoflow.py create-worktree --spec <spec-slug>
+
+# Force rebuild worktree
+python3 scripts/autoflow.py create-worktree --spec <spec-slug> --force
+```
+
+## Advanced Topics
+
+### Review Gate System
+
+Autoflow implements hash-based review approval:
+
+```bash
+# Reviewer generates findings
+python3 scripts/autoflow.py show-fix-request --spec <spec-slug>
+
+# Implementation hash stored in review_state.json
+# System gates implementation until review approves
+cat .autoflow/specs/<slug>/review_state.json
+```
+
+### Structured Findings
+
+Reviewer findings are machine-readable:
+
+```json
+{
+  "findings": [
+    {
+      "file": "src/auth.py",
+      "line": 42,
+      "end_line": 45,
+      "severity": "error",
+      "category": "security",
+      "title": "Missing input validation",
+      "body": "JWT token not validated before use",
+      "suggested_fix": "Add validation: validate_jwt(token)",
+      "source_run": "20260307T123456Z-reviewer-feature-auth-T3"
+    }
+  ]
+}
+```
+
+Findings are automatically injected into fix prompts for task-driven retries.
+
+### Native Continuation
+
+Agents with native continuation support resume seamlessly:
+
+```bash
+# Codex resumes with --last flag
+"resume": {
+  "mode": "subcommand",
+  "subcommand": "resume",
+  "args": ["--last"]
+}
+
+# Claude uses session-based continuation
+"resume": {
+  "mode": "session",
+  "session_file": ".claude_session"
+}
+```
+
+### Multi-Agent Orchestration
+
+Run multiple agents in parallel:
+
+```bash
+# Configure multiple implementation agents
+# In .autoflow/agents.json:
+{
+  "agents": {
+    "claude-impl-1": {"max_concurrent": 3},
+    "claude-impl-2": {"max_concurrent": 3},
+    "codex-impl": {"max_concurrent": 2}
+  }
+}
+
+# System will dispatch tasks to available agents
+# respecting max_concurrent limits
+```
+
+### Custom Skills
+
+Define your own skills:
+
+```bash
+# Create skill directory
+mkdir -p skills/my-custom-skill
+
+# Write SKILL.md
+cat > skills/my-custom-skill/SKILL.md << 'EOF'
+# Custom Skill
+
+## Description
+This skill does X, Y, Z.
+
+## Workflow
+1. Step one
+2. Step two
+3. Step three
+
+## Rules
+- Always validate inputs
+- Never modify config files
+- Run tests before completing
+
+## Output Format
+- artifact1.md: Description of artifact
+- artifact2.json: Structured data
+EOF
+
+# Use in agents.json
+"roles": ["my-custom-skill"]
+```
+
+## Best Practices
+
+### 1. Start with Strong Foundations
+
+- Invest in comprehensive test coverage upfront
+- Define clear acceptance criteria for every task
+- Set up CI/CD gates before autonomous operation
+
+### 2. Define Clear Boundaries
+
+- Specify what AI can and cannot do autonomously
+- Set resource limits (time, memory, API calls)
+- Define escalation triggers for human intervention
+
+### 3. Trust but Verify
+
+- Let AI operate autonomously within bounds
+- Monitor outputs periodically, not constantly
+- Intervene only when boundaries are violated
+
+### 4. Embrace Rapid Iteration
+
+- Small, focused changes > large PRs
+- Fast feedback loops > perfect planning
+- Automated recovery > manual debugging
+
+### 5. Learn and Adapt
+
+- Review AI decisions weekly
+- Update boundaries based on patterns
+- Consolidate learned lessons into memory
+
+## Troubleshooting
+
+### Agent Runs Stall or Hang
+
+```bash
+# Check active tmux sessions
+tmux ls
+
+# Attach to specific session to debug
+tmux attach -t autoflow-run-<timestamp>
+
+# Kill stuck session
+tmux kill-session -t autoflow-run-<timestamp>
+```
+
+### Tasks Keep Failing
+
+```bash
+# Examine task history for patterns
+python3 scripts/autoflow.py task-history --spec <spec> --task <task-id>
+
+# Check if fix request exists
+python3 scripts/autoflow.py show-fix-request --spec <spec>
+
+# View recent runs for the task
+ls -lt .autoflow/runs/ | grep <task-id>
+
+# Manually advance blocked task
+python3 scripts/autoflow.py update-task \
+  --spec <spec> \
+  --task <task-id> \
+  --status todo
+```
+
+### Configuration Issues
+
+```bash
+# Validate agent configuration
+python3 scripts/autoflow.py validate-config
+
+# Test agent availability
+python3 scripts/autoflow.py test-agent --agent <agent-name>
+
+# Sync discovered agents
+python3 scripts/autoflow.py sync-agents --overwrite
+```
+
+### Memory and State Corruption
+
+```bash
+# Reset specific task state
+python3 scripts/autoflow.py reset-task --spec <spec> --task <task-id>
+
+# Clear stuck runs
+python3 scripts/autoflow.py cleanup-runs --spec <spec>
+
+# Rebuild worktree
+python3 scripts/autoflow.py create-worktree --spec <spec> --force
+```
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+---
+
+<div align="center">
+
+**[⬆ Back to Top](#autoflow)**
+
+Made with ❤️ by the Autoflow community
+
+</div>
