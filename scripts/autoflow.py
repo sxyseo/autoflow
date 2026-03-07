@@ -1631,6 +1631,7 @@ def create_run_record(
     }
     write_json(run_json_path, metadata)
     record_event(spec_slug, "run.created", {"run": run_id, "task": task_id, "role": role})
+    invalidate_run_cache()
     return run_dir
 
 
