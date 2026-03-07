@@ -1979,7 +1979,7 @@ def list_worktrees(_: argparse.Namespace) -> None:
 def workflow_state(args: argparse.Namespace) -> None:
     data = load_tasks(args.spec)
     review_summary = review_status_summary(args.spec)
-    active_runs = active_runs_for_spec(args.spec)
+    active_runs = active_runs_for_spec_cached(args.spec)
     ready = []
     blocked = []
     for task in data.get("tasks", []):

@@ -3,23 +3,23 @@
   "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
   "state": "building",
   "subtasks": {
-    "completed": 3,
+    "completed": 7,
     "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Add Optimized Implementation",
+    "current": "Migrate Callers to Cached Implementation",
     "id": null,
-    "total": 5
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 5,
+    "number": 9,
     "started_at": "2026-03-07T22:09:26.347246"
   },
-  "last_update": "2026-03-07T22:15:12.180522"
+  "last_update": "2026-03-07T22:23:09.165721"
 }
