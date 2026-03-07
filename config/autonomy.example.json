@@ -1,0 +1,23 @@
+{
+  "continuous_iteration_config": "config/continuous-iteration.example.json",
+  "monitoring": {
+    "block_on_missing_binaries": true,
+    "required_binaries": [
+      "codex",
+      "claude"
+    ]
+  },
+  "taskmaster": {
+    "enabled": true,
+    "import_file": "",
+    "export_file": ".autoflow/integrations/taskmaster/openclaw-autonomy.json"
+  },
+  "openclaw": {
+    "workflow_contract": "config/openclaw-workflow.example.json",
+    "dispatch_mode": "autoflow-tick",
+    "notes": [
+      "Read coordination-brief first.",
+      "Honor review and retry gates before dispatching implementation work."
+    ]
+  }
+}

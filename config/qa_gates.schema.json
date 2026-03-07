@@ -1,0 +1,284 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://autoflow.dev/schemas/qa_gates.schema.json",
+  "title": "QA Gates Configuration",
+  "description": "Configuration schema for QA gates including severity levels, coverage thresholds, approval settings, and test suites",
+  "type": "object",
+  "required": [
+    "version",
+    "severity_levels",
+    "coverage",
+    "approval",
+    "test_suites"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "version": {
+      "type": "string",
+      "description": "Configuration version",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "severity_levels": {
+      "type": "object",
+      "description": "Severity level definitions for QA findings",
+      "required": ["critical", "high", "medium", "low"],
+      "properties": {
+        "critical": {
+          "$ref": "#/definitions/severity_level"
+        },
+        "high": {
+          "$ref": "#/definitions/severity_level"
+        },
+        "medium": {
+          "$ref": "#/definitions/severity_level"
+        },
+        "low": {
+          "$ref": "#/definitions/severity_level"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/severity_level"
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "description": "Coverage threshold configuration",
+      "required": ["enabled", "thresholds"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable coverage checking"
+        },
+        "thresholds": {
+          "$ref": "#/definitions/coverage_thresholds"
+        },
+        "module_overrides": {
+          "type": "object",
+          "description": "Per-module coverage overrides",
+          "additionalProperties": {
+            "$ref": "#/definitions/coverage_thresholds"
+          }
+        },
+        "fail_on_error": {
+          "type": "boolean",
+          "description": "Fail verification on coverage errors",
+          "default": true
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "description": "Approval gate configuration",
+      "required": [
+        "require_tests",
+        "require_coverage",
+        "require_qa_check"
+      ],
+      "properties": {
+        "require_tests": {
+          "type": "boolean",
+          "description": "Require passing tests for approval",
+          "default": true
+        },
+        "require_coverage": {
+          "type": "boolean",
+          "description": "Require minimum coverage for approval",
+          "default": true
+        },
+        "require_qa_check": {
+          "type": "boolean",
+          "description": "Require QA findings check for approval",
+          "default": true
+        },
+        "blocking_severities": {
+          "type": "array",
+          "description": "Severity levels that block approval",
+          "items": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+          },
+          "default": ["CRITICAL", "HIGH"]
+        },
+        "token_expiry_hours": {
+          "type": "integer",
+          "description": "Hours before approval token expires (0 = no expiry)",
+          "minimum": 0,
+          "default": 24
+        },
+        "token_path": {
+          "type": "string",
+          "description": "Path to store approval token",
+          "default": ".autoflow/approval_token.json"
+        }
+      }
+    },
+    "test_suites": {
+      "type": "object",
+      "description": "Test suite definitions",
+      "additionalProperties": {
+        "$ref": "#/definitions/test_suite"
+      }
+    },
+    "qa_findings": {
+      "type": "object",
+      "description": "QA findings configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable QA findings tracking",
+          "default": true
+        },
+        "categories": {
+          "type": "array",
+          "description": "Valid QA finding categories",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "test_failure",
+            "coverage_gap",
+            "code_quality",
+            "security",
+            "performance",
+            "style"
+          ]
+        },
+        "max_findings": {
+          "type": "integer",
+          "description": "Maximum number of findings to track",
+          "minimum": 1,
+          "default": 100
+        },
+        "output_path": {
+          "type": "string",
+          "description": "Path to store QA findings",
+          "default": ".autoflow/qa_findings.json"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "description": "Verification orchestrator configuration",
+      "properties": {
+        "run_tests": {
+          "type": "boolean",
+          "description": "Run tests during verification",
+          "default": true
+        },
+        "run_coverage": {
+          "type": "boolean",
+          "description": "Run coverage analysis during verification",
+          "default": true
+        },
+        "check_thresholds": {
+          "type": "boolean",
+          "description": "Check coverage thresholds during verification",
+          "default": true
+        },
+        "generate_findings": {
+          "type": "boolean",
+          "description": "Generate QA findings during verification",
+          "default": true
+        },
+        "grant_approval": {
+          "type": "boolean",
+          "description": "Grant approval on successful verification",
+          "default": true
+        },
+        "generate_fix_tasks": {
+          "type": "boolean",
+          "description": "Generate fix tasks on verification failure",
+          "default": true
+        },
+        "fix_task_agent": {
+          "type": "string",
+          "description": "Agent to assign fix tasks to",
+          "default": "implementation-runner"
+        },
+        "fix_tasks_output_dir": {
+          "type": "string",
+          "description": "Directory to output fix tasks",
+          "default": ".autoflow/tasks"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "severity_level": {
+      "type": "object",
+      "required": ["description", "blocks_commit"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "blocks_commit": {
+          "type": "boolean",
+          "description": "Whether this severity blocks commits"
+        },
+        "color": {
+          "type": "string",
+          "description": "Display color for this severity",
+          "enum": ["red", "orange", "yellow", "blue", "green", "purple"]
+        }
+      }
+    },
+    "coverage_thresholds": {
+      "type": "object",
+      "required": ["minimum"],
+      "properties": {
+        "minimum": {
+          "type": "number",
+          "description": "Minimum overall coverage percentage",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 80.0
+        },
+        "branches": {
+          "type": "number",
+          "description": "Branch coverage threshold",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "functions": {
+          "type": "number",
+          "description": "Function coverage threshold",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "lines": {
+          "type": "number",
+          "description": "Line coverage threshold",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "test_suite": {
+      "type": "object",
+      "required": ["patterns"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "patterns": {
+          "type": "array",
+          "description": "File patterns for test discovery",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this suite must pass",
+          "default": true
+        }
+      }
+    }
+  }
+}
