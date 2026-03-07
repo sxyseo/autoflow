@@ -1028,19 +1028,6 @@ def invalidate_run_cache() -> None:
     _cache_loaded_specs.clear()
 
 
-def run_metadata_iter() -> list[dict[str, Any]]:
-    items = []
-    if not RUNS_DIR.exists():
-        return items
-    for run_dir in sorted(RUNS_DIR.iterdir()):
-        if not run_dir.is_dir():
-            continue
-        metadata_path = run_dir / "run.json"
-        if metadata_path.exists():
-            items.append(read_json(metadata_path))
-    return items
-
-
 def run_metadata_iter_cached() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
@@ -1062,17 +1049,8 @@ def run_metadata_iter_cached() -> list[dict[str, Any]]:
     for spec_runs in _run_metadata_cache.values():
         items.extend(spec_runs)
 
-    # Sort by run id to match the order from run_metadata_iter()
-    # The run id corresponds to the directory name
+    # Sort by run id (the run id corresponds to the directory name)
     return sorted(items, key=lambda item: item.get("id", ""))
-
-
-def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in run_metadata_iter()
-        if item.get("spec") == spec_slug and item.get("status") != "completed"
-    ]
 
 
 def active_runs_for_spec_cached(spec_slug: str) -> list[dict[str, Any]]:
@@ -1097,15 +1075,6 @@ def active_runs_for_spec_cached(spec_slug: str) -> list[dict[str, Any]]:
         for item in _run_metadata_cache.get(spec_slug, [])
         if item.get("status") != "completed"
     ]
-
-
-def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
-    history = [
-        item
-        for item in run_metadata_iter()
-        if item.get("spec") == spec_slug and item.get("task") == task_id
-    ]
-    return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
 
 
 def task_run_history_cached(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
