@@ -1,0 +1,90 @@
+{
+  "$schema": "./qa_gates.schema.json",
+  "version": "1.0.0",
+  "severity_levels": {
+    "critical": {
+      "description": "Must fix before commit",
+      "blocks_commit": true,
+      "color": "red"
+    },
+    "high": {
+      "description": "Should fix before commit",
+      "blocks_commit": true,
+      "color": "orange"
+    },
+    "medium": {
+      "description": "Warning - doesn't block commit",
+      "blocks_commit": false,
+      "color": "yellow"
+    },
+    "low": {
+      "description": "Info only - doesn't block commit",
+      "blocks_commit": false,
+      "color": "blue"
+    }
+  },
+  "coverage": {
+    "enabled": true,
+    "thresholds": {
+      "minimum": 80.0,
+      "branches": 75.0,
+      "functions": 80.0,
+      "lines": 80.0
+    },
+    "module_overrides": {},
+    "fail_on_error": true
+  },
+  "approval": {
+    "require_tests": true,
+    "require_coverage": true,
+    "require_qa_check": true,
+    "blocking_severities": ["CRITICAL", "HIGH"],
+    "token_expiry_hours": 24,
+    "token_path": ".autoflow/approval_token.json"
+  },
+  "test_suites": {
+    "unit": {
+      "description": "Unit tests",
+      "patterns": ["test_*.py"],
+      "required": true
+    },
+    "integration": {
+      "description": "Integration tests",
+      "patterns": ["test_integration*.py"],
+      "required": true
+    },
+    "e2e": {
+      "description": "End-to-end tests",
+      "patterns": ["test_e2e*.py"],
+      "required": false
+    },
+    "all": {
+      "description": "All tests",
+      "patterns": ["test*.py"],
+      "required": true
+    }
+  },
+  "qa_findings": {
+    "enabled": true,
+    "categories": [
+      "test_failure",
+      "coverage_gap",
+      "code_quality",
+      "security",
+      "performance",
+      "style"
+    ],
+    "max_findings": 100,
+    "output_path": ".autoflow/qa_findings.json"
+  },
+  "verification": {
+    "run_tests": true,
+    "run_coverage": true,
+    "check_thresholds": true,
+    "generate_findings": true,
+    "grant_approval": true,
+    "generate_fix_tasks": true,
+    "fix_task_agent": "implementation-runner",
+    "fix_tasks_output_dir": ".autoflow/tasks"
+  }
+}
