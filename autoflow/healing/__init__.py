@@ -35,6 +35,15 @@ from autoflow.healing.monitor import (
     WorkflowHealthMonitor,
     WorkflowHealthStatus,
 )
+from autoflow.healing.orchestrator import (
+    EscalationManager,
+    HealingEvent,
+    HealingEventLogger,
+    HealingOrchestrator,
+    HealingOutcome,
+    HealingSession,
+    OrchestratorState,
+)
 
 __all__ = [
     "HealingConfig",
@@ -61,4 +70,11 @@ __all__ = [
     "ActionRegistry",
     "RollbackManager",
     "get_global_registry",
+    "HealingOrchestrator",
+    "OrchestratorState",
+    "HealingOutcome",
+    "HealingEvent",
+    "HealingSession",
+    "HealingEventLogger",
+    "EscalationManager",
 ]
