@@ -1,0 +1,16 @@
+{
+  "name": "autoflow-openclaw-loop",
+  "description": "Example outer-loop contract for OpenClaw-style orchestration around Autoflow state.",
+  "steps": [
+    {
+      "id": "coordination-brief",
+      "command": "python3 scripts/autonomy_orchestrator.py coordination-brief --spec <slug> --config config/autonomy.example.json",
+      "output": "json"
+    },
+    {
+      "id": "outer-tick",
+      "command": "python3 scripts/autonomy_orchestrator.py tick --spec <slug> --config config/autonomy.example.json --dispatch",
+      "output": "json"
+    }
+  ]
+}

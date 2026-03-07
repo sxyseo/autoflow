@@ -1,0 +1,9 @@
+{
+  "quarantined_tests": {},
+  "metadata": {
+    "description": "Flaky tests that have been quarantined. These tests are skipped during normal test runs to prevent intermittent failures from blocking CI.",
+    "quarantine_threshold": "Tests with pass rate below 70% (above the flaky_detection.quarantine_threshold of 0.3) are recommended for quarantine.",
+    "created_at": null,
+    "last_updated": null
+  }
+}
