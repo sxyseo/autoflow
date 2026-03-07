@@ -997,6 +997,140 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  codex: {config.agents.codex.command}")
 
 
+# === Dashboard Command ===
+
+@main.command()
+@click.option(
+    "--host",
+    "-H",
+    type=str,
+    default="127.0.0.1",
+    help="Host to bind the dashboard server to.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8000,
+    help="Port to run the dashboard server on.",
+)
+@click.option(
+    "--reload",
+    "-r",
+    is_flag=True,
+    help="Enable auto-reload for development.",
+)
+@click.option(
+    "--workers",
+    "-w",
+    type=int,
+    default=1,
+    help="Number of worker processes.",
+)
+@click.option(
+    "--log-level",
+    "-l",
+    type=click.Choice(["critical", "error", "warning", "info", "debug"]),
+    default="info",
+    help="Log level for the server.",
+)
+@click.pass_context
+def dashboard(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    reload: bool,
+    workers: int,
+    log_level: str,
+) -> None:
+    """
+    Start the web dashboard server.
+
+    Launches the FastAPI web dashboard for monitoring Autoflow tasks,
+    runs, and system status in real-time through a web interface.
+
+    \b
+    Features:
+        - Real-time task and run monitoring
+        - System status and statistics
+        - WebSocket support for live updates
+        - Interactive API documentation at /docs
+
+    \b
+    Examples:
+        autoflow dashboard
+        autoflow dashboard --host 0.0.0.0 --port 8080
+        autoflow dashboard --reload
+        autoflow dashboard --workers 4
+
+    \b
+    Access the dashboard at:
+        http://localhost:8000
+        http://localhost:8000/docs (API documentation)
+    """
+    config: Config = ctx.obj["config"]
+    verbose = ctx.obj.get("verbose", 0)
+
+    try:
+        import uvicorn
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "starting",
+                "host": host,
+                "port": port,
+                "reload": reload,
+                "workers": workers,
+                "log_level": log_level,
+                "dashboard_url": f"http://{host}:{port}",
+                "docs_url": f"http://{host}:{port}/docs",
+            })
+            return
+
+        # Human-readable output
+        click.echo("Starting Autoflow Dashboard...")
+        click.echo("")
+        click.echo(f"  Host: {host}")
+        click.echo(f"  Port: {port}")
+        click.echo(f"  Workers: {workers}")
+        click.echo(f"  Log Level: {log_level}")
+        if reload:
+            click.echo(f"  Auto-reload: enabled")
+        click.echo("")
+        click.echo(f"  Dashboard: http://{host}:{port}")
+        click.echo(f"  API Docs:  http://{host}:{port}/docs")
+        click.echo("")
+        click.echo("Press Ctrl+C to stop the server")
+        click.echo("")
+
+        # Import the FastAPI app
+        from autoflow.web.app import app
+
+        # Run uvicorn
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            reload=reload,
+            workers=workers if not reload else 1,  # Reload only works with single worker
+            log_level=log_level,
+        )
+
+    except ImportError as e:
+        click.echo(
+            f"Error: uvicorn is not installed. "
+            f"Install it with: pip install uvicorn[standard]",
+            err=True
+        )
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error starting dashboard: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        ctx.exit(1)
+
+
 # === Memory Commands ===
 
 @main.group()
