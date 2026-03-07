@@ -206,8 +206,15 @@ class SkillValidator:
             optional_sections: Set of recognized optional section names
                               (defaults to standard sections)
         """
-        self.required_sections = required_sections or self.DEFAULT_REQUIRED_SECTIONS.copy()
-        self.optional_sections = optional_sections or self.OPTIONAL_SECTIONS.copy()
+        if required_sections is None:
+            self.required_sections = self.DEFAULT_REQUIRED_SECTIONS.copy()
+        else:
+            self.required_sections = required_sections
+
+        if optional_sections is None:
+            self.optional_sections = self.OPTIONAL_SECTIONS.copy()
+        else:
+            self.optional_sections = optional_sections
 
     def validate_content(self, content: str) -> ValidationResult:
         """
