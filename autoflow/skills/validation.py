@@ -259,7 +259,7 @@ class SkillValidator:
     def validate_structure(
         self,
         content: str,
-        require_title: bool = True,
+        require_title: bool = False,
     ) -> ValidationResult:
         """
         Validate skill markdown structure (headers and formatting).
@@ -278,6 +278,7 @@ class SkillValidator:
             return result
 
         lines = content.split("\n")
+        found_sections = []
 
         # Check for top-level title
         if require_title:
@@ -290,16 +291,48 @@ class SkillValidator:
             if not has_title:
                 result.add_error("Skill must have a top-level title (# Title)")
 
-        # Validate section headers
+        # Validate section headers and extract sections
         for i, line in enumerate(lines, start=1):
             stripped = line.strip()
-            if stripped.startswith("##"):
-                # Check header format
+
+            # Check for h3 headers (### Subsection) first, before h2
+            if stripped.startswith("###"):
+                if not re.match(r"^###\s+\S", stripped):
+                    result.add_error(
+                        "Invalid subsection header format (use '### Subsection Name')",
+                        line_number=i,
+                    )
+
+            # Check for h2 headers (## Section Name)
+            elif stripped.startswith("##"):
+                # Check header format - must have space after ##
                 if not re.match(r"^##\s+\S", stripped):
                     result.add_error(
                         "Invalid section header format (use '## Section Name')",
                         line_number=i,
                     )
+                else:
+                    # Extract section name
+                    section_name = stripped[2:].strip()
+                    found_sections.append((i, section_name))
+
+        # Check for duplicate sections
+        section_names = [name for _, name in found_sections]
+        seen = set()
+        for line_num, section_name in found_sections:
+            if section_name in seen:
+                result.add_error(
+                    f"Duplicate section '{section_name}' found",
+                    line_number=line_num,
+                    section=f"## {section_name}",
+                )
+            seen.add(section_name)
+
+        # Check that content has at least one section
+        if not found_sections:
+            result.add_warning(
+                "No sections found - skill should have at least one ## section"
+            )
 
         return result
 
