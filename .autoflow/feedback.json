@@ -1,0 +1,21 @@
+{
+  "predictions": {
+    "test-spec-verification": {
+      "spec_id": "test-spec-verification",
+      "timestamp": "2026-03-07T03:58:14.538731+00:00",
+      "predicted_outcome": "success",
+      "confidence": 0.85,
+      "rationale": "Test prediction for verification",
+      "feature_importances": {
+        "num_phases": 0.3,
+        "num_subtasks": 0.7
+      },
+      "actual_outcome": "success",
+      "status": "correct"
+    }
+  },
+  "metadata": {
+    "total_predictions": 1,
+    "last_updated": "2026-03-07T03:58:14.538991+00:00"
+  }
+}
