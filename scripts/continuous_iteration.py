@@ -93,8 +93,7 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
 
 
 def workflow_state(spec: str) -> dict:
-    result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
-    return json.loads(result.stdout)
+    return get_workflow_state(spec)
 
 
 def task_history(spec: str, task: str) -> list[dict]:
