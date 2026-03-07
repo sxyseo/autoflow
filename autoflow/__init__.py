@@ -14,6 +14,10 @@ __author__ = "Autoflow Team"
 # from autoflow.core.config import load_config
 # from autoflow.core.state import StateManager
 
+# Web dashboard components
+from autoflow.web import app as web_app
+
 __all__ = [
     "__version__",
+    "web_app",
 ]
