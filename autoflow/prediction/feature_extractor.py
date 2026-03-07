@@ -416,3 +416,160 @@ class FeatureExtractor:
             previous_failures=previous_failures,
             file_complexity=file_complexity,
         )
+
+    def extract_agent_features(
+        self, runs_dir: Optional[Path] = None
+    ) -> AgentFeatures:
+        """
+        Extract features from agent performance data.
+
+        Args:
+            runs_dir: Path to directory containing run JSON files.
+                     Defaults to .autoflow/runs/
+
+        Returns:
+            AgentFeatures object with extracted features
+
+        Raises:
+            FileNotFoundError: If runs_dir doesn't exist
+        """
+        if runs_dir is None:
+            runs_dir = self.root_dir / ".autoflow" / "runs"
+
+        if not runs_dir.exists():
+            raise FileNotFoundError(f"Runs directory not found: {runs_dir}")
+
+        # Find all run.json files
+        run_files = list(runs_dir.glob("*/run.json"))
+
+        if not run_files:
+            return AgentFeatures()
+
+        # Aggregate agent data
+        agent_stats: dict[str, dict[str, Any]] = {}
+
+        for run_file in run_files:
+            try:
+                run_data = json.loads(run_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            # Extract agent information
+            agent_model = run_data.get("agent_model", "unknown")
+            status = run_data.get("status", "")
+            duration = run_data.get("duration", 0)
+
+            # Initialize agent stats if not exists
+            if agent_model not in agent_stats:
+                agent_stats[agent_model] = {
+                    "total_tasks": 0,
+                    "successful_tasks": 0,
+                    "total_duration": 0.0,
+                }
+
+            # Update stats
+            agent_stats[agent_model]["total_tasks"] += 1
+
+            if status and "success" in status.lower():
+                agent_stats[agent_model]["successful_tasks"] += 1
+
+            if isinstance(duration, (int, float)):
+                agent_stats[agent_model]["total_duration"] += duration
+
+        # Calculate features for the most common agent
+        if not agent_stats:
+            return AgentFeatures()
+
+        # Get the agent with the most tasks
+        most_common_agent = max(
+            agent_stats.keys(), key=lambda k: agent_stats[k]["total_tasks"]
+        )
+
+        stats = agent_stats[most_common_agent]
+        success_rate = (
+            stats["successful_tasks"] / stats["total_tasks"]
+            if stats["total_tasks"] > 0
+            else 0.0
+        )
+        avg_duration = (
+            stats["total_duration"] / stats["total_tasks"]
+            if stats["total_tasks"] > 0
+            else 0.0
+        )
+
+        return AgentFeatures(
+            agent_model=most_common_agent,
+            success_rate=success_rate,
+            avg_duration=avg_duration,
+        )
+
+    def extract_temporal_features(
+        self,
+    ) -> TemporalFeatures:
+        """
+        Extract features from temporal patterns.
+
+        Returns:
+            TemporalFeatures object with extracted features
+        """
+        now = datetime.now(UTC)
+
+        # Current time features
+        hour_of_day = now.hour
+        day_of_week = now.weekday()  # Monday=0, Sunday=6
+
+        # Time since last change (from file timelines)
+        file_timelines_dir = self.root_dir / ".auto-claude" / "file-timelines"
+        time_since_last_change = 0.0
+
+        if file_timelines_dir.exists():
+            timeline_files = list(file_timelines_dir.glob("*.json"))
+            latest_timestamp = 0.0
+
+            for timeline_file in timeline_files:
+                try:
+                    timeline_data = json.loads(timeline_file.read_text(encoding="utf-8"))
+
+                    # Extract timestamps from timeline data
+                    for task_data in timeline_data.values():
+                        if isinstance(task_data, dict):
+                            timestamp = task_data.get("timestamp", 0)
+                            if isinstance(timestamp, (int, float)):
+                                latest_timestamp = max(latest_timestamp, timestamp)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+
+            if latest_timestamp > 0:
+                time_since_last_change = now.timestamp() - latest_timestamp
+
+        # Count concurrent tasks (active specs with in-progress subtasks)
+        specs_dir = self.root_dir / ".auto-claude" / "specs"
+        concurrent_tasks = 0
+
+        if specs_dir.exists():
+            for spec_dir in specs_dir.iterdir():
+                if not spec_dir.is_dir():
+                    continue
+
+                plan_file = spec_dir / "implementation_plan.json"
+                if not plan_file.exists():
+                    continue
+
+                try:
+                    plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
+                    phases = plan_data.get("phases", [])
+
+                    # Count in-progress subtasks
+                    for phase in phases:
+                        for subtask in phase.get("subtasks", []):
+                            if subtask.get("status") == "in_progress":
+                                concurrent_tasks += 1
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+
+        return TemporalFeatures(
+            hour_of_day=hour_of_day,
+            day_of_week=day_of_week,
+            time_since_last_change=time_since_last_change,
+            concurrent_tasks=concurrent_tasks,
+        )
