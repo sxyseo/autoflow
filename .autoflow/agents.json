@@ -1,0 +1,51 @@
+{
+  "defaults": {
+    "workspace": ".",
+    "shell": "bash"
+  },
+  "agents": {
+    "codex": {
+      "protocol": "cli",
+      "command": "codex",
+      "args": [],
+      "resume": {
+        "mode": "subcommand",
+        "subcommand": "resume",
+        "args": [
+          "--last"
+        ]
+      },
+      "memory_scopes": [
+        "spec"
+      ]
+    },
+    "claude": {
+      "protocol": "cli",
+      "command": "claude",
+      "args": [],
+      "resume": {
+        "mode": "args",
+        "args": [
+          "--continue"
+        ]
+      },
+      "memory_scopes": [
+        "spec"
+      ]
+    },
+    "example-acp-agent": {
+      "protocol": "acp",
+      "command": "acp-agent",
+      "args": [],
+      "transport": {
+        "type": "stdio",
+        "command": "acp-agent",
+        "args": [],
+        "prompt_mode": "argv"
+      },
+      "memory_scopes": [
+        "spec"
+      ]
+    }
+  }
+}

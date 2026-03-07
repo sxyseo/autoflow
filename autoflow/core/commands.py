@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,12 @@ SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
 RUNS_DIR = STATE_DIR / "runs"
 STRATEGY_MEMORY_DIR = STATE_DIR / "memory" / "strategy"
+LOGS_DIR = STATE_DIR / "logs"
+MEMORY_DIR = STATE_DIR / "memory"
+DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
+SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
+SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
+AGENTS_FILE = STATE_DIR / "agents.json"
 
 REVIEW_STATE_FILE = "review_state.json"
 QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
@@ -263,6 +272,178 @@ def _strategy_summary(spec_slug: str) -> dict[str, Any]:
     }
 
 
+# === Agent Sync Helper Functions ===
+
+
+def _now_utc() -> datetime:
+    """Get current UTC datetime."""
+    return datetime.now(UTC)
+
+
+def _now_stamp() -> str:
+    """Get current timestamp in ISO 8601 format."""
+    return _now_utc().strftime("%Y%m%dT%H%M%SZ")
+
+
+def _write_json(path: Path, data: Any) -> None:
+    """Write data to JSON file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def _ensure_state() -> None:
+    """Ensure state directories exist."""
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge two dictionaries."""
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _system_config_default() -> dict[str, Any]:
+    """Get default system configuration."""
+    if SYSTEM_CONFIG_TEMPLATE.exists():
+        return _read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+    return {
+        "memory": {
+            "enabled": True,
+            "auto_capture_run_results": True,
+            "global_file": str(MEMORY_DIR / "global.md"),
+            "spec_dir": str(MEMORY_DIR / "specs"),
+        },
+        "models": {
+            "profiles": {
+                "spec": "gpt-5",
+                "implementation": "gpt-5-codex",
+                "review": "claude-sonnet-4-6",
+            }
+        },
+        "tools": {
+            "profiles": {
+                "codex-default": [],
+                "claude-review": ["Read", "Bash(git:*)"],
+            }
+        },
+        "registry": {
+            "acp_agents": []
+        },
+    }
+
+
+def _load_system_config() -> dict[str, Any]:
+    """Load system configuration from file."""
+    config = _system_config_default()
+    if SYSTEM_CONFIG_FILE.exists():
+        local = _read_json_or_default(SYSTEM_CONFIG_FILE, {})
+        config = _deep_merge(config, local)
+    return _deep_merge(
+        {
+            "memory": {"default_scopes": ["spec"]},
+            "models": {"profiles": {}},
+            "tools": {"profiles": {}},
+            "registry": {"acp_agents": []},
+        },
+        config,
+    )
+
+
+def _run_cmd(
+    args: list[str],
+    cwd: Path | None = None,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run a command and return the result."""
+    return subprocess.run(
+        args,
+        cwd=cwd or ROOT,
+        check=check,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
+    """Discover a CLI agent by checking if it's available."""
+    executable = shutil.which(command)
+    if not executable:
+        return None
+    help_result = _run_cmd([command, "--help"], check=False)
+    help_text = (help_result.stdout or "") + (help_result.stderr or "")
+    capabilities = {
+        "resume": "resume" in help_text.lower() or "--continue" in help_text,
+        "model_flag": "--model" in help_text or " -m," in help_text,
+    }
+    return {
+        "name": name,
+        "protocol": "cli",
+        "command": command,
+        "path": executable,
+        "capabilities": capabilities,
+    }
+
+
+def _discover_agents_registry() -> dict[str, Any]:
+    """Discover all available agents (CLI and ACP)."""
+    config = _load_system_config()
+    discovered = []
+    for name, command in [("codex", "codex"), ("claude", "claude")]:
+        item = _discover_cli_agent(name, command)
+        if item:
+            discovered.append(item)
+    for agent in config.get("registry", {}).get("acp_agents", []):
+        discovered.append(
+            {
+                "name": agent.get("name", "acp-agent"),
+                "protocol": "acp",
+                "transport": agent.get("transport", {}),
+                "capabilities": agent.get("capabilities", {}),
+            }
+        )
+    payload = {
+        "discovered_at": _now_stamp(),
+        "agents": discovered,
+        "system_config": {
+            "memory": config.get("memory", {}),
+            "models": config.get("models", {}),
+            "tools": config.get("tools", {}),
+        },
+    }
+    _write_json(DISCOVERY_FILE, payload)
+    return payload
+
+
+def _discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
+    """Convert discovered agent to configuration format."""
+    if agent.get("protocol") == "acp":
+        return {
+            "protocol": "acp",
+            "command": agent.get("transport", {}).get("command", agent.get("name", "acp-agent")),
+            "args": [],
+            "transport": agent.get("transport", {}),
+            "memory_scopes": ["spec"],
+        }
+    resume = None
+    if agent.get("name") == "codex" and agent.get("capabilities", {}).get("resume"):
+        resume = {"mode": "subcommand", "subcommand": "resume", "args": ["--last"]}
+    elif agent.get("name") == "claude" and agent.get("capabilities", {}).get("resume"):
+        resume = {"mode": "args", "args": ["--continue"]}
+    return {
+        "protocol": "cli",
+        "command": agent.get("command", agent.get("name", "")),
+        "args": [],
+        "resume": resume,
+        "memory_scopes": ["spec"],
+    }
+
+
 # === Public API Functions ===
 
 
@@ -381,8 +562,28 @@ def sync_agents(overwrite: bool = False) -> dict[str, Any]:
         - added: List of agent names that were added
         - total_agents: Total number of agents in file after sync
     """
-    # TODO: Implement in subtask-1-4
-    raise NotImplementedError("sync_agents will be implemented in subtask-1-4")
+    _ensure_state()
+    discovered = _discover_agents_registry()
+    existing = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
+    if AGENTS_FILE.exists():
+        existing = _read_json_or_default(AGENTS_FILE, existing)
+        existing.setdefault("defaults", {"workspace": ".", "shell": "bash"})
+        existing.setdefault("agents", {})
+    merged = dict(existing["agents"])
+    added = []
+    for agent in discovered.get("agents", []):
+        name = agent["name"]
+        if name in merged and not overwrite:
+            continue
+        merged[name] = _discovered_agent_to_config(agent)
+        added.append(name)
+    payload = {"defaults": existing["defaults"], "agents": merged}
+    _write_json(AGENTS_FILE, payload)
+    return {
+        "agents_file": str(AGENTS_FILE),
+        "added": added,
+        "total_agents": len(merged),
+    }
 
 
 def get_strategy_summary(spec_slug: str) -> dict[str, Any]:
