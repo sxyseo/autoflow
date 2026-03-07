@@ -12,7 +12,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from autoflow.core.commands import get_task_history, get_workflow_state, sync_agents
+from autoflow.core.commands import (  # noqa: E402
+    get_task_history,
+    get_workflow_state,
+    sync_agents,
+)
 
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"

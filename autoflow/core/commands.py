@@ -24,7 +24,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-
 # === Path Constants ===
 
 ROOT = Path(__file__).resolve().parent.parent.parent
