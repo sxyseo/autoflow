@@ -32,6 +32,10 @@ Inspired by OpenAI's "Harness Engineering" philosophy and AI-driven development 
 - [Contributing](#contributing)
 - [License](#license)
 
+## Additional Documentation
+
+- [**Custom Skills Guide**](docs/custom_skills.md) - Create, validate, and share custom skills
+
 ## Overview
 
 **Autoflow** is a thin control plane for autonomous software delivery. It enables AI agents to run repeatable loops around spec creation, task decomposition, implementation, review, and maintenance while delegating concrete coding work to various AI agent backends.
@@ -725,37 +729,46 @@ Run multiple agents in parallel:
 
 ### Custom Skills
 
-Define your own skills:
+Autoflow includes a comprehensive framework for creating, validating, and sharing custom skills beyond the built-in roles.
+
+#### Quick Example
 
 ```bash
-# Create skill directory
-mkdir -p skills/my-custom-skill
+# Create a custom skill interactively
+autoflow skill create
 
-# Write SKILL.md
-cat > skills/my-custom-skill/SKILL.md << 'EOF'
-# Custom Skill
+# Or create non-interactively
+autoflow skill create --name my-custom-skill --template implementer
 
-## Description
-This skill does X, Y, Z.
+# Validate your skill
+autoflow skill validate my-custom-skill
 
-## Workflow
-1. Step one
-2. Step two
-3. Step three
+# Export to share with your team
+autoflow skill export my-custom-skill --version 1.0.0
 
-## Rules
-- Always validate inputs
-- Never modify config files
-- Run tests before completing
-
-## Output Format
-- artifact1.md: Description of artifact
-- artifact2.json: Structured data
-EOF
-
-# Use in agents.json
-"roles": ["my-custom-skill"]
+# Import skills from your team
+autoflow skill import team-skills.tar.gz
 ```
+
+#### Key Features
+
+- **Skill Templates**: Built-in templates for common patterns (planner, implementer, reviewer)
+- **Interactive Builder**: Guided skill creation with prompts and validation
+- **Validation System**: Ensure skills meet structure and content requirements
+- **Sharing & Versioning**: Export/import skills with version tracking and conflict resolution
+- **CLI & Python API**: Use from command line or programmatically
+
+#### Documentation
+
+For comprehensive documentation on creating and managing custom skills, see [**Custom Skills Guide**](docs/custom_skills.md).
+
+Topics covered:
+- Creating skills from templates
+- Validating skill structure
+- Sharing skills across teams
+- Version management
+- CLI reference and Python API
+- Best practices and examples
 
 ## Best Practices
 
