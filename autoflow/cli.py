@@ -32,6 +32,7 @@ from autoflow import __version__
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
+from autoflow.skills.validation import SkillValidator, ValidationResult
 
 
 # Click context settings
@@ -789,6 +790,150 @@ def skill_create(
             })
         else:
             click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+
+
+@skill.command("validate")
+@click.argument("name", type=str)
+@click.option(
+    "--skills-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Directory containing skill definitions.",
+)
+@click.option(
+    "--strict",
+    "-s",
+    is_flag=True,
+    help="Treat warnings as errors.",
+)
+@click.pass_context
+def skill_validate(
+    ctx: click.Context,
+    name: str,
+    skills_dir: Optional[Path],
+    strict: bool,
+) -> None:
+    """
+    Validate a skill definition.
+
+    Checks a skill for proper structure, required sections, and formatting issues.
+
+    \b
+    Examples:
+        autoflow skill validate MY_SKILL
+        autoflow skill validate MY_SKILL --strict
+        autoflow skill validate MY_SKILL --skills-dir ./custom-skills
+    """
+    config: Config = ctx.obj["config"]
+
+    # Determine skills directories
+    skill_dirs = []
+    if skills_dir:
+        skill_dirs.append(skills_dir)
+    skill_dirs.extend(config.openclaw.extra_dirs)
+
+    # Find the skill
+    skill_path = None
+    for skill_dir in skill_dirs:
+        potential_path = Path(skill_dir).expanduser() / name / "SKILL.md"
+        if potential_path.exists():
+            skill_path = potential_path
+            break
+
+    if not skill_path:
+        click.echo(f"Error: Skill '{name}' not found.", err=True)
+        click.echo(f"Searched directories: {', '.join(str(d) for d in skill_dirs)}", err=True)
+        ctx.exit(1)
+
+    # Read skill content
+    try:
+        content = skill_path.read_text(encoding="utf-8")
+    except Exception as e:
+        click.echo(f"Error reading skill file: {e}", err=True)
+        ctx.exit(1)
+
+    # Validate the skill
+    validator = SkillValidator()
+
+    # Run both content and structure validation
+    content_result = validator.validate_content(content)
+    structure_result = validator.validate_structure(content)
+
+    # Combine results
+    all_errors = content_result.errors.copy()
+    all_errors.extend(structure_result.errors)
+    all_warnings = content_result.warnings.copy()
+    all_warnings.extend(structure_result.warnings)
+
+    # Determine overall validity
+    is_valid = len(all_errors) == 0 and (not strict or len(all_warnings) == 0)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "skill": name,
+            "path": str(skill_path),
+            "valid": is_valid,
+            "errors": [
+                {
+                    "message": e.message,
+                    "severity": e.severity.value,
+                    "section": e.section,
+                    "line": e.line_number,
+                }
+                for e in all_errors
+            ],
+            "warnings": [
+                {
+                    "message": w.message,
+                    "severity": w.severity.value,
+                    "section": w.section,
+                    "line": w.line_number,
+                }
+                for w in all_warnings
+            ],
+            "sections": {
+                "present": content_result.present_sections,
+                "missing": content_result.missing_sections,
+            },
+        })
+        return
+
+    # Human-readable output
+    click.echo(f"Validating skill: {name}")
+    click.echo(f"Path: {skill_path}")
+    click.echo("=" * 60)
+
+    if is_valid and len(all_warnings) == 0:
+        click.echo("\n✓ Skill is valid!\n")
+    elif is_valid and len(all_warnings) > 0:
+        click.echo(f"\n⚠ Skill is valid with {len(all_warnings)} warning(s)\n")
+    else:
+        click.echo(f"\n✗ Skill validation failed\n")
+
+    # Show sections
+    click.echo("Sections:")
+    click.echo(f"  Present: {', '.join(content_result.present_sections) or 'None'}")
+    if content_result.missing_sections:
+        click.echo(f"  Missing: {', '.join(content_result.missing_sections)}")
+    click.echo("")
+
+    # Show errors
+    if all_errors:
+        click.echo(f"Errors ({len(all_errors)}):")
+        for error in all_errors:
+            click.echo(f"  ✗ {error}")
+        click.echo("")
+
+    # Show warnings
+    if all_warnings:
+        click.echo(f"Warnings ({len(all_warnings)}):")
+        for warning in all_warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo("")
+
+    # Exit with error code if validation failed
+    if not is_valid:
         ctx.exit(1)
 
 
