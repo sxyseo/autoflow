@@ -31,6 +31,8 @@ from autoflow.intake.client import (
     make_http_request,
 )
 from autoflow.intake.github_client import GitHubClient
+from autoflow.intake.gitlab_client import GitLabClient
+from autoflow.intake.linear_client import LinearClient
 from autoflow.intake.mapping import IssueTransformer, LabelMapping
 from autoflow.intake.models import (
     Issue,
@@ -53,5 +55,7 @@ __all__ = [
     "IssueResult",
     "IssueSourceType",
     "GitHubClient",
+    "GitLabClient",
+    "LinearClient",
     "make_http_request",
 ]

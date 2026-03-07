@@ -93,6 +93,8 @@ class IssueClientConfig(BaseModel):
 class IssueStatus(str, Enum):
     """Status of an issue."""
 
+    BACKLOG = "backlog"
+    TODO = "todo"
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     CLOSED = "closed"
