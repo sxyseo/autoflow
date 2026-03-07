@@ -16,12 +16,254 @@ Functions:
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
 
-# These functions will be implemented in subsequent subtasks
-# This file establishes the module structure and public API
+# === Path Constants ===
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+STATE_DIR = ROOT / ".autoflow"
+SPECS_DIR = STATE_DIR / "specs"
+TASKS_DIR = STATE_DIR / "tasks"
+RUNS_DIR = STATE_DIR / "runs"
+STRATEGY_MEMORY_DIR = STATE_DIR / "memory" / "strategy"
+
+REVIEW_STATE_FILE = "review_state.json"
+QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
+QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
+
+
+# === Helper Functions ===
+
+
+def _spec_files(slug: str) -> dict[str, Path]:
+    """Get file paths for a spec."""
+    directory = SPECS_DIR / slug
+    return {
+        "dir": directory,
+        "spec": directory / "spec.md",
+        "metadata": directory / "metadata.json",
+        "review_state": directory / REVIEW_STATE_FILE,
+        "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
+        "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
+    }
+
+
+def _read_json_or_default(path: Path, default: Any) -> Any:
+    """Read JSON file, returning default if missing or invalid."""
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def _task_file(spec_slug: str) -> Path:
+    """Get path to task file for a spec."""
+    return TASKS_DIR / f"{spec_slug}.json"
+
+
+def _load_tasks(spec_slug: str) -> dict[str, Any]:
+    """Load task data for a spec."""
+    path = _task_file(spec_slug)
+    if not path.exists():
+        raise SystemExit(f"missing task file: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
+    """Look up a task by ID in task data."""
+    for task in data.get("tasks", []):
+        if task["id"] == task_id:
+            return task
+    raise SystemExit(f"unknown task: {task_id}")
+
+
+def _compute_file_hash(path: Path) -> str:
+    """Compute MD5 hash of a file's contents."""
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8")
+    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _planning_contract(spec_slug: str) -> dict[str, Any]:
+    """Get the planning contract (tasks) for a spec."""
+    task_data = _load_tasks(spec_slug)
+    tasks = []
+    for task in task_data.get("tasks", []):
+        tasks.append(
+            {
+                "id": task["id"],
+                "title": task["title"],
+                "depends_on": task.get("depends_on", []),
+                "owner_role": task["owner_role"],
+                "acceptance_criteria": task.get("acceptance_criteria", []),
+            }
+        )
+    return {"tasks": tasks}
+
+
+def _compute_spec_hash(spec_slug: str) -> str:
+    """Compute hash of spec and tasks for review validation."""
+    files = _spec_files(spec_slug)
+    spec_hash = _compute_file_hash(files["spec"])
+    task_hash = hashlib.md5(
+        json.dumps(_planning_contract(spec_slug), sort_keys=True).encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()
+    combined = f"{spec_hash}:{task_hash}"
+    return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _review_state_default() -> dict[str, Any]:
+    """Get default review state."""
+    return {
+        "approved": False,
+        "approved_by": "",
+        "approved_at": "",
+        "spec_hash": "",
+        "review_count": 0,
+        "feedback": [],
+        "invalidated_at": "",
+        "invalidated_reason": "",
+    }
+
+
+def _load_review_state(spec_slug: str) -> dict[str, Any]:
+    """Load review state for a spec."""
+    return _read_json_or_default(
+        _spec_files(spec_slug)["review_state"],
+        _review_state_default()
+    )
+
+
+def _save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
+    """Save review state for a spec."""
+    path = _spec_files(spec_slug)["review_state"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
+    """Sync review state, invalidating if spec has changed."""
+    state = _load_review_state(spec_slug)
+    if state.get("approved") and state.get("spec_hash") != _compute_spec_hash(spec_slug):
+        state["approved"] = False
+        state["invalidated_at"] = ""  # Would use now_stamp() in CLI
+        state["invalidated_reason"] = reason
+        _save_review_state(spec_slug, state)
+    return state
+
+
+def _review_status_summary(spec_slug: str) -> dict[str, Any]:
+    """Get review status summary for a spec."""
+    state = _sync_review_state(spec_slug)
+    current_hash = _compute_spec_hash(spec_slug)
+    return {
+        "approved": state.get("approved", False),
+        "valid": bool(state.get("approved")) and state.get("spec_hash") == current_hash,
+        "approved_by": state.get("approved_by", ""),
+        "approved_at": state.get("approved_at", ""),
+        "review_count": state.get("review_count", 0),
+        "feedback_count": len(state.get("feedback", [])),
+        "spec_changed": bool(state.get("spec_hash")) and state.get("spec_hash") != current_hash,
+        "invalidated_at": state.get("invalidated_at", ""),
+        "invalidated_reason": state.get("invalidated_reason", ""),
+    }
+
+
+def _run_metadata_iter() -> list[dict[str, Any]]:
+    """Iterate over all run metadata."""
+    items = []
+    if not RUNS_DIR.exists():
+        return items
+    for run_dir in sorted(RUNS_DIR.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        metadata_path = run_dir / "run.json"
+        if metadata_path.exists():
+            items.append(json.loads(metadata_path.read_text(encoding="utf-8")))
+    return items
+
+
+def _active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
+    """Get active (non-completed) runs for a spec."""
+    return [
+        item
+        for item in _run_metadata_iter()
+        if item.get("spec") == spec_slug and item.get("status") != "completed"
+    ]
+
+
+def _load_fix_request(spec_slug: str) -> str:
+    """Load QA fix request text for a spec."""
+    path = _spec_files(spec_slug)["qa_fix_request"]
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def _load_fix_request_data(spec_slug: str) -> dict[str, Any]:
+    """Load QA fix request JSON data for a spec."""
+    return _read_json_or_default(
+        _spec_files(spec_slug)["qa_fix_request_json"],
+        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+    )
+
+
+def _strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
+    """Get path to strategy memory file."""
+    if scope == "global":
+        return STRATEGY_MEMORY_DIR / "global.json"
+    if spec_slug:
+        return STRATEGY_MEMORY_DIR / "specs" / f"{spec_slug}.json"
+    raise SystemExit("spec scope requires a spec slug")
+
+
+def _strategy_memory_default() -> dict[str, Any]:
+    """Get default strategy memory structure."""
+    return {
+        "updated_at": "",
+        "reflections": [],
+        "planner_notes": [],
+        "stats": {
+            "by_role": {},
+            "by_result": {},
+            "finding_categories": {},
+            "severity": {},
+            "files": {},
+        },
+        "playbook": [],
+    }
+
+
+def _load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
+    """Load strategy memory."""
+    return _read_json_or_default(
+        _strategy_memory_file(scope, spec_slug),
+        _strategy_memory_default()
+    )
+
+
+def _strategy_summary(spec_slug: str) -> dict[str, Any]:
+    """Get strategy memory summary for a spec."""
+    spec_memory = _load_strategy_memory("spec", spec_slug)
+    recent = spec_memory.get("reflections", [])[-5:]
+    return {
+        "updated_at": spec_memory.get("updated_at", ""),
+        "playbook": spec_memory.get("playbook", []),
+        "planner_notes": spec_memory.get("planner_notes", [])[-5:],
+        "recent_reflections": recent,
+        "stats": spec_memory.get("stats", {}),
+    }
+
+
+# === Public API Functions ===
 
 
 def get_workflow_state(spec_slug: str) -> dict[str, Any]:
@@ -48,8 +290,57 @@ def get_workflow_state(spec_slug: str) -> dict[str, Any]:
     Raises:
         SystemExit: If spec task file is missing
     """
-    # TODO: Implement in subtask-1-2
-    raise NotImplementedError("get_workflow_state will be implemented in subtask-1-2")
+    data = _load_tasks(spec_slug)
+    review_summary = _review_status_summary(spec_slug)
+    active_runs = _active_runs_for_spec(spec_slug)
+
+    ready = []
+    blocked = []
+    for task in data.get("tasks", []):
+        deps_done = all(
+            _task_lookup(data, dep)["status"] == "done"
+            for dep in task.get("depends_on", [])
+        )
+        entry = {
+            "id": task["id"],
+            "title": task["title"],
+            "status": task["status"],
+            "owner_role": task["owner_role"],
+        }
+        is_ready = False
+        if task["status"] in {"todo", "needs_changes"} and deps_done:
+            is_ready = True
+        if task["status"] == "in_review":
+            entry["owner_role"] = "reviewer"
+            is_ready = True
+        if is_ready:
+            ready.append(entry)
+        elif task["status"] != "done":
+            blocked.append(entry)
+
+    next_entry = ready[0] if ready else None
+    blocking_reason = ""
+    if (
+        next_entry
+        and next_entry["owner_role"] in {"implementation-runner", "maintainer"}
+        and not review_summary["valid"]
+    ):
+        blocking_reason = "review_approval_required"
+        next_entry = None
+
+    return {
+        "spec": spec_slug,
+        "review_status": review_summary,
+        "worktree": _read_json_or_default(_spec_files(spec_slug)["metadata"], {}).get("worktree", {}),
+        "fix_request_present": bool(_load_fix_request(spec_slug)),
+        "fix_request": _load_fix_request_data(spec_slug),
+        "strategy_summary": _strategy_summary(spec_slug),
+        "active_runs": active_runs,
+        "ready_tasks": ready,
+        "blocked_or_active_tasks": blocked,
+        "blocking_reason": blocking_reason,
+        "recommended_next_action": None if active_runs else next_entry,
+    }
 
 
 def get_task_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
