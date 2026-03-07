@@ -1067,6 +1067,30 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
     ]
 
 
+def active_runs_for_spec_cached(spec_slug: str) -> list[dict[str, Any]]:
+    """Return active runs for a spec using cached lookup.
+
+    This function uses the lazy-loaded cache to avoid O(n) filesystem scans.
+    It only loads runs for the requested spec, and subsequent calls return
+    the cached data from memory.
+
+    Args:
+        spec_slug: The spec identifier to get active runs for.
+
+    Returns:
+        A list of run metadata dictionaries for the spec that are not completed.
+    """
+    # Lazy-load runs for this specific spec
+    _populate_run_cache_for_spec(spec_slug)
+
+    # Return cached runs for this spec, filtered by status
+    return [
+        item
+        for item in _run_metadata_cache.get(spec_slug, [])
+        if item.get("status") != "completed"
+    ]
+
+
 def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
     history = [
         item
