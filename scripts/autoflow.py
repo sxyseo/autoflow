@@ -938,19 +938,32 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # Run metadata cache: indexed by spec_slug for efficient lookups
 # Structure: {"spec_slug": [run_metadata_dict, ...]}
 _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
-_cache_initialized: bool = False
+_cache_loaded_specs: set[str] = set()  # Track which specs have been loaded
 
 
-def _populate_run_cache() -> None:
-    """Populate the run metadata cache from the filesystem."""
-    global _cache_initialized, _run_metadata_cache
+def _populate_run_cache_for_spec(spec_slug: str) -> None:
+    """Load run metadata for a specific spec_slug into the cache.
 
-    if _cache_initialized:
+    This implements lazy-loading: runs are only loaded from disk when needed.
+    Subsequent calls for the same spec_slug will use the cached data.
+
+    Args:
+        spec_slug: The spec identifier to load runs for.
+    """
+    global _run_metadata_cache, _cache_loaded_specs
+
+    # Skip if this spec has already been loaded
+    if spec_slug in _cache_loaded_specs:
         return
 
-    _run_metadata_cache.clear()
+    # Ensure the spec has an entry in the cache
+    if spec_slug not in _run_metadata_cache:
+        _run_metadata_cache[spec_slug] = []
+
+    # Load runs from filesystem for this spec
+    # Note: We must scan all directories to find runs matching this spec
     if not RUNS_DIR.exists():
-        _cache_initialized = True
+        _cache_loaded_specs.add(spec_slug)
         return
 
     for run_dir in sorted(RUNS_DIR.iterdir()):
@@ -959,20 +972,52 @@ def _populate_run_cache() -> None:
         metadata_path = run_dir / "run.json"
         if metadata_path.exists():
             metadata = read_json(metadata_path)
+            run_spec = metadata.get("spec", "")
+            if run_spec == spec_slug:
+                _run_metadata_cache[spec_slug].append(metadata)
+            # Also cache other specs we encounter to avoid future scans
+            elif run_spec and run_spec not in _cache_loaded_specs:
+                if run_spec not in _run_metadata_cache:
+                    _run_metadata_cache[run_spec] = []
+                _run_metadata_cache[run_spec].append(metadata)
+
+    _cache_loaded_specs.add(spec_slug)
+
+
+def _populate_run_cache() -> None:
+    """Populate the run metadata cache from the filesystem for all specs.
+
+    This is the non-lazy version that loads all runs at once.
+    Prefer using _populate_run_cache_for_spec() for lazy-loading.
+    """
+    global _run_metadata_cache, _cache_loaded_specs
+
+    # Load all specs that haven't been loaded yet
+    if not RUNS_DIR.exists():
+        return
+
+    # First, discover all spec_slugs
+    all_specs = set()
+    for run_dir in sorted(RUNS_DIR.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        metadata_path = run_dir / "run.json"
+        if metadata_path.exists():
+            metadata = read_json(metadata_path)
             spec_slug = metadata.get("spec", "")
             if spec_slug:
-                if spec_slug not in _run_metadata_cache:
-                    _run_metadata_cache[spec_slug] = []
-                _run_metadata_cache[spec_slug].append(metadata)
+                all_specs.add(spec_slug)
 
-    _cache_initialized = True
+    # Load each spec that hasn't been loaded yet
+    for spec_slug in all_specs:
+        _populate_run_cache_for_spec(spec_slug)
 
 
 def invalidate_run_cache() -> None:
     """Invalidate the run metadata cache. Call this after creating/modifying runs."""
-    global _cache_initialized
-    _cache_initialized = False
+    global _run_metadata_cache, _cache_loaded_specs
     _run_metadata_cache.clear()
+    _cache_loaded_specs.clear()
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
@@ -986,6 +1031,32 @@ def run_metadata_iter() -> list[dict[str, Any]]:
         if metadata_path.exists():
             items.append(read_json(metadata_path))
     return items
+
+
+def run_metadata_iter_cached() -> list[dict[str, Any]]:
+    """Return all run metadata using a lazy-loaded cache.
+
+    This function uses an in-memory cache indexed by spec_slug to avoid
+    repeated O(n) filesystem scans. On first call, it loads all runs.
+    Subsequent calls return the cached data.
+
+    The cache is automatically invalidated when runs are created or modified
+    (see invalidate_run_cache()).
+
+    Returns:
+        A list of run metadata dictionaries, sorted by run directory name.
+    """
+    # Ensure all specs are loaded
+    _populate_run_cache()
+
+    # Flatten the cache into a single list
+    items = []
+    for spec_runs in _run_metadata_cache.values():
+        items.extend(spec_runs)
+
+    # Sort by run id to match the order from run_metadata_iter()
+    # The run id corresponds to the directory name
+    return sorted(items, key=lambda item: item.get("id", ""))
 
 
 def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
