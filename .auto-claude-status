@@ -1,25 +1,25 @@
 {
   "active": true,
   "spec": "006-issue-intake-system",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 2,
+    "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Core Data Models",
+    "current": "API Client Adapters",
     "id": null,
-    "total": 2
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 4,
     "started_at": "2026-03-07T23:01:21.854146"
   },
-  "last_update": "2026-03-07T23:03:01.320103"
+  "last_update": "2026-03-07T23:05:49.742472"
 }

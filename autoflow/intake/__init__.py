@@ -23,6 +23,13 @@ Usage:
     )
 """
 
+from autoflow.intake.client import (
+    IssueClient,
+    IssueClientConfig,
+    IssueResult,
+    IssueSourceType,
+    make_http_request,
+)
 from autoflow.intake.mapping import IssueTransformer, LabelMapping
 from autoflow.intake.models import (
     Issue,
@@ -40,4 +47,9 @@ __all__ = [
     "SourceType",
     "LabelMapping",
     "IssueTransformer",
+    "IssueClient",
+    "IssueClientConfig",
+    "IssueResult",
+    "IssueSourceType",
+    "make_http_request",
 ]
