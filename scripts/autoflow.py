@@ -935,6 +935,46 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     }
 
 
+# Run metadata cache: indexed by spec_slug for efficient lookups
+# Structure: {"spec_slug": [run_metadata_dict, ...]}
+_run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
+_cache_initialized: bool = False
+
+
+def _populate_run_cache() -> None:
+    """Populate the run metadata cache from the filesystem."""
+    global _cache_initialized, _run_metadata_cache
+
+    if _cache_initialized:
+        return
+
+    _run_metadata_cache.clear()
+    if not RUNS_DIR.exists():
+        _cache_initialized = True
+        return
+
+    for run_dir in sorted(RUNS_DIR.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        metadata_path = run_dir / "run.json"
+        if metadata_path.exists():
+            metadata = read_json(metadata_path)
+            spec_slug = metadata.get("spec", "")
+            if spec_slug:
+                if spec_slug not in _run_metadata_cache:
+                    _run_metadata_cache[spec_slug] = []
+                _run_metadata_cache[spec_slug].append(metadata)
+
+    _cache_initialized = True
+
+
+def invalidate_run_cache() -> None:
+    """Invalidate the run metadata cache. Call this after creating/modifying runs."""
+    global _cache_initialized
+    _cache_initialized = False
+    _run_metadata_cache.clear()
+
+
 def run_metadata_iter() -> list[dict[str, Any]]:
     items = []
     if not RUNS_DIR.exists():
