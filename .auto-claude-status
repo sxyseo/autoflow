@@ -5,21 +5,21 @@
   "subtasks": {
     "completed": 5,
     "total": 43,
-    "in_progress": 0,
+    "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Memory Core Models",
+    "current": "Memory Consolidation",
     "id": null,
-    "total": 5
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 6,
+    "number": 7,
     "started_at": "2026-03-07T23:50:28.394453"
   },
-  "last_update": "2026-03-08T00:15:00.000000"
+  "last_update": "2026-03-08T00:02:12.274940"
 }
