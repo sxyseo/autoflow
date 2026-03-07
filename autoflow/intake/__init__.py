@@ -23,6 +23,7 @@ Usage:
     )
 """
 
+from autoflow.intake.mapping import IssueTransformer, LabelMapping
 from autoflow.intake.models import (
     Issue,
     IssuePriority,
@@ -37,4 +38,6 @@ __all__ = [
     "IssueSource",
     "IssueStatus",
     "SourceType",
+    "LabelMapping",
+    "IssueTransformer",
 ]
