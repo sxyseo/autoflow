@@ -32,6 +32,12 @@ from autoflow.prediction.feature_extractor import (
     TemporalFeatures,
 )
 
+from autoflow.prediction.feedback import (
+    FeedbackCollector,
+    FeedbackSummary,
+    PredictionRecord,
+    PredictionStatus,
+)
 from autoflow.prediction.predictor import QualityPredictor
 
 __all__ = [
@@ -44,4 +50,9 @@ __all__ = [
     "FeatureVector",
     # Prediction
     "QualityPredictor",
+    # Feedback
+    "FeedbackCollector",
+    "FeedbackSummary",
+    "PredictionRecord",
+    "PredictionStatus",
 ]
