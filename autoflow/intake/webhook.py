@@ -15,12 +15,87 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+
+def verify_signature(
+    payload: bytes,
+    signature: str,
+    source_type: WebhookSourceType,
+    secret: str,
+) -> bool:
+    """
+    Verify webhook signature for GitHub, GitLab, or Linear.
+
+    This is a standalone function that can be used without instantiating
+    the WebhookServer class. It handles signature verification according
+    to each platform's specific requirements.
+
+    Args:
+        payload: Raw webhook payload as bytes
+        signature: Signature from webhook headers (e.g., x-hub-signature-256,
+                   x-gitlab-token, linear-signature)
+        source_type: Type of webhook source (github, gitlab, or linear)
+        secret: Webhook secret key configured in the source platform
+
+    Returns:
+        True if signature is valid, False otherwise
+
+    Examples:
+        Verify a GitHub webhook:
+        >>> is_valid = verify_signature(
+        ...     payload=b'{"issue": {...}}',
+        ...     signature="sha256=abc123...",
+        ...     source_type=WebhookSourceType.GITHUB,
+        ...     secret="my_webhook_secret"
+        ... )
+
+        Verify a GitLab webhook:
+        >>> is_valid = verify_signature(
+        ...     payload=b'{"object_kind": "issue"}',
+        ...     signature="my_token",
+        ...     source_type=WebhookSourceType.GITLAB,
+        ...     secret="my_webhook_secret"
+        ... )
+
+        Verify a Linear webhook:
+        >>> is_valid = verify_signature(
+        ...     payload=b'{"data": {"type": "Issue"}}',
+        ...     signature="abc123...",
+        ...     source_type=WebhookSourceType.LINEAR,
+        ...     secret="my_webhook_secret"
+        ... )
+    """
+    try:
+        if source_type == WebhookSourceType.GITHUB:
+            # GitHub uses HMAC-SHA256 with "sha256=" prefix
+            # Format: sha256=<hex_digest>
+            expected_signature = f"sha256={hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()}"
+            return hmac.compare_digest(expected_signature, signature)
+
+        elif source_type == WebhookSourceType.GITLAB:
+            # GitLab uses a simple token comparison (no HMAC)
+            # The token is passed as-is in the x-gitlab-token header
+            return hmac.compare_digest(secret, signature)
+
+        elif source_type == WebhookSourceType.LINEAR:
+            # Linear uses HMAC-SHA256 without prefix
+            # Format: <hex_digest>
+            expected_signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+            return hmac.compare_digest(expected_signature, signature)
+
+        return False
+
+    except Exception:
+        # If any error occurs during verification, treat as invalid
+        return False
 
 
 class WebhookSourceType(str, Enum):
@@ -594,6 +669,9 @@ class WebhookServer:
         """
         Verify webhook signature.
 
+        This is a wrapper around the module-level verify_signature function
+        for use within the WebhookServer class.
+
         Args:
             payload: Raw payload bytes
             signature: Signature from headers
@@ -603,28 +681,7 @@ class WebhookServer:
         Returns:
             True if signature is valid, False otherwise
         """
-        import hashlib
-        import hmac
-
-        try:
-            if source_type == WebhookSourceType.GITHUB:
-                # GitHub uses HMAC-SHA256
-                expected_signature = f"sha256={hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()}"
-                return hmac.compare_digest(expected_signature, signature)
-
-            elif source_type == WebhookSourceType.GITLAB:
-                # GitLab uses a simple token comparison
-                return hmac.compare_digest(secret, signature)
-
-            elif source_type == WebhookSourceType.LINEAR:
-                # Linear uses HMAC-SHA256
-                expected_signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-                return hmac.compare_digest(expected_signature, signature)
-
-            return False
-
-        except Exception:
-            return False
+        return verify_signature(payload, signature, source_type, secret)
 
     async def _process_event(self, event: WebhookEvent) -> WebhookResult:
         """
