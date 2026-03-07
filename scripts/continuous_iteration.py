@@ -4,11 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from autoflow.core.commands import get_task_history, get_workflow_state, sync_agents
+
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 
