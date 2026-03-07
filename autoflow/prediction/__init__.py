@@ -32,6 +32,8 @@ from autoflow.prediction.feature_extractor import (
     TemporalFeatures,
 )
 
+from autoflow.prediction.predictor import QualityPredictor
+
 __all__ = [
     # Feature extraction
     "FeatureExtractor",
@@ -40,4 +42,6 @@ __all__ = [
     "AgentFeatures",
     "TemporalFeatures",
     "FeatureVector",
+    # Prediction
+    "QualityPredictor",
 ]
