@@ -39,7 +39,7 @@ from autoflow.web.models import (
     RunResponse,
     RunListResponse,
 )
-from autoflow.web.monitor import WebSocketConnectionManager
+from autoflow.web.monitor import WebSocketConnectionManager, StateMonitor
 
 
 # FastAPI application instance
@@ -55,6 +55,9 @@ app = FastAPI(
 
 # Global connection manager instance
 manager = WebSocketConnectionManager()
+
+# Global state monitor instance (initialized on startup)
+monitor: Optional[StateMonitor] = None
 
 
 def _get_state_manager(config: Optional[Config] = None) -> StateManager:
@@ -72,6 +75,51 @@ def _get_state_manager(config: Optional[Config] = None) -> StateManager:
     """
     state_dir = get_state_dir(config)
     return StateManager(state_dir)
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """
+    Startup event handler.
+
+    Initializes and starts the state monitor when the FastAPI application starts.
+    The monitor watches for file changes in the state directory and broadcasts
+    updates to connected WebSocket clients.
+    """
+    global monitor
+
+    try:
+        # Load configuration and get state directory
+        config = load_config()
+        state_dir = get_state_dir(config)
+
+        # Create and start the monitor
+        monitor = StateMonitor(state_dir)
+        await monitor.start()
+
+    except Exception as e:
+        # Log error but don't prevent startup
+        pass
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    """
+    Shutdown event handler.
+
+    Stops the state monitor when the FastAPI application shuts down.
+    Ensures clean shutdown of background monitoring tasks.
+    """
+    global monitor
+
+    if monitor is not None:
+        try:
+            await monitor.stop()
+        except Exception:
+            # Ignore errors during shutdown
+            pass
+        finally:
+            monitor = None
 
 
 @app.get("/", tags=["root"])
