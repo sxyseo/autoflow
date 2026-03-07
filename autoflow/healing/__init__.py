@@ -7,6 +7,16 @@ degradation, diagnose root causes, and apply automatic fixes with rollback safet
 from __future__ import annotations
 
 from autoflow.healing.config import HealingConfig, HealingThreshold
+from autoflow.healing.diagnostic import (
+    ConfidenceLevel,
+    DiagnosticResult,
+    FailureCategory,
+    HealingPlan,
+    HealingStrategy,
+    RootCause,
+    StrategyEvaluation,
+    StrategySelector,
+)
 from autoflow.healing.monitor import (
     HealthAssessment,
     MetricReading,
@@ -23,4 +33,12 @@ __all__ = [
     "HealthAssessment",
     "MetricReading",
     "TaskExecution",
+    "DiagnosticResult",
+    "HealingStrategy",
+    "FailureCategory",
+    "ConfidenceLevel",
+    "RootCause",
+    "StrategyEvaluation",
+    "HealingPlan",
+    "StrategySelector",
 ]
