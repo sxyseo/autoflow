@@ -1490,5 +1490,116 @@ def intake_status(
         ctx.exit(1)
 
 
+@intake.command("webhook")
+@click.option(
+    "--host",
+    "-H",
+    type=str,
+    default="127.0.0.1",
+    help="Host to bind the server to.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port to listen on.",
+)
+@click.option(
+    "--path",
+    type=str,
+    default="/webhook",
+    help="Webhook endpoint path.",
+)
+@click.option(
+    "--no-verify",
+    is_flag=True,
+    help="Disable webhook signature verification.",
+)
+@click.pass_context
+def intake_webhook(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    path: str,
+    no_verify: bool,
+) -> None:
+    """
+    Start the webhook server for receiving issue events.
+
+    Starts a FastAPI-based webhook server that receives and processes
+    issue events from GitHub, GitLab, and Linear.
+
+    \b
+    Examples:
+        autoflow intake webhook
+        autoflow intake webhook --host 0.0.0.0 --port 8080
+        autoflow intake webhook --path /hooks
+        autoflow intake webhook --no-verify
+    """
+    from autoflow.intake import WebhookServer, WebhookConfig
+
+    config: Config = ctx.obj["config"]
+
+    try:
+        # Create webhook config
+        webhook_config = WebhookConfig(
+            host=host,
+            port=port,
+            path=path,
+            verify_signatures=not no_verify,
+        )
+
+        # Create and start server
+        server = WebhookServer(config=webhook_config)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "starting",
+                "host": host,
+                "port": port,
+                "path": path,
+                "verify_signatures": not no_verify,
+            })
+        else:
+            click.echo("Starting Webhook Server")
+            click.echo("=" * 60)
+            click.echo(f"Host: {host}")
+            click.echo(f"Port: {port}")
+            click.echo(f"Path: {path}")
+            click.echo(f"Signature Verification: {not no_verify}")
+            click.echo("")
+            click.echo(f"Webhook URL: http://{host}:{port}{path}")
+            click.echo("")
+            click.echo("Press Ctrl+C to stop the server")
+            click.echo("")
+
+        # Start the server (blocking)
+        _run_async(server.start())
+
+    except ImportError as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": "Missing dependencies",
+                "error": str(e),
+            })
+        else:
+            click.echo("Error: Missing required dependencies.", err=True)
+            click.echo("Install them with: pip install fastapi uvicorn", err=True)
+            click.echo(f"Details: {e}", err=True)
+        ctx.exit(1)
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error starting webhook server: {e}", err=True)
+        ctx.exit(1)
+
+
 if __name__ == "__main__":
     main()
