@@ -482,6 +482,336 @@ class SkillPackager:
         return f"SkillPackager(registry={self.registry})"
 
 
+class ImportConflictResolution(str, Enum):
+    """Strategy for resolving version conflicts during import."""
+
+    ERROR = "error"  # Raise error on conflict
+    SKIP = "skip"  # Skip conflicting skills
+    OVERWRITE = "overwrite"  # Replace existing skills
+    BACKUP = "backup"  # Backup existing skills before replacing
+    RENAME = "rename"  # Rename imported skill to avoid conflict
+
+
+@dataclass
+class ImportResult:
+    """
+    Result of a skill import operation.
+
+    Contains information about which skills were imported, which were
+    skipped, and any conflicts that occurred.
+
+    Attributes:
+        imported: List of successfully imported skill names
+        skipped: List of skipped skill names
+        conflicts: List of conflicting skill names
+        errors: List of error messages
+        backup_paths: Map of skill name to backup file path (if backup was used)
+    """
+
+    imported: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    backup_paths: dict[str, Path] = field(default_factory=dict)
+
+    @property
+    def success(self) -> bool:
+        """Check if import was successful (no errors)."""
+        return not self.errors
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"ImportResult(imported={len(self.imported)}, "
+            f"skipped={len(self.skipped)}, "
+            f"conflicts={len(self.conflicts)}, "
+            f"errors={len(self.errors)})"
+        )
+
+
+class SkillImporter:
+    """
+    Imports skill packages into a skill registry.
+
+    The SkillImporter extracts skill packages created by SkillPackager
+    and integrates them into a SkillRegistry. It handles version conflicts
+    through configurable resolution strategies.
+
+    Supported package formats:
+    - tar.gz archives
+    - tar archives
+    - Directories
+
+    Example:
+        >>> importer = SkillImporter()
+        >>> registry = SkillRegistry()
+        >>>
+        >>> # Import with error on conflict
+        >>> result = importer.import_package(
+        ...     "my-skill-1.0.0.tar.gz",
+        ...     registry,
+        ...     conflict_resolution=ImportConflictResolution.ERROR
+        ... )
+        >>>
+        >>> # Import with overwrite
+        >>> result = importer.import_package(
+        ...     "my-skill-1.0.0.tar.gz",
+        ...     registry,
+        ...     conflict_resolution=ImportConflictResolution.OVERWRITE
+        ... )
+
+    Attributes:
+        registry: SkillRegistry to import skills into
+    """
+
+    MANIFEST_FILE = "manifest.json"
+    SKILLS_DIR = "skills"
+
+    def __init__(
+        self,
+        registry: Optional[SkillRegistry] = None,
+    ):
+        """
+        Initialize the skill importer.
+
+        Args:
+            registry: Optional SkillRegistry to import skills into.
+                     If None, creates a new registry.
+        """
+        self.registry = registry or SkillRegistry()
+        self._errors: list[str] = []
+
+    def import_package(
+        self,
+        package_path: Union[str, Path],
+        target_dir: Union[str, Path],
+        conflict_resolution: Union[str, ImportConflictResolution] = ImportConflictResolution.ERROR,
+        registry: Optional[SkillRegistry] = None,
+    ) -> ImportResult:
+        """
+        Import a skill package into a target directory.
+
+        Args:
+            package_path: Path to the package file or directory
+            target_dir: Directory to extract skills to
+            conflict_resolution: Strategy for handling version conflicts
+            registry: Optional SkillRegistry to load imported skills into
+
+        Returns:
+            ImportResult with details of the import operation
+
+        Raises:
+            PackageError: If package is invalid or import fails critically
+        """
+        package_path = Path(package_path)
+        target_dir = Path(target_dir)
+        conflict_resolution = ImportConflictResolution(conflict_resolution)
+
+        # Use provided registry or default
+        if registry:
+            self.registry = registry
+
+        result = ImportResult()
+
+        try:
+            # Extract package to temporary directory
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+
+                # Extract based on format
+                if package_path.is_file():
+                    self._extract_archive(package_path, temp_path)
+                elif package_path.is_dir():
+                    self._copy_directory(package_path, temp_path)
+                else:
+                    raise PackageError(f"Package path does not exist: {package_path}")
+
+                # Load manifest
+                manifest_path = temp_path / self.MANIFEST_FILE
+                if not manifest_path.exists():
+                    raise PackageError(
+                        f"Invalid package: missing {self.MANIFEST_FILE}"
+                    )
+
+                metadata = self._load_manifest(manifest_path)
+
+                # Import skills
+                skills_dir = temp_path / self.SKILLS_DIR
+                if not skills_dir.exists():
+                    raise PackageError(
+                        f"Invalid package: missing {self.SKILLS_DIR} directory"
+                    )
+
+                for skill_dir in skills_dir.iterdir():
+                    if skill_dir.is_dir():
+                        import_result = self._import_skill(
+                            skill_dir,
+                            target_dir,
+                            conflict_resolution,
+                        )
+
+                        if import_result == "imported":
+                            result.imported.append(skill_dir.name.upper())
+                        elif import_result == "skipped":
+                            result.skipped.append(skill_dir.name.upper())
+                        elif import_result == "conflict":
+                            result.conflicts.append(skill_dir.name.upper())
+
+        except Exception as e:
+            result.errors.append(str(e))
+            if isinstance(e, PackageError):
+                raise
+
+        return result
+
+    def _import_skill(
+        self,
+        skill_dir: Path,
+        target_dir: Path,
+        conflict_resolution: ImportConflictResolution,
+    ) -> str:
+        """
+        Import a single skill directory.
+
+        Args:
+            skill_dir: Directory containing skill files
+            target_dir: Target directory for skills
+            conflict_resolution: Strategy for handling conflicts
+
+        Returns:
+            "imported", "skipped", or "conflict"
+        """
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            return "skipped"
+
+        # Parse skill to get name
+        try:
+            content = skill_file.read_text(encoding="utf-8")
+            match = SkillRegistry.FRONTMATTER_PATTERN.match(content)
+            if not match:
+                return "skipped"
+
+            import yaml
+            yaml_content = yaml.safe_load(match.group(1))
+            skill_name = yaml_content.get("name", skill_dir.name.upper())
+        except Exception:
+            return "skipped"
+
+        # Determine target path
+        target_skill_dir = target_dir / skill_name.lower()
+        target_skill_file = target_skill_dir / "SKILL.md"
+
+        # Check for conflict
+        if target_skill_file.exists():
+            if conflict_resolution == ImportConflictResolution.ERROR:
+                return "conflict"
+            elif conflict_resolution == ImportConflictResolution.SKIP:
+                return "skipped"
+            elif conflict_resolution == ImportConflictResolution.BACKUP:
+                self._backup_skill(target_skill_dir, skill_name)
+
+        # Create target directory and copy skill
+        target_skill_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_directory(skill_dir, target_skill_dir)
+
+        return "imported"
+
+    def _backup_skill(self, skill_dir: Path, skill_name: str) -> None:
+        """
+        Backup an existing skill directory.
+
+        Args:
+            skill_dir: Directory to backup
+            skill_name: Name of the skill
+        """
+        import shutil
+        from datetime import datetime
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        backup_path = skill_dir.parent / f"{skill_dir.name}_{timestamp}.bak"
+
+        if skill_dir.exists():
+            shutil.copytree(skill_dir, backup_path)
+
+    def _extract_archive(
+        self,
+        archive_path: Path,
+        target_dir: Path,
+    ) -> None:
+        """
+        Extract a skill package archive.
+
+        Args:
+            archive_path: Path to the archive file
+            target_dir: Directory to extract to
+
+        Raises:
+            PackageError: If extraction fails
+        """
+        try:
+            if archive_path.suffixes == [".tar", ".gz"] or archive_path.suffix == ".tgz":
+                mode = "r:gz"
+            elif archive_path.suffix == ".tar":
+                mode = "r"
+            else:
+                raise PackageError(f"Unsupported archive format: {archive_path.suffix}")
+
+            with tarfile.open(archive_path, mode) as tar:
+                tar.extractall(target_dir)
+
+        except tarfile.TarError as e:
+            raise PackageError(f"Failed to extract archive: {e}") from e
+
+    def _load_manifest(self, manifest_path: Path) -> SkillPackageMetadata:
+        """
+        Load package manifest metadata.
+
+        Args:
+            manifest_path: Path to manifest.json
+
+        Returns:
+            SkillPackageMetadata instance
+
+        Raises:
+            PackageError: If manifest is invalid
+        """
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return SkillPackageMetadata.from_dict(data)
+        except Exception as e:
+            raise PackageError(f"Invalid manifest: {e}") from e
+
+    def _copy_directory(self, source: Path, destination: Path) -> None:
+        """
+        Copy directory contents recursively.
+
+        Args:
+            source: Source directory
+            destination: Destination directory
+        """
+        import shutil
+
+        for item in source.rglob("*"):
+            if item.is_file():
+                dest_file = destination / item.relative_to(source)
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, dest_file)
+
+    def get_errors(self) -> list[str]:
+        """
+        Get any errors from import operations.
+
+        Returns:
+            List of error messages
+        """
+        return self._errors.copy()
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return f"SkillImporter(registry={self.registry})"
+
+
 def create_packager(
     registry: Optional[SkillRegistry] = None,
     include_metadata: bool = True,
@@ -503,3 +833,24 @@ def create_packager(
         >>> package = packager.export_skill("MY_SKILL", "output.tar.gz")
     """
     return SkillPackager(registry=registry, include_metadata=include_metadata)
+
+
+def create_importer(
+    registry: Optional[SkillRegistry] = None,
+) -> SkillImporter:
+    """
+    Factory function to create a skill importer.
+
+    Args:
+        registry: Optional SkillRegistry to use
+
+    Returns:
+        Configured SkillImporter instance
+
+    Example:
+        >>> from autoflow.skills.registry import create_registry
+        >>> registry = create_registry()
+        >>> importer = create_importer(registry)
+        >>> result = importer.import_package("my-skill-1.0.0.tar.gz", "skills")
+    """
+    return SkillImporter(registry=registry)
