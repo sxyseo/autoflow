@@ -43,6 +43,16 @@ AGENTS_FILE = STATE_DIR / "agents.json"
 REVIEW_STATE_FILE = "review_state.json"
 QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
 QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
+EVENTS_FILE = "events.jsonl"
+
+VALID_TASK_STATUSES = {
+    "todo",
+    "in_progress",
+    "in_review",
+    "needs_changes",
+    "blocked",
+    "done",
+}
 
 
 # === Helper Functions ===
@@ -58,6 +68,7 @@ def _spec_files(slug: str) -> dict[str, Path]:
         "review_state": directory / REVIEW_STATE_FILE,
         "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
         "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
+        "events": directory / EVENTS_FILE,
     }
 
 
@@ -444,6 +455,66 @@ def _discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# === Taskmaster Helper Functions ===
+
+
+def _read_json(path: Path) -> Any:
+    """Read JSON file."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Record an event to the spec's events file."""
+    events_path = _spec_files(spec_slug)["events"]
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "at": _now_stamp(),
+        "type": event_type,
+        "payload": payload,
+    }
+    with open(events_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+
+
+def _normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
+    """Normalize a task entry from Taskmaster format."""
+    depends = entry.get("depends_on", entry.get("dependencies", [])) or []
+    criteria = entry.get("acceptance_criteria", entry.get("acceptanceCriteria", [])) or []
+    status = entry.get("status", "todo")
+    if status not in VALID_TASK_STATUSES:
+        status = "todo"
+    return {
+        "id": entry.get("id") or f"T{index}",
+        "title": entry.get("title", entry.get("name", f"Task {index}")),
+        "status": status,
+        "depends_on": depends,
+        "owner_role": entry.get("owner_role", entry.get("role", "implementation-runner")),
+        "acceptance_criteria": criteria,
+        "notes": entry.get("notes", []),
+    }
+
+
+def _taskmaster_payload(spec_slug: str) -> dict[str, Any]:
+    """Generate Taskmaster export payload for a spec."""
+    tasks = _load_tasks(spec_slug)
+    return {
+        "project": spec_slug,
+        "exported_at": _now_stamp(),
+        "tasks": [
+            {
+                "id": task["id"],
+                "title": task["title"],
+                "status": task["status"],
+                "dependencies": task.get("depends_on", []),
+                "owner_role": task["owner_role"],
+                "acceptanceCriteria": task.get("acceptance_criteria", []),
+                "notes": task.get("notes", []),
+            }
+            for task in tasks.get("tasks", [])
+        ],
+    }
+
+
 # === Public API Functions ===
 
 
@@ -617,8 +688,12 @@ def taskmaster_export(spec_slug: str, output: str | None = None) -> dict[str, An
         If output is None: Export payload dict with project, exported_at, and tasks list.
         If output is provided: Path to the written file.
     """
-    # TODO: Implement in subtask-1-6
-    raise NotImplementedError("taskmaster_export will be implemented in subtask-1-6")
+    payload = _taskmaster_payload(spec_slug)
+    if output:
+        output_path = Path(output)
+        _write_json(output_path, payload)
+        return output_path
+    return payload
 
 
 def taskmaster_import(spec_slug: str, input: str) -> dict[str, Any]:
@@ -637,8 +712,22 @@ def taskmaster_import(spec_slug: str, input: str) -> dict[str, Any]:
         - spec: Spec identifier
         - task_count: Number of tasks imported
     """
-    # TODO: Implement in subtask-1-6
-    raise NotImplementedError("taskmaster_import will be implemented in subtask-1-6")
+    input_path = Path(input)
+    payload = _read_json(input_path)
+    tasks_input = payload if isinstance(payload, list) else payload.get("tasks", [])
+    normalized = [
+        _normalize_imported_task(item, index)
+        for index, item in enumerate(tasks_input, start=1)
+    ]
+    data = {
+        "spec_slug": spec_slug,
+        "updated_at": _now_stamp(),
+        "tasks": normalized,
+    }
+    _write_json(_task_file(spec_slug), data)
+    _sync_review_state(spec_slug, reason="taskmaster_import")
+    _record_event(spec_slug, "taskmaster.imported", {"task_count": len(normalized), "source": str(input_path)})
+    return {"spec": spec_slug, "task_count": len(normalized)}
 
 
 __all__ = [
