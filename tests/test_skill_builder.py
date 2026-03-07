@@ -1473,3 +1473,258 @@ class TestSkillBuilderEdgeCases:
         )
 
         assert builder.config.output_dir == original_output
+
+
+# ============================================================================
+# End-to-End Integration Tests
+# ============================================================================
+
+
+class TestSkillBuilderEndToEnd:
+    """End-to-end integration tests for skill builder workflow."""
+
+    def test_create_validate_export_import_workflow(
+        self,
+        builder: SkillBuilder,
+        temp_output_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """
+        Test complete workflow: create, validate, export, and import a skill.
+
+        This end-to-end test verifies:
+        1. Creating a new skill using SkillBuilder with built-in template
+        2. Validating the skill using SkillValidator
+        3. Exporting the skill using SkillPackager
+        4. Importing the skill to a new location
+        5. Verifying imported skill matches original
+        """
+        from autoflow.skills.validation import SkillValidator
+        from autoflow.skills.sharing import SkillPackager, SkillImporter
+        from autoflow.skills import SkillRegistry
+
+        # Step 1: Create a new skill using SkillBuilder with built-in template
+        skill_name = "E2E_TEST_SKILL"
+        skill_description = "End-to-end test skill for validation"
+
+        builder.build(
+            name=skill_name,
+            template="implementer",
+            variables={
+                "name": skill_name,
+                "description": skill_description,
+            },
+            output_dir=temp_output_dir,
+        )
+
+        # Verify skill was created
+        skill_dir = temp_output_dir / skill_name
+        assert skill_dir.exists()
+        skill_file = skill_dir / "SKILL.md"
+        assert skill_file.exists()
+
+        # Read the created skill content
+        original_content = skill_file.read_text(encoding="utf-8")
+
+        # Step 2: Validate the skill using SkillValidator
+        validator = SkillValidator()
+        validation_result = validator.validate_content(original_content)
+
+        # Skill should be valid (has required Workflow section)
+        assert validation_result.is_valid
+        assert "## Workflow" in validation_result.present_sections
+        assert len(validation_result.errors) == 0
+
+        # Step 3: Export the skill using SkillPackager
+        # Create a registry and load the skill
+        registry = SkillRegistry(skills_dirs=[temp_output_dir])
+        registry.load_skills()
+
+        # Verify skill is in registry
+        assert skill_name in registry
+
+        # Create packager with registry
+        packager = SkillPackager(registry=registry)
+        package_path = tmp_path / f"{skill_name.lower()}.tar.gz"
+
+        package = packager.export_skill(
+            skill_name=skill_name,
+            output_path=package_path,
+            format="tar.gz",
+        )
+
+        # Verify package was created
+        assert package_path.exists()
+        assert package.metadata.name == skill_name.lower()
+        assert package.format.value == "tar.gz"
+
+        # Step 4: Import the skill to a new location
+        import_dir = tmp_path / "imported_skills"
+        import_dir.mkdir()
+
+        importer = SkillImporter()
+        import_result = importer.import_package(
+            package_path=package_path,
+            target_dir=import_dir,
+            conflict_resolution="skip",
+        )
+
+        # Verify import was successful
+        assert import_result.success
+        assert len(import_result.imported) > 0
+        assert skill_name in import_result.imported
+
+        # Verify imported skill directory exists
+        # Note: imported skills are in lowercase subdirectories
+        imported_skill_dir = import_dir / skill_name.lower()
+        assert imported_skill_dir.exists()
+
+        imported_skill_file = imported_skill_dir / "SKILL.md"
+        assert imported_skill_file.exists()
+
+        # Step 5: Verify imported skill matches original
+        imported_content = imported_skill_file.read_text(encoding="utf-8")
+
+        # The content sections (after frontmatter) should match
+        # Note: Metadata may differ because packager adds default fields
+        import yaml
+
+        def extract_content_section(full_content: str) -> str:
+            """Extract the content section after frontmatter."""
+            if full_content.startswith("---\n"):
+                parts = full_content.split("---\n", 2)
+                if len(parts) >= 3:
+                    return parts[2].strip()
+            return full_content.strip()
+
+        original_content_section = extract_content_section(original_content)
+        imported_content_section = extract_content_section(imported_content)
+
+        assert original_content_section == imported_content_section
+
+        # Validate imported skill as well
+        imported_validation_result = validator.validate_content(imported_content)
+        assert imported_validation_result.is_valid
+        assert imported_validation_result.present_sections == validation_result.present_sections
+
+    def test_create_and_export_multiple_skills(
+        self,
+        builder: SkillBuilder,
+        temp_output_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Test creating and exporting multiple skills in sequence."""
+        from autoflow.skills.validation import SkillValidator
+        from autoflow.skills.sharing import SkillPackager
+        from autoflow.skills import SkillRegistry
+
+        validator = SkillValidator()
+
+        skills_to_create = [
+            ("MULTI_TEST_1", "implementer", "First test skill"),
+            ("MULTI_TEST_2", "planner", "Second test skill"),
+            ("MULTI_TEST_3", "reviewer", "Third test skill"),
+        ]
+
+        created_packages = []
+
+        for skill_name, template, description in skills_to_create:
+            # Create skill
+            builder.build(
+                name=skill_name,
+                template=template,
+                variables={"name": skill_name, "description": description},
+                output_dir=temp_output_dir,
+            )
+
+            # Verify creation
+            skill_dir = temp_output_dir / skill_name
+            assert skill_dir.exists()
+
+            skill_file = skill_dir / "SKILL.md"
+            content = skill_file.read_text(encoding="utf-8")
+
+            # Validate
+            validation_result = validator.validate_content(content)
+            assert validation_result.is_valid
+
+        # Now create a registry with all skills and export them
+        registry = SkillRegistry(skills_dirs=[temp_output_dir])
+        registry.load_skills()
+
+        packager = SkillPackager(registry=registry)
+
+        # Export each skill
+        for skill_name, _, _ in skills_to_create:
+            package_path = tmp_path / f"{skill_name.lower()}.tar.gz"
+            package = packager.export_skill(
+                skill_name=skill_name,
+                output_path=package_path,
+                format="tar.gz",
+            )
+
+            assert package_path.exists()
+            created_packages.append(package_path)
+
+        # Verify all packages were created
+        assert len(created_packages) == 3
+        for package_path in created_packages:
+            assert package_path.exists()
+
+    def test_workflow_with_custom_validation_rules(
+        self,
+        builder: SkillBuilder,
+        temp_output_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Test workflow with custom validation rules."""
+        from autoflow.skills.validation import SkillValidator, create_validator
+        from autoflow.skills.sharing import SkillPackager
+        from autoflow.skills import SkillRegistry
+
+        # Create skill
+        skill_name = "CUSTOM_VALIDATE_SKILL"
+        builder.build(
+            name=skill_name,
+            template="implementer",
+            variables={
+                "name": skill_name,
+                "description": "Test skill with custom validation",
+            },
+            output_dir=temp_output_dir,
+        )
+
+        skill_dir = temp_output_dir / skill_name
+        skill_file = skill_dir / "SKILL.md"
+        content = skill_file.read_text(encoding="utf-8")
+
+        # Validate with default rules
+        default_validator = SkillValidator()
+        default_result = default_validator.validate_content(content)
+        assert default_result.is_valid
+
+        # Validate with custom rules (require Role section)
+        custom_validator = create_validator(
+            required_sections=["## Workflow", "## Role"]
+        )
+        custom_result = custom_validator.validate_content(content)
+
+        # Custom validation should have warnings (Role section may be missing)
+        # The implementer template doesn't have a Role section by default
+        assert "## Role" in custom_result.missing_sections or not custom_result.is_valid
+
+        # Create registry and export skill
+        registry = SkillRegistry(skills_dirs=[temp_output_dir])
+        registry.load_skills()
+
+        packager = SkillPackager(registry=registry)
+        package_path = tmp_path / f"{skill_name.lower()}.tar.gz"
+
+        package = packager.export_skill(
+            skill_name=skill_name,
+            output_path=package_path,
+            format="tar.gz",
+        )
+
+        assert package_path.exists()
+        assert package.metadata.name == skill_name.lower()
