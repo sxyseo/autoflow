@@ -1028,7 +1028,7 @@ def invalidate_run_cache() -> None:
     _cache_loaded_specs.clear()
 
 
-def run_metadata_iter_cached() -> list[dict[str, Any]]:
+def run_metadata_iter() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
     This function uses an in-memory cache indexed by spec_slug to avoid
@@ -1053,7 +1053,7 @@ def run_metadata_iter_cached() -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: item.get("id", ""))
 
 
-def active_runs_for_spec_cached(spec_slug: str) -> list[dict[str, Any]]:
+def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
     """Return active runs for a spec using cached lookup.
 
     This function uses the lazy-loaded cache to avoid O(n) filesystem scans.
@@ -1077,7 +1077,7 @@ def active_runs_for_spec_cached(spec_slug: str) -> list[dict[str, Any]]:
     ]
 
 
-def task_run_history_cached(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
     """Return run history for a task using cached lookup.
 
     This function uses the lazy-loaded cache to avoid O(n) filesystem scans.
@@ -1140,7 +1140,7 @@ Use relative paths only.
 
 
 def recovery_context(spec_slug: str, task_id: str) -> str:
-    history = task_run_history_cached(spec_slug, task_id, limit=5)
+    history = task_run_history(spec_slug, task_id, limit=5)
     unsuccessful = [item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}]
     if not unsuccessful:
         return "No previous failed or blocked attempts recorded for this task."
@@ -1595,7 +1595,7 @@ def create_run_record(
         "created_at": now_stamp(),
         "command_preview": command,
         "status": "created",
-        "attempt_count": len(task_run_history_cached(spec_slug, task_id)) + 1,
+        "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
         "native_resume_supported": bool(agent.resume),
@@ -1759,7 +1759,7 @@ def complete_run(args: argparse.Namespace) -> None:
 
 
 def show_task_history(args: argparse.Namespace) -> None:
-    print(json.dumps(task_run_history_cached(args.spec, args.task), indent=2, ensure_ascii=True))
+    print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
 
 
 def show_events(args: argparse.Namespace) -> None:
@@ -1948,7 +1948,7 @@ def list_worktrees(_: argparse.Namespace) -> None:
 def workflow_state(args: argparse.Namespace) -> None:
     data = load_tasks(args.spec)
     review_summary = review_status_summary(args.spec)
-    active_runs = active_runs_for_spec_cached(args.spec)
+    active_runs = active_runs_for_spec(args.spec)
     ready = []
     blocked = []
     for task in data.get("tasks", []):
