@@ -97,8 +97,7 @@ def workflow_state(spec: str) -> dict:
 
 
 def task_history(spec: str, task: str) -> list[dict]:
-    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
-    return json.loads(result.stdout)
+    return get_task_history(spec, task)
 
 
 def sync_agents(overwrite: bool = False) -> dict:
