@@ -1,0 +1,40 @@
+{
+  "test_discovery": {
+    "test_directories": ["tests"],
+    "test_patterns": ["test_*.py", "*_test.py"],
+    "exclude_patterns": ["__pycache__", "*.pyc", "conftest.py"]
+  },
+  "test_execution": {
+    "default_timeout": 300,
+    "max_workers": 4,
+    "auto_retry": {
+      "enabled": true,
+      "max_attempts": 3,
+      "backoff_factor": 2.0,
+      "initial_delay": 1.0
+    }
+  },
+  "coverage": {
+    "enabled": true,
+    "threshold": 80,
+    "fail_under_threshold": true,
+    "source_dirs": ["scripts"],
+    "exclude_patterns": [
+      "*/tests/*",
+      "*/__pycache__/*",
+      "*/conftest.py"
+    ],
+    "report_formats": ["term-missing", "json", "html"]
+  },
+  "flaky_detection": {
+    "enabled": true,
+    "min_runs": 3,
+    "quarantine_threshold": 0.3,
+    "quarantine_dir": "config/quarantined_tests"
+  },
+  "reporting": {
+    "output_dir": "test_results",
+    "formats": ["json", "junit"],
+    "verbose": true
+  }
+}

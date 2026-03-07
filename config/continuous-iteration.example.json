@@ -1,0 +1,37 @@
+{
+  "role_agents": {
+    "spec-writer": "codex-spec",
+    "task-graph-manager": "codex-spec",
+    "implementation-runner": "codex-impl",
+    "reviewer": "claude-review",
+    "maintainer": "codex-impl"
+  },
+  "agent_selection": {
+    "sync_before_dispatch": true,
+    "overwrite_discovered": false,
+    "role_preferences": {
+      "reviewer": [
+        "claude-review",
+        "claude"
+      ],
+      "implementation-runner": [
+        "codex-impl",
+        "codex",
+        "acp-example"
+      ]
+    }
+  },
+  "verify_commands": [
+    "bash scripts/ci_check.sh",
+    "python3 scripts/autoflow.py workflow-state --spec {spec}"
+  ],
+  "commit": {
+    "message_prefix": "autoflow",
+    "push": true,
+    "allow_during_active_runs": false
+  },
+  "retry_policy": {
+    "max_automatic_attempts": 3,
+    "require_fix_request_for_retry": true
+  }
+}

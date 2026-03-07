@@ -1,2 +1,61 @@
-# Auto Claude data directory
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Auto Claude
 .auto-claude/
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+
+# Autoflow local state (keep structure, ignore generated content)
+.autoflow/logs/
+.autoflow/memory/
+.autoflow/runs/
+.autoflow/worktrees/
+.autoflow/discovered_agents.json
+.autoflow/.DS_Store
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Security
+.security-key
+logs/security/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
