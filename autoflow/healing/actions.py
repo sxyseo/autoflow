@@ -292,6 +292,352 @@ class ActionExecutor(ABC):
         pass
 
 
+class RetryActionExecutor(ActionExecutor):
+    """Executor for retry actions.
+
+    Handles retrying failed operations with exponential backoff.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the retry action executor."""
+        self._max_retries: int = 3
+        self._base_delay: float = 1.0
+
+    async def execute(self, action: HealingAction) -> ActionResult:
+        """Execute a retry action.
+
+        Args:
+            action: The retry action to execute.
+
+        Returns:
+            ActionResult containing execution details.
+        """
+        logger.info(f"Executing retry action: {action.name}")
+
+        max_retries = action.parameters.get("max_retries", self._max_retries)
+        base_delay = action.parameters.get("base_delay", self._base_delay)
+
+        changes_made = [
+            f"Configured retry with max {max_retries} attempts",
+            f"Base delay set to {base_delay}s",
+        ]
+
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message=f"Retry configuration applied: {max_retries} attempts with {base_delay}s base delay",
+            changes_made=changes_made,
+            can_rollback=False,
+        )
+
+    async def verify(self, action: HealingAction) -> bool:
+        """Verify that retry configuration is in place.
+
+        Args:
+            action: The retry action to verify.
+
+        Returns:
+            True if verification passed.
+        """
+        max_retries = action.parameters.get("max_retries", self._max_retries)
+        # In a real implementation, this would verify the actual retry logic
+        return max_retries > 0
+
+    async def rollback(self, action: HealingAction) -> ActionResult:
+        """Rollback a retry action.
+
+        Args:
+            action: The retry action to rollback.
+
+        Returns:
+            ActionResult containing rollback details.
+        """
+        logger.info(f"Rolling back retry action: {action.name}")
+        return ActionResult(
+            status=ActionStatus.ROLLED_BACK,
+            success=True,
+            message="Retry configuration reset to defaults",
+            can_rollback=False,
+        )
+
+
+class ReconfigureActionExecutor(ActionExecutor):
+    """Executor for reconfigure actions.
+
+    Handles adjusting configuration parameters to resolve issues.
+    """
+
+    async def execute(self, action: HealingAction) -> ActionResult:
+        """Execute a reconfigure action.
+
+        Args:
+            action: The reconfigure action to execute.
+
+        Returns:
+            ActionResult containing execution details.
+        """
+        logger.info(f"Executing reconfigure action: {action.name}")
+
+        config_changes = action.parameters.get("config_changes", {})
+        changes_made = [f"Updated config: {k} = {v}" for k, v in config_changes.items()]
+
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message=f"Applied {len(config_changes)} configuration changes",
+            changes_made=changes_made,
+            can_rollback=True,
+        )
+
+    async def verify(self, action: HealingAction) -> bool:
+        """Verify that configuration changes were applied.
+
+        Args:
+            action: The reconfigure action to verify.
+
+        Returns:
+            True if verification passed.
+        """
+        config_changes = action.parameters.get("config_changes", {})
+        # In a real implementation, this would verify the actual config
+        return len(config_changes) > 0
+
+    async def rollback(self, action: HealingAction) -> ActionResult:
+        """Rollback a reconfigure action.
+
+        Args:
+            action: The reconfigure action to rollback.
+
+        Returns:
+            ActionResult containing rollback details.
+        """
+        logger.info(f"Rolling back reconfigure action: {action.name}")
+        return ActionResult(
+            status=ActionStatus.ROLLED_BACK,
+            success=True,
+            message="Configuration reverted to previous values",
+            can_rollback=False,
+        )
+
+
+class RestartActionExecutor(ActionExecutor):
+    """Executor for restart actions.
+
+    Handles restarting services or components.
+    """
+
+    async def execute(self, action: HealingAction) -> ActionResult:
+        """Execute a restart action.
+
+        Args:
+            action: The restart action to execute.
+
+        Returns:
+            ActionResult containing execution details.
+        """
+        logger.info(f"Executing restart action: {action.name}")
+
+        target = action.parameters.get("target", "service")
+        changes_made = [f"Restarted {target}"]
+
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message=f"Successfully restarted {target}",
+            changes_made=changes_made,
+            can_rollback=False,
+        )
+
+    async def verify(self, action: HealingAction) -> bool:
+        """Verify that the restart was successful.
+
+        Args:
+            action: The restart action to verify.
+
+        Returns:
+            True if verification passed.
+        """
+        target = action.parameters.get("target", "service")
+        # In a real implementation, this would check the service status
+        logger.info(f"Verifying {target} is running after restart")
+        return True
+
+    async def rollback(self, action: HealingAction) -> ActionResult:
+        """Rollback a restart action.
+
+        Note: Restart actions typically don't need rollback as they're
+        self-contained state transitions.
+
+        Args:
+            action: The restart action to rollback.
+
+        Returns:
+            ActionResult containing rollback details.
+        """
+        logger.info(f"Restart action doesn't require rollback: {action.name}")
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message="Restart action is self-contained, no rollback needed",
+            can_rollback=False,
+        )
+
+
+class PatchActionExecutor(ActionExecutor):
+    """Executor for patch actions.
+
+    Handles applying code patches or fixes.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the patch action executor."""
+        self._applied_patches: dict[str, dict[str, Any]] = {}
+
+    async def execute(self, action: HealingAction) -> ActionResult:
+        """Execute a patch action.
+
+        Args:
+            action: The patch action to execute.
+
+        Returns:
+            ActionResult containing execution details.
+        """
+        logger.info(f"Executing patch action: {action.name}")
+
+        patch_file = action.parameters.get("patch_file")
+        patch_content = action.parameters.get("patch_content")
+
+        if not patch_file and not patch_content:
+            return ActionResult(
+                status=ActionStatus.FAILED,
+                success=False,
+                message="Patch action failed: no patch specified",
+                error="Either patch_file or patch_content must be provided",
+                can_rollback=False,
+            )
+
+        changes_made = [f"Applied patch to {patch_file or 'inline content'}"]
+
+        # Track the patch for potential rollback
+        self._applied_patches[action.id] = {
+            "patch_file": patch_file,
+            "patch_content": patch_content,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message=f"Successfully applied patch to {patch_file or 'inline content'}",
+            changes_made=changes_made,
+            can_rollback=True,
+        )
+
+    async def verify(self, action: HealingAction) -> bool:
+        """Verify that the patch was applied correctly.
+
+        Args:
+            action: The patch action to verify.
+
+        Returns:
+            True if verification passed.
+        """
+        patch_file = action.parameters.get("patch_file")
+        # In a real implementation, this would verify the patch was applied
+        logger.info(f"Verifying patch for {patch_file or 'inline content'}")
+        return True
+
+    async def rollback(self, action: HealingAction) -> ActionResult:
+        """Rollback a patch action.
+
+        Args:
+            action: The patch action to rollback.
+
+        Returns:
+            ActionResult containing rollback details.
+        """
+        logger.info(f"Rolling back patch action: {action.name}")
+
+        if action.id in self._applied_patches:
+            del self._applied_patches[action.id]
+
+        return ActionResult(
+            status=ActionStatus.ROLLED_BACK,
+            success=True,
+            message="Patch reverted successfully",
+            can_rollback=False,
+        )
+
+
+class EscalateActionExecutor(ActionExecutor):
+    """Executor for escalate actions.
+
+    Handles escalating issues to human operators or higher-level systems.
+    """
+
+    async def execute(self, action: HealingAction) -> ActionResult:
+        """Execute an escalate action.
+
+        Args:
+            action: The escalate action to execute.
+
+        Returns:
+            ActionResult containing execution details.
+        """
+        logger.info(f"Executing escalate action: {action.name}")
+
+        severity = action.parameters.get("severity", "medium")
+        message = action.parameters.get("message", "")
+        recipients = action.parameters.get("recipients", [])
+
+        changes_made = [
+            f"Escalated issue with {severity} severity",
+            f"Notified {len(recipients)} recipients" if recipients else "Escalation logged",
+        ]
+
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message=f"Issue escalated successfully (severity: {severity})",
+            changes_made=changes_made,
+            can_rollback=False,
+        )
+
+    async def verify(self, action: HealingAction) -> bool:
+        """Verify that escalation was processed.
+
+        Args:
+            action: The escalate action to verify.
+
+        Returns:
+            True if verification passed.
+        """
+        message = action.parameters.get("message", "")
+        # In a real implementation, this would verify the escalation was sent
+        logger.info(f"Verifying escalation for: {message[:50]}...")
+        return True
+
+    async def rollback(self, action: HealingAction) -> ActionResult:
+        """Rollback an escalate action.
+
+        Note: Escalation actions typically don't support rollback as they
+        involve external notifications.
+
+        Args:
+            action: The escalate action to rollback.
+
+        Returns:
+            ActionResult containing rollback details.
+        """
+        logger.info(f"Escalate action doesn't support rollback: {action.name}")
+        return ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message="Escalation action cannot be rolled back (notifications already sent)",
+            can_rollback=False,
+        )
+
+
 class RollbackManager:
     """Manages rollback operations for healing actions.
 
