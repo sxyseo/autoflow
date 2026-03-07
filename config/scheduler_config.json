@@ -1,0 +1,49 @@
+{
+  "scheduler": {
+    "timezone": "UTC",
+    "max_instances": 3,
+    "coalesce": true,
+    "misfire_grace_time": 300
+  },
+  "jobs": {
+    "continuous_iteration": {
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "max_instances": 1,
+      "description": "Run continuous iteration loop every 5 minutes"
+    },
+    "nightly_maintenance": {
+      "enabled": true,
+      "cron": "0 2 * * *",
+      "max_instances": 1,
+      "description": "Run maintenance tasks at 2 AM daily"
+    },
+    "weekly_consolidation": {
+      "enabled": true,
+      "cron": "0 3 * * 0",
+      "max_instances": 1,
+      "description": "Run memory consolidation on Sundays at 3 AM"
+    },
+    "monthly_dependency_update": {
+      "enabled": true,
+      "cron": "0 4 1 * *",
+      "max_instances": 1,
+      "description": "Check for dependency updates on the 1st of each month at 4 AM"
+    }
+  },
+  "job_defaults": {
+    "max_instances": 1,
+    "coalesce": true,
+    "misfire_grace_time": 300
+  },
+  "execution": {
+    "timeout": 300,
+    "retry_count": 3,
+    "retry_delay": 60
+  },
+  "reporting": {
+    "log_dir": "logs/scheduler",
+    "log_level": "INFO",
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  }
+}
