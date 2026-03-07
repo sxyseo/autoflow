@@ -34,6 +34,14 @@ from autoflow.core.state import StateManager, TaskStatus, RunStatus
 from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
 from autoflow.skills.validation import SkillValidator, ValidationResult
 from autoflow.skills.templates import TemplateLoader, TemplateCategory
+from autoflow.skills.sharing import (
+    SkillPackager,
+    SkillImporter,
+    SkillPackage,
+    PackageFormat,
+    ImportConflictResolution,
+    PackageError,
+)
 
 
 # Click context settings
@@ -1069,6 +1077,257 @@ def skill_template_show(ctx: click.Context, name: str) -> None:
     click.echo("\n".join(lines))
     if len(template.content.split("\n")) > 20:
         click.echo("\n... (content truncated)")
+
+
+@skill.command("export")
+@click.argument("name", type=str)
+@click.option(
+    "--output",
+    "-o",
+    "output_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output path for the package (default: <name>-<version>.tar.gz).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "package_format",
+    type=click.Choice([f.value for f in PackageFormat]),
+    default=PackageFormat.TAR_GZ.value,
+    help="Package format.",
+)
+@click.option(
+    "--version",
+    "-v",
+    type=str,
+    default=None,
+    help="Package version (default: version from skill metadata).",
+)
+@click.option(
+    "--description",
+    "-d",
+    type=str,
+    default=None,
+    help="Package description.",
+)
+@click.option(
+    "--skills-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Directory containing skill definitions.",
+)
+@click.pass_context
+def skill_export(
+    ctx: click.Context,
+    name: str,
+    output_path: Optional[Path],
+    package_format: str,
+    version: Optional[str],
+    description: Optional[str],
+    skills_dir: Optional[Path],
+) -> None:
+    """
+    Export a skill to a distributable package.
+
+    Creates a distributable package containing the skill definition and metadata.
+    Packages can be shared across teams and projects.
+
+    \b
+    Examples:
+        autoflow skill export MY_SKILL
+        autoflow skill export MY_SKILL -o my-skill.tar.gz
+        autoflow skill export MY_SKILL -f dir -o ./dist/
+        autoflow skill export MY_SKILL -v 1.0.0 -d "My custom skill"
+    """
+    config: Config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
+
+    # Determine skills directory
+    if skills_dir is None:
+        skills_dir = config.skills_dir
+
+    try:
+        # Initialize packager with registry
+        from autoflow.skills.registry import SkillRegistry
+
+        registry = SkillRegistry(skills_dir)
+        packager = SkillPackager(registry)
+
+        # Generate default output path if not specified
+        if output_path is None:
+            skill = registry.get_skill(name)
+            if not skill:
+                click.echo(f"Error: Skill '{name}' not found.", err=True)
+                ctx.exit(1)
+
+            skill_version = version or skill.metadata.version or "1.0.0"
+            extension = f".{package_format}" if package_format != "dir" else ""
+            output_path = Path(f"{name.lower()}-{skill_version}{extension}")
+
+        # Export the skill
+        package = packager.export_skill(
+            skill_name=name,
+            output_path=output_path,
+            format=PackageFormat(package_format),
+            version=version,
+            description=description,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "exported",
+                "skill": name,
+                "package": str(package.path),
+                "format": package.format.value,
+                "version": package.metadata.version,
+                "size": package.size,
+            })
+        else:
+            click.echo(f"✓ Skill exported successfully")
+            click.echo(f"  Name: {name}")
+            click.echo(f"  Package: {package.path}")
+            click.echo(f"  Format: {package.format.value}")
+            click.echo(f"  Version: {package.metadata.version}")
+            if package.size > 0:
+                click.echo(f"  Size: {package.size:,} bytes")
+
+    except PackageError as e:
+        click.echo(f"Error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+
+
+@skill.command("import")
+@click.argument("package", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--target-dir",
+    "-t",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Target directory for imported skills (default: configured skills directory).",
+)
+@click.option(
+    "--conflict-resolution",
+    "-c",
+    "conflict_resolution",
+    type=click.Choice([r.value for r in ImportConflictResolution]),
+    default=ImportConflictResolution.ERROR.value,
+    help="Strategy for handling version conflicts.",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Overwrite existing skills without prompting.",
+)
+@click.pass_context
+def skill_import(
+    ctx: click.Context,
+    package: Path,
+    target_dir: Optional[Path],
+    conflict_resolution: str,
+    force: bool,
+) -> None:
+    """
+    Import a skill package.
+
+    Imports a previously exported skill package into the skills directory.
+    Handles version conflicts based on the specified resolution strategy.
+
+    \b
+    Examples:
+        autoflow skill import my-skill-1.0.0.tar.gz
+        autoflow skill import my-skill-1.0.0.tar.gz -t ./custom-skills/
+        autoflow skill import my-skill.tar.gz -c overwrite
+        autoflow skill import ./my-skill-dir/ -f
+    """
+    config: Config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
+
+    # Determine target directory
+    if target_dir is None:
+        target_dir = config.skills_dir
+
+    try:
+        # Initialize importer
+        from autoflow.skills.registry import SkillRegistry
+
+        registry = SkillRegistry(target_dir)
+        importer = SkillImporter()
+
+        # Import the package
+        result = importer.import_package(
+            package_path=package,
+            target_dir=target_dir,
+            conflict_resolution=ImportConflictResolution(conflict_resolution),
+            registry=registry,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "imported",
+                "imported": result.imported,
+                "skipped": result.skipped,
+                "conflicts": result.conflicts,
+                "actions": [
+                    {
+                        "skill": action.skill_name,
+                        "action": action.action.value,
+                        "previous_version": action.previous_version,
+                        "new_version": action.new_version,
+                    }
+                    for action in result.actions
+                ],
+            })
+        else:
+            click.echo(f"✓ Package imported successfully")
+            click.echo(f"  Package: {package}")
+
+            if result.imported:
+                click.echo(f"\nImported Skills:")
+                for skill_name in result.imported:
+                    click.echo(f"  ✓ {skill_name}")
+
+            if result.skipped:
+                click.echo(f"\nSkipped Skills:")
+                for skill_name in result.skipped:
+                    click.echo(f"  ⊘ {skill_name}")
+
+            if result.conflicts:
+                click.echo(f"\nConflicts:")
+                for skill_name in result.conflicts:
+                    click.echo(f"  ⚠ {skill_name}")
+
+            if result.actions:
+                click.echo(f"\nActions Taken:")
+                for action in result.actions:
+                    action_str = action.action.value
+                    if action.previous_version and action.new_version:
+                        click.echo(f"  • {action.skill_name}: {action.previous_version} → {action.new_version} ({action_str})")
+                    else:
+                        click.echo(f"  • {action.skill_name}: {action_str}")
+
+    except PackageError as e:
+        click.echo(f"Error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
 
 
 # === Task Commands ===
