@@ -1789,6 +1789,32 @@ def remove_worktree(args: argparse.Namespace) -> None:
     print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
 
 
+def list_specs(_: argparse.Namespace) -> None:
+    items = []
+    for metadata_path in SPECS_DIR.glob("*/metadata.json"):
+        metadata = read_json(metadata_path)
+        slug = metadata.get("slug", metadata_path.parent.name)
+        review_state = load_review_state(slug)
+        items.append(
+            {
+                "slug": slug,
+                "title": metadata.get("title", ""),
+                "summary": metadata.get("summary", ""),
+                "status": metadata.get("status", ""),
+                "created_at": metadata.get("created_at", ""),
+                "updated_at": metadata.get("updated_at", ""),
+                "worktree": metadata.get("worktree", {}),
+                "review": {
+                    "approved": review_state.get("approved", False),
+                    "approved_by": review_state.get("approved_by", ""),
+                    "review_count": review_state.get("review_count", 0),
+                },
+            }
+        )
+    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    print(json.dumps(items, indent=2, ensure_ascii=True))
+
+
 def list_worktrees(_: argparse.Namespace) -> None:
     items = []
     for metadata_path in sorted(SPECS_DIR.glob("*/metadata.json")):
@@ -1929,6 +1955,9 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_remove_cmd.add_argument("--spec", required=True)
     worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
     worktree_remove_cmd.set_defaults(func=remove_worktree)
+
+    list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
+    list_specs_cmd.set_defaults(func=list_specs)
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
