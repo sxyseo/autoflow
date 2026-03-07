@@ -601,8 +601,7 @@ def get_strategy_summary(spec_slug: str) -> dict[str, Any]:
         - recent_reflections: Recent reflection entries
         - stats: Strategy statistics
     """
-    # TODO: Implement in subtask-1-5
-    raise NotImplementedError("get_strategy_summary will be implemented in subtask-1-5")
+    return _strategy_summary(spec_slug)
 
 
 def taskmaster_export(spec_slug: str, output: str | None = None) -> dict[str, Any] | Path:
