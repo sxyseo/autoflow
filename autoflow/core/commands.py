@@ -356,8 +356,12 @@ def get_task_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[
         List of run metadata dicts, sorted by creation time, most recent last.
         Each dict contains run information (id, role, result, created_at, etc.)
     """
-    # TODO: Implement in subtask-1-3
-    raise NotImplementedError("get_task_history will be implemented in subtask-1-3")
+    history = [
+        item
+        for item in _run_metadata_iter()
+        if item.get("spec") == spec_slug and item.get("task") == task_id
+    ]
+    return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
 
 
 def sync_agents(overwrite: bool = False) -> dict[str, Any]:
