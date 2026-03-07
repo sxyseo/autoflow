@@ -1,6 +1,6 @@
 {
   "spec_slug": "openclaw-autonomy",
-  "updated_at": "20260307T131208Z",
+  "updated_at": "20260307T131215Z",
   "backlog_version": "phase6-seeded",
   "goal": "Turn Autoflow from a capable CLI harness into a stable, continuously iterating AI delivery pipeline with recovery, queueing, QA loops, CI gates, and delivery automation.",
   "execution_strategy": {
@@ -13,7 +13,7 @@
     {
       "id": "T1",
       "title": "Compile and normalize the autonomous delivery backlog",
-      "status": "todo",
+      "status": "in_progress",
       "priority": "P0",
       "depends_on": [],
       "owner_role": "spec-writer",
@@ -46,6 +46,10 @@
         {
           "at": "20260307T131208Z",
           "note": "status set to todo"
+        },
+        {
+          "at": "20260307T131215Z",
+          "note": "run pending for role spec-writer"
         }
       ]
     },
