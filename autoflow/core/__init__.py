@@ -36,7 +36,16 @@ from autoflow.core.orchestrator import (
     CyclePhase,
     CycleResult,
     OrchestratorError,
-    TaskResult,
+)
+
+# Commands
+from autoflow.core.commands import (
+    get_workflow_state,
+    get_task_history,
+    get_strategy_summary,
+    sync_agents,
+    taskmaster_import,
+    taskmaster_export,
 )
 
 __all__ = [
@@ -65,5 +74,11 @@ __all__ = [
     "CyclePhase",
     "CycleResult",
     "OrchestratorError",
-    "TaskResult",
+    # Commands
+    "get_workflow_state",
+    "get_task_history",
+    "get_strategy_summary",
+    "sync_agents",
+    "taskmaster_import",
+    "taskmaster_export",
 ]
