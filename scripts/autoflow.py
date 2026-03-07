@@ -1100,6 +1100,36 @@ def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[
     return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
 
 
+def task_run_history_cached(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Return run history for a task using cached lookup.
+
+    This function uses the lazy-loaded cache to avoid O(n) filesystem scans.
+    It only loads runs for the requested spec, and subsequent calls return
+    the cached data from memory.
+
+    Args:
+        spec_slug: The spec identifier to get task run history for.
+        task_id: The task identifier to get run history for.
+        limit: Maximum number of history items to return (default: 5).
+
+    Returns:
+        A list of run metadata dictionaries for the task, sorted by created_at
+        and limited to the last `limit` items.
+    """
+    # Lazy-load runs for this specific spec
+    _populate_run_cache_for_spec(spec_slug)
+
+    # Filter by task_id from cached data
+    history = [
+        item
+        for item in _run_metadata_cache.get(spec_slug, [])
+        if item.get("task") == task_id
+    ]
+
+    # Sort by created_at and return last `limit` items
+    return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
+
+
 def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
     handoffs_dir = spec_files(spec_slug)["handoffs_dir"]
     if not handoffs_dir.exists():
