@@ -17,7 +17,7 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -645,11 +645,11 @@ class TestHealingCycleIntegration:
     ) -> None:
         """Test a complete successful healing cycle."""
         # Mock the dependencies
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=degraded_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=degraded_assessment)
         healing_orchestrator.analyzer.analyze_failure = AsyncMock(
             return_value=sample_diagnostic_result
         )
-        healing_orchestrator.selector.create_healing_plan = AsyncMock(
+        healing_orchestrator.selector.select_healing_strategy = Mock(
             return_value=sample_healing_plan
         )
 
@@ -675,7 +675,7 @@ class TestHealingCycleIntegration:
         healthy_assessment: HealthAssessment,
     ) -> None:
         """Test healing cycle when workflow is already healthy."""
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         outcome = await healing_orchestrator.run_healing_cycle(
             trigger_assessment=healthy_assessment
@@ -691,7 +691,7 @@ class TestHealingCycleIntegration:
         degraded_assessment: HealthAssessment,
     ) -> None:
         """Test healing cycle when diagnosis fails."""
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=degraded_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=degraded_assessment)
         healing_orchestrator.analyzer.analyze_failure = AsyncMock(return_value=None)
 
         outcome = await healing_orchestrator.run_healing_cycle(
@@ -735,7 +735,7 @@ class TestHealingCycleIntegration:
             rollback_manager=rollback_manager,
         )
 
-        orchestrator.monitor.assess_health = AsyncMock(return_value=degraded_assessment)
+        orchestrator.monitor.assess_health = Mock(return_value=degraded_assessment)
         orchestrator.analyzer.analyze_failure = AsyncMock(return_value=escalation_diagnostic)
 
         outcome = await orchestrator.run_healing_cycle(
@@ -782,7 +782,7 @@ class TestMonitoringPhase:
         self, healing_orchestrator: HealingOrchestrator, healthy_assessment: HealthAssessment
     ) -> None:
         """Test monitoring phase without provided assessment."""
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         assessment = await healing_orchestrator._monitor_phase(None)
 
@@ -846,10 +846,10 @@ class TestHealingPhase:
             recommendations=[],
         )
 
-        healing_orchestrator.selector.create_healing_plan = AsyncMock(
+        healing_orchestrator.selector.select_healing_strategy = Mock(
             return_value=sample_healing_plan
         )
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         outcome = await healing_orchestrator._healing_phase(
             sample_diagnostic_result, sample_diagnostic_result
@@ -875,7 +875,7 @@ class TestHealingPhase:
             recommendations=[],
         )
 
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         outcome = await healing_orchestrator._execute_action(action, sample_diagnostic_result)
 
@@ -930,7 +930,7 @@ class TestHealingPhase:
 
         # Create a checkpoint for rollback
         await rollback_manager.create_checkpoint(
-            action.action_id, {"state": "before_action"}
+            action.id, {"state": "before_action"}
         )
 
         outcome = await orchestrator._execute_action(action, sample_diagnostic_result)
@@ -962,7 +962,7 @@ class TestVerificationPhase:
             recommendations=[],
         )
 
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         action = sample_healing_plan.execution_steps[0]
         action_result = ActionResult(
@@ -1001,7 +1001,7 @@ class TestVerificationPhase:
         )
 
         # Still degraded after action
-        orchestrator.monitor.assess_health = AsyncMock(return_value=degraded_assessment)
+        orchestrator.monitor.assess_health = Mock(return_value=degraded_assessment)
 
         # Set healing attempts to max to trigger escalation
         if orchestrator._current_session:
@@ -1040,7 +1040,7 @@ class TestRollback:
         action = sample_healing_plan.execution_steps[0]
 
         # Create a checkpoint
-        await rollback_manager.create_checkpoint(action.action_id, {"state": "before"})
+        await rollback_manager.create_checkpoint(action.id, {"state": "before"})
 
         action_result = ActionResult(
             status=ActionStatus.FAILED,
@@ -1134,7 +1134,7 @@ class TestEventLogging:
         """Test that events are persisted after healing cycle."""
         log_dir = sample_config.project_root / ".auto-claude" / "healing" / "logs"
 
-        healing_orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        healing_orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
 
         await healing_orchestrator.run_healing_cycle(trigger_assessment=healthy_assessment)
 
@@ -1198,7 +1198,7 @@ class TestEndToEndIntegration:
             recommendations=[],
         )
 
-        orchestrator.monitor.assess_health = AsyncMock(return_value=healthy_assessment)
+        orchestrator.monitor.assess_health = Mock(return_value=healthy_assessment)
         orchestrator.analyzer.analyze_failure = AsyncMock(return_value=diagnostic_result)
 
         # Run healing cycle
@@ -1271,7 +1271,7 @@ class TestEndToEndIntegration:
             analysis_duration=1.0,
         )
 
-        orchestrator.monitor.assess_health = AsyncMock(return_value=degraded_assessment)
+        orchestrator.monitor.assess_health = Mock(return_value=degraded_assessment)
         orchestrator.analyzer.analyze_failure = AsyncMock(return_value=diagnostic_result)
 
         # Run healing cycle - should fail and eventually escalate
