@@ -277,10 +277,8 @@ class EscalationManager:
             return True
 
         # Escalate if diagnostic suggests escalation
-        if diagnostic_result and diagnostic_result.healing_strategy:
-            strategy = diagnostic_result.healing_strategy
-            if strategy.value == "escalate":
-                return True
+        if diagnostic_result and diagnostic_result.requires_escalation:
+            return True
 
         return False
 
@@ -306,8 +304,10 @@ class EscalationManager:
             "session_id": session_id,
             "severity": health_assessment.status.value,
             "summary": self._generate_summary(diagnostic_result, health_assessment),
-            "root_cause": diagnostic_result.root_cause.to_dict() if diagnostic_result.root_cause else None,
-            "healing_attempts": diagnostic_result.healing_attempts or 0,
+            "root_cause": diagnostic_result.primary_cause.to_dict() if diagnostic_result.primary_cause else None,
+            "root_causes": [rc.to_dict() for rc in diagnostic_result.root_causes],
+            "healing_plan": diagnostic_result.healing_plan,
+            "requires_escalation": diagnostic_result.requires_escalation,
             "recommended_actions": self._generate_recommendations(diagnostic_result),
             "status": "open",
         }
@@ -333,11 +333,16 @@ class EscalationManager:
         """
         summary = f"Workflow health is {health_assessment.status.value}. "
 
-        if diagnostic_result.root_cause:
-            summary += f"Root cause: {diagnostic_result.root_cause.description}. "
+        if diagnostic_result.primary_cause:
+            summary += f"Root cause: {diagnostic_result.primary_cause.description}. "
 
-        if diagnostic_result.healing_strategy:
-            summary += f"Suggested strategy: {diagnostic_result.healing_strategy.value}. "
+        if diagnostic_result.root_causes:
+            summary += f"Found {len(diagnostic_result.root_causes)} potential cause(s). "
+
+        if diagnostic_result.healing_plan:
+            strategy = diagnostic_result.healing_plan.get("strategy")
+            if strategy:
+                summary += f"Suggested strategy: {strategy}. "
 
         summary += "Requires human intervention."
 
@@ -356,16 +361,19 @@ class EscalationManager:
         """
         recommendations = []
 
-        if diagnostic_result.root_cause:
-            cause = diagnostic_result.root_cause
+        if diagnostic_result.primary_cause:
+            cause = diagnostic_result.primary_cause
             recommendations.append(f"Investigate {cause.category.value} issue: {cause.description}")
 
-        if diagnostic_result.confidence:
-            if diagnostic_result.confidence.value == "low":
-                recommendations.append("Manual investigation required - low confidence in automatic diagnosis")
+        if diagnostic_result.root_causes:
+            for cause in diagnostic_result.root_causes:
+                recommendations.append(f"Review {cause.category.value}: {cause.description}")
 
         recommendations.append("Review healing history and logs")
         recommendations.append("Consider adjusting healing thresholds or configuration")
+
+        if diagnostic_result.degradation_signals:
+            recommendations.append(f"Address {len(diagnostic_result.degradation_signals)} degradation signal(s)")
 
         return recommendations
 
@@ -542,11 +550,12 @@ class HealingOrchestrator:
         self._log_event(
             event_type="diagnosis_completed",
             severity="warning",
-            description=f"Root cause identified: {diagnostic_result.root_cause.description if diagnostic_result.root_cause else 'Unknown'}",
+            description=f"Root cause identified: {diagnostic_result.primary_cause.description if diagnostic_result.primary_cause else 'Unknown'}",
             diagnostic_result=diagnostic_result,
             metadata={
-                "confidence": diagnostic_result.confidence.value if diagnostic_result.confidence else None,
-                "strategy": diagnostic_result.healing_strategy.value if diagnostic_result.healing_strategy else None,
+                "num_root_causes": len(diagnostic_result.root_causes),
+                "requires_escalation": diagnostic_result.requires_escalation,
+                "analysis_duration": diagnostic_result.analysis_duration,
             },
         )
 
@@ -568,7 +577,7 @@ class HealingOrchestrator:
 
         # Generate healing plan
         healing_plan = await self.selector.create_healing_plan(
-            diagnostic_result.root_cause, assessment
+            diagnostic_result.primary_cause, assessment
         )
 
         self._log_event(
@@ -744,16 +753,44 @@ class HealingOrchestrator:
         if not self._current_session:
             return HealingOutcome.ESCALATED
 
-        escalation = self.escalation_manager.create_escalation(
-            self._current_session.session_id,
-            diagnostic_result or DiagnosticResult(),
-            assessment or HealthAssessment(
+        # Create default diagnostic result if not provided
+        if not diagnostic_result:
+            from autoflow.healing.diagnostic import RootCause, FailureCategory, ConfidenceLevel
+            default_cause = RootCause(
+                category=FailureCategory.UNKNOWN,
+                description="Unable to diagnose - escalating for manual investigation",
+                evidence=[],
+                confidence=ConfidenceLevel.LOW,
+                affected_components=[],
+                related_metrics=[],
+                suggested_strategies=[],
+            )
+            diagnostic_result = DiagnosticResult(
+                timestamp=datetime.now(),
+                health_status=WorkflowHealthStatus.CRITICAL,
+                root_causes=[default_cause],
+                primary_cause=default_cause,
+                degradation_signals=[],
+                metadata={},
+                healing_plan={},
+                requires_escalation=True,
+                analysis_duration=0.0,
+            )
+
+        # Create default assessment if not provided
+        if not assessment:
+            assessment = HealthAssessment(
                 status=WorkflowHealthStatus.CRITICAL,
                 timestamp=datetime.now(),
                 metrics={},
                 violations=[],
                 recommendations=[],
-            ),
+            )
+
+        escalation = self.escalation_manager.create_escalation(
+            self._current_session.session_id,
+            diagnostic_result,
+            assessment,
         )
 
         self._log_event(
