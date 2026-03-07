@@ -72,7 +72,7 @@ class SkillTemplate(BaseModel):
         """Validate template name format."""
         if not v:
             raise ValueError("Template name cannot be empty")
-        if not re.match(r"^[a-z][a-z0-9_-]*$", v):
+        if not re.match(r"^[a-z][a-z0-9]*([_-][a-z0-9]+)*$", v):
             raise ValueError(
                 f"Template name must be lowercase with hyphens/underscores: {v}"
             )

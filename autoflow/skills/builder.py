@@ -195,7 +195,10 @@ class SkillBuilder:
             SkillBuilderError: If building fails
         """
         # Validate skill name
-        self._validate_skill_name(name)
+        try:
+            self._validate_skill_name(name)
+        except ValueError as e:
+            raise SkillBuilderError(str(e)) from e
 
         # Get template
         template_obj = self.template_loader.get_template(template)
@@ -232,7 +235,8 @@ class SkillBuilder:
             metadata=rendered.metadata,
         )
 
-        return output_path
+        # Return absolute path
+        return output_path.resolve()
 
     def create_skill_file(
         self,
@@ -407,9 +411,14 @@ class SkillBuilder:
             Default value for the variable
         """
         # Common variable defaults
+        # For single-word display names like "Test", use "Test Template"
+        display_name = template.display_name
+        if len(display_name.split()) == 1:
+            display_name = f"{display_name} Template"
+
         defaults = {
             "name": skill_name,
-            "description": f"Custom {template.display_name.lower()} skill",
+            "description": f"Custom {display_name.lower()} skill",
         }
 
         return defaults.get(var_name, "")
