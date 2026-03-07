@@ -7,8 +7,20 @@ degradation, diagnose root causes, and apply automatic fixes with rollback safet
 from __future__ import annotations
 
 from autoflow.healing.config import HealingConfig, HealingThreshold
+from autoflow.healing.monitor import (
+    HealthAssessment,
+    MetricReading,
+    TaskExecution,
+    WorkflowHealthMonitor,
+    WorkflowHealthStatus,
+)
 
 __all__ = [
     "HealingConfig",
     "HealingThreshold",
+    "WorkflowHealthMonitor",
+    "WorkflowHealthStatus",
+    "HealthAssessment",
+    "MetricReading",
+    "TaskExecution",
 ]
