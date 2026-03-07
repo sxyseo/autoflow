@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import tarfile
 import tempfile
 from dataclasses import dataclass, field
@@ -35,6 +36,15 @@ class PackageFormat(str, Enum):
     TAR_GZ = "tar.gz"
     TAR = "tar"
     DIR = "dir"
+
+
+class VersionAction(str, Enum):
+    """Type of version action performed."""
+
+    UPGRADE = "upgrade"
+    DOWNGRADE = "downgrade"
+    REINSTALL = "reinstall"
+    INSTALL = "install"
 
 
 class PackageError(Exception):
@@ -810,6 +820,717 @@ class SkillImporter:
     def __repr__(self) -> str:
         """Return string representation."""
         return f"SkillImporter(registry={self.registry})"
+
+
+@dataclass
+class VersionHistoryEntry:
+    """
+    Entry in the version history for a skill.
+
+    Tracks information about each version installation including
+    timestamps, file locations, and metadata.
+
+    Attributes:
+        version: Version string
+        installed_at: Timestamp when version was installed
+        file_path: Path to the skill file
+        package_path: Path to the package file (if available)
+        action: Action performed (install, upgrade, downgrade)
+        metadata: Optional additional metadata about the version
+    """
+
+    version: str
+    installed_at: str
+    file_path: Path
+    package_path: Optional[Path] = None
+    action: Union[VersionAction, str] = VersionAction.INSTALL
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert entry to dictionary.
+
+        Returns:
+            Dictionary representation of the entry
+        """
+        return {
+            "version": self.version,
+            "installed_at": self.installed_at,
+            "file_path": str(self.file_path),
+            "package_path": str(self.package_path) if self.package_path else None,
+            "action": self.action.value if isinstance(self.action, VersionAction) else self.action,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> VersionHistoryEntry:
+        """
+        Create entry from dictionary.
+
+        Args:
+            data: Dictionary containing entry data
+
+        Returns:
+            VersionHistoryEntry instance
+        """
+        data = data.copy()
+        data["file_path"] = Path(data["file_path"])
+        if data.get("package_path"):
+            data["package_path"] = Path(data["package_path"])
+        return cls(**data)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"VersionHistoryEntry(version={self.version!r}, "
+            f"action={self.action.value if isinstance(self.action, VersionAction) else self.action}, "
+            f"installed_at={self.installed_at!r})"
+        )
+
+
+@dataclass
+class VersionChangeResult:
+    """
+    Result of a version change operation.
+
+    Contains information about whether the operation succeeded,
+    what action was performed, and any relevant details.
+
+    Attributes:
+        success: Whether the operation succeeded
+        action: Action performed (upgrade, downgrade, reinstall, install)
+        previous_version: Previous version (if any)
+        new_version: New version installed
+        skill_name: Name of the skill
+        backup_path: Path to backup file (if backup was created)
+        message: Optional message describing the result
+    """
+
+    success: bool
+    action: Union[VersionAction, str]
+    skill_name: str
+    new_version: str
+    previous_version: Optional[str] = None
+    backup_path: Optional[Path] = None
+    message: str = ""
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"VersionChangeResult(success={self.success}, "
+            f"action={self.action.value if isinstance(self.action, VersionAction) else self.action}, "
+            f"skill={self.skill_name!r}, "
+            f"from={self.previous_version!r}, to={self.new_version!r})"
+        )
+
+
+class VersionManager:
+    """
+    Manages version history and upgrade/downgrade operations for skills.
+
+    The VersionManager tracks the installation history of skills, enabling
+    safe upgrades and downgrades with automatic backups. It maintains a
+    version history file for each skill that tracks all installed versions.
+
+    Version comparison follows semantic versioning (semver) principles:
+    - Versions are compared as major.minor.patch
+    - Higher versions are considered upgrades
+    - Lower versions are considered downgrades
+
+    Example:
+        >>> manager = VersionManager()
+        >>>
+        >>> # Upgrade a skill
+        >>> result = manager.upgrade_skill(
+        ...     "MY_SKILL",
+        ...     "2.0.0",
+        ...     package_path="my-skill-2.0.0.tar.gz"
+        ... )
+        >>>
+        >>> # Downgrade to a previous version
+        >>> result = manager.downgrade_skill(
+        ...     "MY_SKILL",
+        ...     "1.5.0"
+        ... )
+        >>>
+        >>> # View version history
+        >>> history = manager.get_version_history("MY_SKILL")
+        >>> for entry in history:
+        ...     print(f"{entry.version} - {entry.installed_at}")
+
+    Attributes:
+        skills_dir: Base directory for skills
+        history_dir: Directory for version history files
+        backup_dir: Directory for version backups
+    """
+
+    HISTORY_FILE = "version_history.json"
+    BACKUP_SUFFIX = ".bak"
+
+    def __init__(
+        self,
+        skills_dir: Optional[Union[str, Path]] = None,
+        history_dir: Optional[Union[str, Path]] = None,
+        backup_dir: Optional[Union[str, Path]] = None,
+    ):
+        """
+        Initialize the version manager.
+
+        Args:
+            skills_dir: Base directory containing skills
+            history_dir: Directory for version history files
+            backup_dir: Directory for version backups
+        """
+        self.skills_dir = Path(skills_dir or "skills").resolve()
+        self.history_dir = Path(history_dir or ".autoflow").resolve()
+        self.backup_dir = Path(backup_dir or ".autoflow/backups").resolve()
+
+        # Create directories if they don't exist
+        self.history_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+
+        self._histories: dict[str, list[VersionHistoryEntry]] = {}
+
+    def _get_history_file(self, skill_name: str) -> Path:
+        """
+        Get the path to the history file for a skill.
+
+        Args:
+            skill_name: Name of the skill
+
+        Returns:
+            Path to the history file
+        """
+        return self.history_dir / f"{skill_name.lower()}_history.json"
+
+    def _load_history(self, skill_name: str) -> list[VersionHistoryEntry]:
+        """
+        Load version history for a skill.
+
+        Args:
+            skill_name: Name of the skill
+
+        Returns:
+            List of history entries
+        """
+        if skill_name in self._histories:
+            return self._histories[skill_name]
+
+        history_file = self._get_history_file(skill_name)
+        if not history_file.exists():
+            self._histories[skill_name] = []
+            return []
+
+        try:
+            data = json.loads(history_file.read_text(encoding="utf-8"))
+            entries = [VersionHistoryEntry.from_dict(entry) for entry in data]
+            self._histories[skill_name] = entries
+            return entries
+        except Exception:
+            self._histories[skill_name] = []
+            return []
+
+    def _save_history(self, skill_name: str) -> None:
+        """
+        Save version history for a skill.
+
+        Args:
+            skill_name: Name of the skill
+        """
+        history_file = self._get_history_file(skill_name)
+        entries = self._load_history(skill_name)
+
+        data = [entry.to_dict() for entry in entries]
+        history_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _add_history_entry(
+        self,
+        skill_name: str,
+        version: str,
+        file_path: Path,
+        package_path: Optional[Path],
+        action: Union[VersionAction, str],
+    ) -> None:
+        """
+        Add an entry to version history.
+
+        Args:
+            skill_name: Name of the skill
+            version: Version string
+            file_path: Path to the skill file
+            package_path: Path to the package file
+            action: Action performed
+        """
+        history = self._load_history(skill_name)
+
+        entry = VersionHistoryEntry(
+            version=version,
+            installed_at=datetime.utcnow().isoformat(),
+            file_path=file_path,
+            package_path=package_path,
+            action=action,
+        )
+
+        history.append(entry)
+        self._histories[skill_name] = history
+        self._save_history(skill_name)
+
+    def get_version_history(self, skill_name: str) -> list[VersionHistoryEntry]:
+        """
+        Get the version history for a skill.
+
+        Args:
+            skill_name: Name of the skill
+
+        Returns:
+            List of history entries, oldest to newest
+        """
+        return self._load_history(skill_name).copy()
+
+    def get_current_version(self, skill_name: str) -> Optional[str]:
+        """
+        Get the current installed version of a skill.
+
+        Args:
+            skill_name: Name of the skill
+
+        Returns:
+            Current version string, or None if not found
+        """
+        history = self._load_history(skill_name)
+        if not history:
+            return None
+
+        # Get the most recent entry
+        return history[-1].version if history else None
+
+    def compare_versions(self, version1: str, version2: str) -> int:
+        """
+        Compare two version strings.
+
+        Args:
+            version1: First version string
+            version2: Second version string
+
+        Returns:
+            -1 if version1 < version2
+            0 if version1 == version2
+            1 if version1 > version2
+        """
+        # Parse version strings
+        v1_parts = self._parse_version(version1)
+        v2_parts = self._parse_version(version2)
+
+        # Compare parts
+        for v1, v2 in zip(v1_parts, v2_parts):
+            if v1 < v2:
+                return -1
+            elif v1 > v2:
+                return 1
+
+        # If all parts equal so far, check length
+        if len(v1_parts) < len(v2_parts):
+            return -1
+        elif len(v1_parts) > len(v2_parts):
+            return 1
+
+        return 0
+
+    def _parse_version(self, version: str) -> tuple[int, ...]:
+        """
+        Parse a version string into numeric parts.
+
+        Args:
+            version: Version string (e.g., "1.2.3")
+
+        Returns:
+            Tuple of integer version parts
+        """
+        # Remove any non-numeric suffixes (like -beta, -rc1, etc.)
+        match = re.match(r"^(\d+(?:\.\d+)*)", version)
+        if not match:
+            return (0,)
+
+        parts = match.group(1).split(".")
+        return tuple(int(p) for p in parts)
+
+    def upgrade_skill(
+        self,
+        skill_name: str,
+        new_version: str,
+        package_path: Union[str, Path],
+        create_backup: bool = True,
+    ) -> VersionChangeResult:
+        """
+        Upgrade a skill to a new version.
+
+        Args:
+            skill_name: Name of the skill to upgrade
+            new_version: New version to install
+            package_path: Path to the package file
+            create_backup: Whether to backup the current version
+
+        Returns:
+            VersionChangeResult with operation details
+
+        Raises:
+            PackageError: If upgrade fails
+        """
+        current_version = self.get_current_version(skill_name)
+
+        # Check if this is actually an upgrade
+        if current_version:
+            comparison = self.compare_versions(new_version, current_version)
+            if comparison < 0:
+                return VersionChangeResult(
+                    success=False,
+                    action=VersionAction.UPGRADE,
+                    skill_name=skill_name,
+                    new_version=new_version,
+                    previous_version=current_version,
+                    message=f"Cannot upgrade: new version {new_version} is older than current {current_version}",
+                )
+            elif comparison == 0:
+                return VersionChangeResult(
+                    success=False,
+                    action=VersionAction.UPGRADE,
+                    skill_name=skill_name,
+                    new_version=new_version,
+                    previous_version=current_version,
+                    message=f"Already at version {new_version}",
+                )
+
+        # Backup current version if requested
+        backup_path = None
+        if create_backup and current_version:
+            backup_path = self._backup_skill(skill_name, current_version)
+
+        # Import new version
+        importer = SkillImporter()
+        result = importer.import_package(
+            package_path,
+            self.skills_dir,
+            conflict_resolution=ImportConflictResolution.OVERWRITE,
+        )
+
+        if not result.success or skill_name not in result.imported:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.UPGRADE,
+                skill_name=skill_name,
+                new_version=new_version,
+                previous_version=current_version,
+                message=f"Failed to import package: {result.errors}",
+            )
+
+        # Record in history
+        skill_dir = self.skills_dir / skill_name.lower()
+        skill_file = skill_dir / "SKILL.md"
+        self._add_history_entry(
+            skill_name=skill_name,
+            version=new_version,
+            file_path=skill_file,
+            package_path=Path(package_path),
+            action=VersionAction.UPGRADE,
+        )
+
+        return VersionChangeResult(
+            success=True,
+            action=VersionAction.UPGRADE,
+            skill_name=skill_name,
+            new_version=new_version,
+            previous_version=current_version,
+            backup_path=backup_path,
+            message=f"Successfully upgraded from {current_version} to {new_version}",
+        )
+
+    def downgrade_skill(
+        self,
+        skill_name: str,
+        target_version: str,
+        create_backup: bool = True,
+    ) -> VersionChangeResult:
+        """
+        Downgrade a skill to a previous version.
+
+        Args:
+            skill_name: Name of the skill to downgrade
+            target_version: Version to downgrade to
+            create_backup: Whether to backup the current version
+
+        Returns:
+            VersionChangeResult with operation details
+
+        Raises:
+            PackageError: If downgrade fails
+        """
+        current_version = self.get_current_version(skill_name)
+
+        if not current_version:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=None,
+                message=f"Skill {skill_name} is not installed",
+            )
+
+        # Check if this is actually a downgrade
+        comparison = self.compare_versions(target_version, current_version)
+        if comparison > 0:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=current_version,
+                message=f"Cannot downgrade: target version {target_version} is newer than current {current_version}",
+            )
+        elif comparison == 0:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=current_version,
+                message=f"Already at version {target_version}",
+            )
+
+        # Find target version in history
+        history = self._load_history(skill_name)
+        target_entry = None
+        for entry in history:
+            if entry.version == target_version:
+                target_entry = entry
+                break
+
+        if not target_entry:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=current_version,
+                message=f"Version {target_version} not found in history",
+            )
+
+        # Check if package file exists
+        if not target_entry.package_path or not target_entry.package_path.exists():
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=current_version,
+                message=f"Package file for version {target_version} not found",
+            )
+
+        # Backup current version if requested
+        backup_path = None
+        if create_backup:
+            backup_path = self._backup_skill(skill_name, current_version)
+
+        # Import target version
+        importer = SkillImporter()
+        result = importer.import_package(
+            target_entry.package_path,
+            self.skills_dir,
+            conflict_resolution=ImportConflictResolution.OVERWRITE,
+        )
+
+        if not result.success or skill_name not in result.imported:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.DOWNGRADE,
+                skill_name=skill_name,
+                new_version=target_version,
+                previous_version=current_version,
+                message=f"Failed to import package: {result.errors}",
+            )
+
+        # Record in history
+        skill_dir = self.skills_dir / skill_name.lower()
+        skill_file = skill_dir / "SKILL.md"
+        self._add_history_entry(
+            skill_name=skill_name,
+            version=target_version,
+            file_path=skill_file,
+            package_path=target_entry.package_path,
+            action=VersionAction.DOWNGRADE,
+        )
+
+        return VersionChangeResult(
+            success=True,
+            action=VersionAction.DOWNGRADE,
+            skill_name=skill_name,
+            new_version=target_version,
+            previous_version=current_version,
+            backup_path=backup_path,
+            message=f"Successfully downgraded from {current_version} to {target_version}",
+        )
+
+    def _backup_skill(self, skill_name: str, version: str) -> Optional[Path]:
+        """
+        Create a backup of a skill.
+
+        Args:
+            skill_name: Name of the skill
+            version: Version being backed up
+
+        Returns:
+            Path to backup file, or None if backup failed
+        """
+        import shutil
+
+        skill_dir = self.skills_dir / skill_name.lower()
+        if not skill_dir.exists():
+            return None
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{skill_name.lower()}_{version}_{timestamp}{self.BACKUP_SUFFIX}"
+        backup_path = self.backup_dir / backup_name
+
+        try:
+            shutil.copytree(skill_dir, backup_path)
+            return backup_path
+        except Exception:
+            return None
+
+    def restore_backup(self, skill_name: str, backup_path: Union[str, Path]) -> VersionChangeResult:
+        """
+        Restore a skill from a backup.
+
+        Args:
+            skill_name: Name of the skill
+            backup_path: Path to the backup directory
+
+        Returns:
+            VersionChangeResult with operation details
+
+        Raises:
+            PackageError: If restore fails
+        """
+        import shutil
+
+        backup_path = Path(backup_path)
+        if not backup_path.exists():
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.REINSTALL,
+                skill_name=skill_name,
+                new_version="unknown",
+                previous_version=self.get_current_version(skill_name),
+                message=f"Backup path does not exist: {backup_path}",
+            )
+
+        # Get current version
+        current_version = self.get_current_version(skill_name)
+
+        # Restore from backup
+        skill_dir = self.skills_dir / skill_name.lower()
+
+        try:
+            # Remove existing skill directory
+            if skill_dir.exists():
+                shutil.rmtree(skill_dir)
+
+            # Copy from backup
+            shutil.copytree(backup_path, skill_dir)
+
+            # Extract version from backup name or skill file
+            version = self._extract_version_from_backup(backup_path, skill_name)
+
+            # Record in history
+            skill_file = skill_dir / "SKILL.md"
+            self._add_history_entry(
+                skill_name=skill_name,
+                version=version,
+                file_path=skill_file,
+                package_path=None,
+                action=VersionAction.REINSTALL,
+            )
+
+            return VersionChangeResult(
+                success=True,
+                action=VersionAction.REINSTALL,
+                skill_name=skill_name,
+                new_version=version,
+                previous_version=current_version,
+                message=f"Successfully restored from backup",
+            )
+
+        except Exception as e:
+            return VersionChangeResult(
+                success=False,
+                action=VersionAction.REINSTALL,
+                skill_name=skill_name,
+                new_version="unknown",
+                previous_version=current_version,
+                message=f"Failed to restore backup: {e}",
+            )
+
+    def _extract_version_from_backup(self, backup_path: Path, skill_name: str) -> str:
+        """
+        Extract version from a backup directory name or skill file.
+
+        Args:
+            backup_path: Path to the backup directory
+            skill_name: Name of the skill
+
+        Returns:
+            Version string
+        """
+        # Try to extract from backup name first
+        # Format: skillname_version_timestamp.bak
+        match = re.match(rf"{re.escape(skill_name.lower())}_(.+?)_\d+{{8}}_\d+{{6}}", backup_path.stem)
+        if match:
+            return match.group(1)
+
+        # Try to read from skill file
+        skill_file = backup_path / "SKILL.md"
+        if skill_file.exists():
+            try:
+                content = skill_file.read_text(encoding="utf-8")
+                match = SkillRegistry.FRONTMATTER_PATTERN.match(content)
+                if match:
+                    import yaml
+                    metadata = yaml.safe_load(match.group(1))
+                    if isinstance(metadata, dict) and "version" in metadata:
+                        return str(metadata["version"])
+            except Exception:
+                pass
+
+        return "unknown"
+
+    def list_backups(self, skill_name: Optional[str] = None) -> list[Path]:
+        """
+        List available backups.
+
+        Args:
+            skill_name: Optional skill name to filter by
+
+        Returns:
+            List of backup paths
+        """
+        if not self.backup_dir.exists():
+            return []
+
+        backups = []
+        for backup in self.backup_dir.glob(f"*{self.BACKUP_SUFFIX}"):
+            if backup.is_dir():
+                if skill_name is None or backup.name.startswith(skill_name.lower()):
+                    backups.append(backup)
+
+        return sorted(backups, key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"VersionManager(skills_dir={self.skills_dir}, "
+            f"history_dir={self.history_dir}, "
+            f"backup_dir={self.backup_dir})"
+        )
 
 
 def create_packager(
