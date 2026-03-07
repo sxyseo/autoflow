@@ -181,12 +181,13 @@ class TemplateRenderer:
                 f"Missing required template variables: {sorted(missing_vars)}"
             )
 
-        # Substitute variables
+        # Substitute variables using regex to handle whitespace properly
         result = template
 
         for var_name, var_value in variables.items():
-            placeholder = f"{{{{ {var_name} }}}}"
-            result = result.replace(placeholder, str(var_value))
+            # Pattern to match {{ var_name }} with any whitespace
+            pattern = re.compile(r"\{\{\s*" + re.escape(var_name) + r"\s*\}\}")
+            result = pattern.sub(str(var_value), result)
 
         return result
 
