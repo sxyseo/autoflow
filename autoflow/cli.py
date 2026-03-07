@@ -1151,7 +1151,7 @@ def skill_export(
         # Initialize packager with registry
         from autoflow.skills.registry import SkillRegistry
 
-        registry = SkillRegistry(skills_dir)
+        registry = SkillRegistry([skills_dir], auto_load=True)
         packager = SkillPackager(registry)
 
         # Generate default output path if not specified
@@ -1261,7 +1261,7 @@ def skill_import(
         # Initialize importer
         from autoflow.skills.registry import SkillRegistry
 
-        registry = SkillRegistry(target_dir)
+        registry = SkillRegistry([target_dir], auto_load=True)
         importer = SkillImporter()
 
         # Import the package
@@ -1278,15 +1278,8 @@ def skill_import(
                 "imported": result.imported,
                 "skipped": result.skipped,
                 "conflicts": result.conflicts,
-                "actions": [
-                    {
-                        "skill": action.skill_name,
-                        "action": action.action.value,
-                        "previous_version": action.previous_version,
-                        "new_version": action.new_version,
-                    }
-                    for action in result.actions
-                ],
+                "errors": result.errors,
+                "backup_paths": {str(k): str(v) for k, v in result.backup_paths.items()},
             })
         else:
             click.echo(f"✓ Package imported successfully")
@@ -1307,14 +1300,10 @@ def skill_import(
                 for skill_name in result.conflicts:
                     click.echo(f"  ⚠ {skill_name}")
 
-            if result.actions:
-                click.echo(f"\nActions Taken:")
-                for action in result.actions:
-                    action_str = action.action.value
-                    if action.previous_version and action.new_version:
-                        click.echo(f"  • {action.skill_name}: {action.previous_version} → {action.new_version} ({action_str})")
-                    else:
-                        click.echo(f"  • {action.skill_name}: {action_str}")
+            if result.backup_paths:
+                click.echo(f"\nBackups Created:")
+                for skill_name, backup_path in result.backup_paths.items():
+                    click.echo(f"  • {skill_name}: {backup_path}")
 
     except PackageError as e:
         click.echo(f"Error: {e}", err=True)
