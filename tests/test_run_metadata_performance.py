@@ -3,7 +3,7 @@ Performance Benchmark Tests for run_metadata_iter Functions
 
 Tests the performance difference between:
 - run_metadata_iter(): Original O(n) filesystem scan version
-- run_metadata_iter_cached(): Cached version with lazy-loading
+- run_metadata_iter(): Uses caching with lazy-loading
 
 These benchmarks validate that the cached implementation provides
 significant performance improvements for repeated calls.
@@ -30,7 +30,6 @@ from scripts.autoflow import (
     invalidate_run_cache,
     read_json,
     run_metadata_iter,
-    run_metadata_iter_cached,
 )
 
 
@@ -149,119 +148,107 @@ class TestRunMetadataIterPerformance:
     def test_uncached_vs_cached_small_dataset(
         self, temp_runs_dir: Path, sample_run_data: dict
     ) -> None:
-        """Benchmark uncached vs cached with small dataset (10 runs)."""
+        """Benchmark cache miss vs cache hit with small dataset (10 runs)."""
         # Create test data
         create_test_runs(temp_runs_dir, 10)
 
-        # Benchmark uncached version - single call
-        start = time.perf_counter()
-        result_uncached = run_metadata_iter()
-        time_uncached_single = time.perf_counter() - start
-
-        # Invalidate cache to ensure fresh measurement
+        # Invalidate cache to ensure first call is a cache miss
         invalidate_run_cache()
 
-        # Benchmark cached version - first call (cache miss)
+        # Benchmark first call (cache miss - loads from filesystem)
         start = time.perf_counter()
-        result_cached_first = run_metadata_iter_cached()
-        time_cached_first = time.perf_counter() - start
+        result_first = run_metadata_iter()
+        time_first = time.perf_counter() - start
 
-        # Benchmark cached version - second call (cache hit)
+        # Benchmark second call (cache hit - reads from memory)
         start = time.perf_counter()
-        result_cached_second = run_metadata_iter_cached()
-        time_cached_second = time.perf_counter() - start
+        result_second = run_metadata_iter()
+        time_second = time.perf_counter() - start
 
         # Verify results are identical
-        assert len(result_uncached) == 10
-        assert len(result_cached_first) == 10
-        assert len(result_cached_second) == 10
-        assert sorted(r["id"] for r in result_uncached) == sorted(
-            r["id"] for r in result_cached_first
+        assert len(result_first) == 10
+        assert len(result_second) == 10
+        assert sorted(r["id"] for r in result_first) == sorted(
+            r["id"] for r in result_second
         )
 
-        # Cached second call should be significantly faster
+        # Second call (cache hit) should be faster than first call (cache miss)
         # (it's just reading from memory, no filesystem I/O)
-        assert time_cached_second < time_uncached_single
+        assert time_second < time_first
 
-        # First cached call might be similar or slightly slower due to cache overhead
-        # but second call should be much faster
-        speedup = time_uncached_single / time_cached_second
+        # Calculate speedup
+        speedup = time_first / time_second
         # With small datasets, speedup may be modest due to fast filesystem I/O
         assert speedup > 1.1  # At least 10% speedup on cache hit
 
     def test_uncached_vs_cached_medium_dataset(
         self, temp_runs_dir: Path
     ) -> None:
-        """Benchmark uncached vs cached with medium dataset (50 runs)."""
+        """Benchmark cache miss vs cache hit with medium dataset (50 runs)."""
         # Create test data
         create_test_runs(temp_runs_dir, 50)
 
-        # Benchmark uncached - single call
-        start = time.perf_counter()
-        result_uncached = run_metadata_iter()
-        time_uncached = time.perf_counter() - start
-
-        # Invalidate and benchmark cached
+        # Invalidate and benchmark first call (cache miss)
         invalidate_run_cache()
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_first = time.perf_counter() - start
+        result_first = run_metadata_iter()
+        time_first = time.perf_counter() - start
 
+        # Benchmark second call (cache hit)
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_second = time.perf_counter() - start
+        result_second = run_metadata_iter()
+        time_second = time.perf_counter() - start
 
-        assert len(result_uncached) == 50
+        assert len(result_first) == 50
+        assert len(result_second) == 50
 
-        # Cached second call should be faster or at least not slower
+        # Second call should be faster or at least not slower
         # (may vary due to OS caching, system load, etc.)
-        speedup = time_uncached / time_cached_second
+        speedup = time_first / time_second
         assert speedup > 0.9  # At least not significantly slower
 
     def test_uncached_vs_cached_large_dataset(
         self, temp_runs_dir: Path
     ) -> None:
-        """Benchmark uncached vs cached with large dataset (100 runs)."""
+        """Benchmark cache miss vs cache hit with large dataset (100 runs)."""
         # Create test data
         create_test_runs(temp_runs_dir, 100)
 
-        # Benchmark uncached - single call
-        start = time.perf_counter()
-        result_uncached = run_metadata_iter()
-        time_uncached = time.perf_counter() - start
-
-        # Invalidate and benchmark cached
+        # Invalidate and benchmark first call (cache miss)
         invalidate_run_cache()
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_first = time.perf_counter() - start
+        result_first = run_metadata_iter()
+        time_first = time.perf_counter() - start
 
+        # Benchmark second call (cache hit)
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_second = time.perf_counter() - start
+        result_second = run_metadata_iter()
+        time_second = time.perf_counter() - start
 
-        assert len(result_uncached) == 100
+        assert len(result_first) == 100
+        assert len(result_second) == 100
 
         # With larger dataset, cache advantage should be more pronounced
         # but can still vary due to OS caching, system load, etc.
-        speedup = time_uncached / time_cached_second
+        speedup = time_first / time_second
         assert speedup > 1.0  # At least somewhat faster
 
     def test_repeated_uncached_calls_performance(
         self, temp_runs_dir: Path
     ) -> None:
-        """Test that repeated uncached calls show no performance improvement."""
+        """Test that repeated calls with cache invalidation show no caching benefit."""
         # Create test data
         create_test_runs(temp_runs_dir, 30)
 
-        # Make multiple uncached calls - each should scan filesystem
+        # Make multiple calls with cache invalidation - each should scan filesystem
         times = []
         for _ in range(5):
+            invalidate_run_cache()
             start = time.perf_counter()
             run_metadata_iter()
             times.append(time.perf_counter() - start)
 
-        # All calls should take similar time (no caching benefit)
+        # All calls should take similar time (no persistent caching benefit)
         # Verify that the variance is within reasonable bounds
         avg_time = sum(times) / len(times)
         for t in times:
@@ -271,21 +258,21 @@ class TestRunMetadataIterPerformance:
     def test_repeated_cached_calls_performance(
         self, temp_runs_dir: Path
     ) -> None:
-        """Test that repeated cached calls show significant performance improvement."""
+        """Test that repeated calls without invalidation show significant performance improvement."""
         # Create test data
         create_test_runs(temp_runs_dir, 30)
 
         # First call populates cache
         invalidate_run_cache()
         start = time.perf_counter()
-        run_metadata_iter_cached()
+        run_metadata_iter()
         time_first = time.perf_counter() - start
 
-        # Subsequent calls should be much faster
+        # Subsequent calls should be much faster (reading from cache)
         times_cached = []
         for _ in range(5):
             start = time.perf_counter()
-            run_metadata_iter_cached()
+            run_metadata_iter()
             times_cached.append(time.perf_counter() - start)
 
         # All cached calls after the first should be very fast
@@ -304,11 +291,12 @@ class TestRunMetadataIterPerformance:
         create_test_runs(temp_runs_dir, 20)
 
         # Populate cache
-        run_metadata_iter_cached()
+        invalidate_run_cache()
+        run_metadata_iter()
 
         # Fast cached call
         start = time.perf_counter()
-        run_metadata_iter_cached()
+        run_metadata_iter()
         time_cached = time.perf_counter() - start
 
         # Invalidate cache
@@ -316,7 +304,7 @@ class TestRunMetadataIterPerformance:
 
         # After invalidation, should be slower again (cache miss)
         start = time.perf_counter()
-        run_metadata_iter_cached()
+        run_metadata_iter()
         time_after_invalidation = time.perf_counter() - start
 
         # After invalidation, should take longer than cached call
@@ -330,20 +318,19 @@ class TestRunMetadataIterPerformance:
 
         # Both should be fast with empty directory
         start = time.perf_counter()
-        result_uncached = run_metadata_iter()
-        time_uncached = time.perf_counter() - start
+        result_first = run_metadata_iter()
+        time_first = time.perf_counter() - start
 
-        invalidate_run_cache()
         start = time.perf_counter()
-        result_cached = run_metadata_iter_cached()
-        time_cached = time.perf_counter() - start
+        result_second = run_metadata_iter()
+        time_second = time.perf_counter() - start
 
-        assert result_uncached == []
-        assert result_cached == []
+        assert result_first == []
+        assert result_second == []
 
-        # Both should complete quickly
-        assert time_uncached < 0.1  # Less than 100ms
-        assert time_cached < 0.1
+        # Should complete quickly
+        assert time_first < 0.1  # Less than 100ms
+        assert time_second < 0.1
 
     def test_sorted_order_performance(
         self, temp_runs_dir: Path
@@ -352,21 +339,21 @@ class TestRunMetadataIterPerformance:
         # Create test data
         create_test_runs(temp_runs_dir, 25)
 
-        # Get results from both versions
+        # Get results from function
         invalidate_run_cache()
-        result_uncached = run_metadata_iter()
-        result_cached = run_metadata_iter_cached()
+        result_first = run_metadata_iter()
+        result_second = run_metadata_iter()
 
         # Extract run IDs
-        ids_uncached = [r["id"] for r in result_uncached]
-        ids_cached = [r["id"] for r in result_cached]
+        ids_first = [r["id"] for r in result_first]
+        ids_second = [r["id"] for r in result_second]
 
         # Both should return results sorted by run ID (directory name)
-        assert ids_uncached == sorted(ids_uncached)
-        assert ids_cached == sorted(ids_cached)
+        assert ids_first == sorted(ids_first)
+        assert ids_second == sorted(ids_second)
 
         # Results should be identical
-        assert ids_uncached == ids_cached
+        assert ids_first == ids_second
 
     def test_performance_with_multiple_specs(
         self, temp_runs_dir: Path
@@ -375,33 +362,29 @@ class TestRunMetadataIterPerformance:
         # Create runs distributed across 10 specs
         create_test_runs(temp_runs_dir, 60, spec_prefix="feature")
 
-        # Benchmark uncached
-        start = time.perf_counter()
-        result_uncached = run_metadata_iter()
-        time_uncached = time.perf_counter() - start
-
-        # Benchmark cached
+        # Benchmark first call (cache miss)
         invalidate_run_cache()
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_first = time.perf_counter() - start
+        result_first = run_metadata_iter()
+        time_first = time.perf_counter() - start
 
+        # Benchmark second call (cache hit)
         start = time.perf_counter()
-        run_metadata_iter_cached()
-        time_cached_second = time.perf_counter() - start
+        run_metadata_iter()
+        time_second = time.perf_counter() - start
 
-        assert len(result_uncached) == 60
+        assert len(result_first) == 60
 
         # Verify cache is indexed by spec
         # After loading, cache should have entries for multiple specs
         invalidate_run_cache()
-        run_metadata_iter_cached()
+        run_metadata_iter()
         spec_count = len(_run_metadata_cache)
         assert spec_count > 1  # Should have cached multiple specs
 
         # Second call should be faster or at least not significantly slower
         # Performance can vary due to OS caching, system load, etc.
-        speedup = time_uncached / time_cached_second
+        speedup = time_first / time_second
         assert speedup > 0.9  # At least not significantly slower
 
 
@@ -417,7 +400,7 @@ class TestCacheEfficiency:
 
         # Populate cache
         invalidate_run_cache()
-        results = run_metadata_iter_cached()
+        results = run_metadata_iter()
 
         # Count total cache entries
         total_cached_runs = sum(len(runs) for runs in _run_metadata_cache.values())
@@ -444,8 +427,8 @@ class TestCacheEfficiency:
         assert len(_run_metadata_cache) == 0
         assert len(_cache_loaded_specs) == 0
 
-        # Call run_metadata_iter_cached which loads everything
-        run_metadata_iter_cached()
+        # Call run_metadata_iter which loads everything
+        run_metadata_iter()
 
         # Cache should be populated
         assert len(_run_metadata_cache) > 0
@@ -457,7 +440,8 @@ class TestCacheEfficiency:
         """Test that invalidate_run_cache() properly clears all cache state."""
         # Create and cache runs
         create_test_runs(temp_runs_dir, 20)
-        run_metadata_iter_cached()
+        invalidate_run_cache()
+        run_metadata_iter()
 
         # Verify cache is populated
         assert len(_run_metadata_cache) > 0

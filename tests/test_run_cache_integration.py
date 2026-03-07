@@ -29,12 +29,11 @@ from scripts.autoflow import (
     RUNS_DIR,
     _cache_loaded_specs,
     _run_metadata_cache,
-    active_runs_for_spec_cached,
+    active_runs_for_spec,
     invalidate_run_cache,
     read_json,
     run_metadata_iter,
-    run_metadata_iter_cached,
-    task_run_history_cached,
+    task_run_history,
     write_json,
 )
 
@@ -136,21 +135,21 @@ class TestCacheConsistency:
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2")
 
         # Load into cache
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert len(runs) == 2
 
         # Create a new run
         create_run(temp_runs_dir, "run-003", "spec-a", "task-3")
 
         # Cache should still show 2 runs (stale)
-        runs_stale = run_metadata_iter_cached()
+        runs_stale = run_metadata_iter()
         assert len(runs_stale) == 2
 
         # Invalidate cache
         invalidate_run_cache()
 
         # Now cache should show 3 runs
-        runs_fresh = run_metadata_iter_cached()
+        runs_fresh = run_metadata_iter()
         assert len(runs_fresh) == 3
 
         run_ids = {r["id"] for r in runs_fresh}
@@ -164,7 +163,7 @@ class TestCacheConsistency:
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1", status="running")
 
         # Load into cache
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert runs[0]["status"] == "running"
 
         # Modify the run status
@@ -174,14 +173,14 @@ class TestCacheConsistency:
         write_json(run_dir / "run.json", metadata)
 
         # Cache should still show old status (stale)
-        runs_stale = run_metadata_iter_cached()
+        runs_stale = run_metadata_iter()
         assert runs_stale[0]["status"] == "running"
 
         # Invalidate cache
         invalidate_run_cache()
 
         # Now cache should show updated status
-        runs_fresh = run_metadata_iter_cached()
+        runs_fresh = run_metadata_iter()
         assert runs_fresh[0]["status"] == "completed"
 
     def test_cache_consistency_after_deletion(
@@ -193,35 +192,35 @@ class TestCacheConsistency:
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2")
 
         # Load into cache
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert len(runs) == 2
 
         # Delete a run directory
         shutil.rmtree(temp_runs_dir / "run-001")
 
         # Cache should still show 2 runs (stale)
-        runs_stale = run_metadata_iter_cached()
+        runs_stale = run_metadata_iter()
         assert len(runs_stale) == 2
 
         # Invalidate cache
         invalidate_run_cache()
 
         # Now cache should show 1 run
-        runs_fresh = run_metadata_iter_cached()
+        runs_fresh = run_metadata_iter()
         assert len(runs_fresh) == 1
         assert runs_fresh[0]["id"] == "run-002"
 
     def test_active_runs_consistency(
         self, temp_runs_dir: Path
     ) -> None:
-        """Test that active_runs_for_spec_cached shows consistent data."""
+        """Test that active_runs_for_spec shows consistent data."""
         # Create runs with different statuses
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1", status="running")
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2", status="completed")
         create_run(temp_runs_dir, "run-003", "spec-a", "task-3", status="running")
 
         # Get active runs
-        active = active_runs_for_spec_cached("spec-a")
+        active = active_runs_for_spec("spec-a")
         assert len(active) == 2
         assert all(r["status"] != "completed" for r in active)
 
@@ -232,38 +231,38 @@ class TestCacheConsistency:
         write_json(run_dir / "run.json", metadata)
 
         # Cache should still show 2 active runs (stale)
-        active_stale = active_runs_for_spec_cached("spec-a")
+        active_stale = active_runs_for_spec("spec-a")
         assert len(active_stale) == 2
 
         # Invalidate and check again
         invalidate_run_cache()
-        active_fresh = active_runs_for_spec_cached("spec-a")
+        active_fresh = active_runs_for_spec("spec-a")
         assert len(active_fresh) == 1
         assert active_fresh[0]["id"] == "run-003"
 
     def test_task_history_consistency(
         self, temp_runs_dir: Path
     ) -> None:
-        """Test that task_run_history_cached shows consistent data."""
+        """Test that task_run_history shows consistent data."""
         # Create runs for the same task
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1", status="completed")
         create_run(temp_runs_dir, "run-002", "spec-a", "task-1", status="completed")
         create_run(temp_runs_dir, "run-003", "spec-a", "task-2", status="completed")
 
         # Get history for task-1
-        history = task_run_history_cached("spec-a", "task-1")
+        history = task_run_history("spec-a", "task-1")
         assert len(history) == 2
 
         # Add another run for task-1
         create_run(temp_runs_dir, "run-004", "spec-a", "task-1", status="completed")
 
         # Cache should still show 2 runs (stale)
-        history_stale = task_run_history_cached("spec-a", "task-1")
+        history_stale = task_run_history("spec-a", "task-1")
         assert len(history_stale) == 2
 
         # Invalidate and check again
         invalidate_run_cache()
-        history_fresh = task_run_history_cached("spec-a", "task-1")
+        history_fresh = task_run_history("spec-a", "task-1")
         assert len(history_fresh) == 3
 
     def test_cross_function_consistency(
@@ -275,9 +274,9 @@ class TestCacheConsistency:
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2", status="completed")
 
         # Get data from different functions
-        all_runs = run_metadata_iter_cached()
-        active_runs = active_runs_for_spec_cached("spec-a")
-        task_history = task_run_history_cached("spec-a", "task-1")
+        all_runs = run_metadata_iter()
+        active_runs = active_runs_for_spec("spec-a")
+        task_history = task_run_history("spec-a", "task-1")
 
         # Verify consistency
         assert len(all_runs) == 2
@@ -295,12 +294,12 @@ class TestCacheConsistency:
         write_json(run_dir / "run.json", metadata)
 
         # Without invalidation, data is stale
-        active_stale = active_runs_for_spec_cached("spec-a")
+        active_stale = active_runs_for_spec("spec-a")
         assert len(active_stale) == 1  # Still shows run-001 as active
 
         # After invalidation, all functions should see fresh data
         invalidate_run_cache()
-        active_fresh = active_runs_for_spec_cached("spec-a")
+        active_fresh = active_runs_for_spec("spec-a")
         assert len(active_fresh) == 0  # No active runs now
 
 
@@ -320,9 +319,9 @@ class TestCacheInvalidation:
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1")
         create_run(temp_runs_dir, "run-002", "spec-b", "task-2")
 
-        run_metadata_iter_cached()
-        active_runs_for_spec_cached("spec-a")
-        task_run_history_cached("spec-b", "task-2")
+        run_metadata_iter()
+        active_runs_for_spec("spec-a")
+        task_run_history("spec-b", "task-2")
 
         # Verify cache is populated
         assert len(_run_metadata_cache) > 0
@@ -344,7 +343,7 @@ class TestCacheInvalidation:
 
         # Should be able to load runs normally
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1")
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
 
         assert len(runs) == 1
 
@@ -356,7 +355,7 @@ class TestCacheInvalidation:
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1")
 
         # Load cache
-        run_metadata_iter_cached()
+        run_metadata_iter()
         assert len(_run_metadata_cache) > 0
 
         # Invalidate multiple times
@@ -367,7 +366,7 @@ class TestCacheInvalidation:
         assert len(_run_metadata_cache) == 0
 
         # Should still work
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert len(runs) == 1
 
 
@@ -392,16 +391,16 @@ class TestLazyLoading:
         assert len(_run_metadata_cache) == 0
         assert len(_cache_loaded_specs) == 0
 
-        # Query spec-a - should load only spec-a (and opportunistically others)
-        active_runs_for_spec_cached("spec-a")
+        # Query spec-a - should load only spec-a (and opportunisticly others)
+        active_runs_for_spec("spec-a")
 
         # Cache should have at least spec-a loaded
         assert "spec-a" in _cache_loaded_specs
 
         # Query spec-b - should already be loaded from opportunistic caching
-        # (run_metadata_iter_cached loads all specs, but active_runs_for_spec_cached
+        # (run_metadata_iter loads all specs, but active_runs_for_spec
         # uses lazy loading which opportunistically caches discovered specs)
-        active_runs_for_spec_cached("spec-b")
+        active_runs_for_spec("spec-b")
 
         # Both specs should be loaded
         assert "spec-b" in _cache_loaded_specs
@@ -419,23 +418,23 @@ class TestLazyLoading:
 
         # Query one spec - should opportunistically cache other specs seen
         # during the filesystem scan
-        active_runs_for_spec_cached("spec-a")
+        active_runs_for_spec("spec-a")
 
         # Due to opportunistic caching, spec-b might also be loaded
         # (it was discovered during the scan for spec-a)
         # This is implementation-dependent, so we just verify the cache works
-        runs_a = active_runs_for_spec_cached("spec-a")
+        runs_a = active_runs_for_spec("spec-a")
         assert len(runs_a) == 1
 
         # Second call should be from cache
-        runs_a_again = active_runs_for_spec_cached("spec-a")
+        runs_a_again = active_runs_for_spec("spec-a")
         assert len(runs_a_again) == 1
         assert runs_a[0]["id"] == runs_a_again[0]["id"]
 
     def test_lazy_load_with_task_history(
         self, temp_runs_dir: Path
     ) -> None:
-        """Test that task_run_history_cached uses lazy loading correctly."""
+        """Test that task_run_history uses lazy loading correctly."""
         # Create runs for different tasks
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1")
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2")
@@ -445,7 +444,7 @@ class TestLazyLoading:
         assert len(_run_metadata_cache) == 0
 
         # Query task-1 in spec-a
-        history = task_run_history_cached("spec-a", "task-1")
+        history = task_run_history("spec-a", "task-1")
 
         # Should load spec-a
         assert len(history) == 1
@@ -460,7 +459,7 @@ class TestLazyLoading:
 class TestIntegrationWithOriginal:
     """Tests for integration with original (uncached) functions."""
 
-    def test_cached_matches_uncached_results(
+    def test_function_returns_correct_results(
         self, temp_runs_dir: Path
     ) -> None:
         """Test that cached functions return same results as uncached."""
@@ -469,22 +468,17 @@ class TestIntegrationWithOriginal:
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2", status="completed")
         create_run(temp_runs_dir, "run-003", "spec-b", "task-1", status="running")
 
-        # Get results from uncached functions
-        uncached_all = run_metadata_iter()
-
-        # Get results from cached functions
+        # Get results from functions (verify they work correctly)
         invalidate_run_cache()
-        cached_all = run_metadata_iter_cached()
+        all_runs = run_metadata_iter()
 
-        # Results should be identical
-        assert len(uncached_all) == len(cached_all) == 3
+        # Results should be correct
+        assert len(all_runs) == 3
 
-        uncached_ids = sorted([r["id"] for r in uncached_all])
-        cached_ids = sorted([r["id"] for r in cached_all])
+        run_ids = sorted([r["id"] for r in all_runs])
+        assert run_ids == sorted(["run-001", "run-002", "run-003"])
 
-        assert uncached_ids == cached_ids
-
-    def test_cached_functions_interoperate_with_uncached(
+    def test_function_works_correctly(
         self, temp_runs_dir: Path
     ) -> None:
         """Test that cached and uncached functions can interoperate."""
@@ -492,18 +486,15 @@ class TestIntegrationWithOriginal:
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1", status="running")
         create_run(temp_runs_dir, "run-002", "spec-a", "task-2", status="running")
 
-        # Use uncached function
-        uncached_runs = run_metadata_iter()
-        assert len(uncached_runs) == 2
-
-        # Use cached function
+        # Use function - should work correctly
         invalidate_run_cache()
-        cached_runs = run_metadata_iter_cached()
-        assert len(cached_runs) == 2
+        runs = run_metadata_iter()
+        assert len(runs) == 2
 
-        # They should return the same data
-        assert uncached_runs[0]["id"] == cached_runs[0]["id"]
-        assert uncached_runs[1]["id"] == cached_runs[1]["id"]
+        # Verify the data is correct
+        assert runs[0]["id"] in ["run-001", "run-002"]
+        assert runs[1]["id"] in ["run-001", "run-002"]
+        assert runs[0]["id"] != runs[1]["id"]
 
 
 # ============================================================================
@@ -522,9 +513,9 @@ class TestEdgeCases:
 
         # All functions should return empty results
         invalidate_run_cache()
-        assert run_metadata_iter_cached() == []
-        assert active_runs_for_spec_cached("spec-a") == []
-        assert task_run_history_cached("spec-a", "task-1") == []
+        assert run_metadata_iter() == []
+        assert active_runs_for_spec("spec-a") == []
+        assert task_run_history("spec-a", "task-1") == []
 
     def test_nonexistent_spec_returns_empty(
         self, temp_runs_dir: Path
@@ -535,7 +526,7 @@ class TestEdgeCases:
 
         # Query spec-b which doesn't exist
         invalidate_run_cache()
-        runs = active_runs_for_spec_cached("spec-b")
+        runs = active_runs_for_spec("spec-b")
         assert runs == []
 
     def test_cache_with_multiple_runs_same_task(
@@ -548,7 +539,7 @@ class TestEdgeCases:
         create_run(temp_runs_dir, "run-003", "spec-a", "task-1", status="running")
 
         # Get history
-        history = task_run_history_cached("spec-a", "task-1")
+        history = task_run_history("spec-a", "task-1")
         assert len(history) == 3
 
         # Verify all are for the same task
@@ -564,7 +555,7 @@ class TestEdgeCases:
 
         # Should work normally
         invalidate_run_cache()
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert len(runs) == 2
 
     def test_cache_invalidation_idempotence(
@@ -573,7 +564,7 @@ class TestEdgeCases:
         """Test that cache invalidation is idempotent."""
         # Create runs and populate cache
         create_run(temp_runs_dir, "run-001", "spec-a", "task-1")
-        run_metadata_iter_cached()
+        run_metadata_iter()
 
         # Invalidate once
         invalidate_run_cache()
@@ -584,5 +575,5 @@ class TestEdgeCases:
         assert len(_run_metadata_cache) == 0
 
         # Should still work
-        runs = run_metadata_iter_cached()
+        runs = run_metadata_iter()
         assert len(runs) == 1
