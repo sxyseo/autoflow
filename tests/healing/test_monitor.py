@@ -77,9 +77,9 @@ class TestWorkflowHealthStatus:
 
     def test_status_values(self) -> None:
         """Test WorkflowHealthStatus enum values."""
-        assert WorkflowHealthStatus.HEALTHY == "healthy"
-        assert WorkflowHealthStatus.DEGRADED == "degraded"
-        assert WorkflowHealthStatus.CRITICAL == "critical"
+        assert WorkflowHealthStatus.HEALTHY.value == "healthy"
+        assert WorkflowHealthStatus.DEGRADED.value == "degraded"
+        assert WorkflowHealthStatus.CRITICAL.value == "critical"
 
     def test_status_is_string(self) -> None:
         """Test that status values are strings."""

@@ -1,25 +1,25 @@
 {
   "active": true,
   "spec": "021-self-healing-workflows",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 13,
+    "completed": 20,
     "total": 20,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Core Integration",
+    "current": "Testing and Verification",
     "id": null,
-    "total": 2
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 8,
     "started_at": "2026-03-07T14:40:22.148441"
   },
-  "last_update": "2026-03-07T14:41:35.520223"
+  "last_update": "2026-03-07T14:57:14.222328"
 }

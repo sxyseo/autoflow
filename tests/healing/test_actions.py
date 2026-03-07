@@ -114,12 +114,12 @@ class TestActionStatus:
 
     def test_action_status_values(self) -> None:
         """Test ActionStatus enum values."""
-        assert ActionStatus.PENDING == "pending"
-        assert ActionStatus.IN_PROGRESS == "in_progress"
-        assert ActionStatus.COMPLETED == "completed"
-        assert ActionStatus.FAILED == "failed"
-        assert ActionStatus.ROLLED_BACK == "rolled_back"
-        assert ActionStatus.SKIPPED == "skipped"
+        assert ActionStatus.PENDING.value == "pending"
+        assert ActionStatus.IN_PROGRESS.value == "in_progress"
+        assert ActionStatus.COMPLETED.value == "completed"
+        assert ActionStatus.FAILED.value == "failed"
+        assert ActionStatus.ROLLED_BACK.value == "rolled_back"
+        assert ActionStatus.SKIPPED.value == "skipped"
 
     def test_action_status_is_string(self) -> None:
         """Test that status values are strings."""
@@ -131,14 +131,14 @@ class TestActionType:
 
     def test_action_type_values(self) -> None:
         """Test ActionType enum values."""
-        assert ActionType.RETRY == "retry"
-        assert ActionType.ROLLBACK == "rollback"
-        assert ActionType.RECONFIGURE == "reconfigure"
-        assert ActionType.RESTART == "restart"
-        assert ActionType.SCALE == "scale"
-        assert ActionType.ISOLATE == "isolate"
-        assert ActionType.PATCH == "patch"
-        assert ActionType.ESCALATE == "escalate"
+        assert ActionType.RETRY.value == "retry"
+        assert ActionType.ROLLBACK.value == "rollback"
+        assert ActionType.RECONFIGURE.value == "reconfigure"
+        assert ActionType.RESTART.value == "restart"
+        assert ActionType.SCALE.value == "scale"
+        assert ActionType.ISOLATE.value == "isolate"
+        assert ActionType.PATCH.value == "patch"
+        assert ActionType.ESCALATE.value == "escalate"
 
     def test_action_type_is_string(self) -> None:
         """Test that type values are strings."""
@@ -150,10 +150,10 @@ class TestActionSeverity:
 
     def test_action_severity_values(self) -> None:
         """Test ActionSeverity enum values."""
-        assert ActionSeverity.LOW == "low"
-        assert ActionSeverity.MEDIUM == "medium"
-        assert ActionSeverity.HIGH == "high"
-        assert ActionSeverity.CRITICAL == "critical"
+        assert ActionSeverity.LOW.value == "low"
+        assert ActionSeverity.MEDIUM.value == "medium"
+        assert ActionSeverity.HIGH.value == "high"
+        assert ActionSeverity.CRITICAL.value == "critical"
 
     def test_action_severity_is_string(self) -> None:
         """Test that severity values are strings."""
@@ -804,7 +804,8 @@ class TestEscalateActionExecutor:
         assert result.status == ActionStatus.COMPLETED
         assert result.success is True
         assert "critical" in result.message
-        assert "2 recipients" in result.message or "logged" in result.message
+        # Check changes_made for recipient information
+        assert any("recipients" in change for change in result.changes_made)
         assert result.can_rollback is False
 
     @pytest.mark.asyncio
@@ -822,7 +823,8 @@ class TestEscalateActionExecutor:
         result = await executor.execute(action)
 
         assert result.success is True
-        assert "logged" in result.message.lower()
+        # Check changes_made for logged escalation (no recipients)
+        assert any("logged" in change.lower() for change in result.changes_made)
 
     @pytest.mark.asyncio
     async def test_verify(self) -> None:
@@ -966,7 +968,13 @@ class TestActionRegistry:
         """Test ActionRegistry initialization."""
         registry = ActionRegistry()
 
-        assert len(registry._executors) == 0
+        # All built-in executors are registered by default
+        assert len(registry._executors) == 5
+        assert ActionType.RETRY in registry._executors
+        assert ActionType.RECONFIGURE in registry._executors
+        assert ActionType.RESTART in registry._executors
+        assert ActionType.PATCH in registry._executors
+        assert ActionType.ESCALATE in registry._executors
         assert len(registry._action_templates) == 0
         assert isinstance(registry._rollback_manager, RollbackManager)
 

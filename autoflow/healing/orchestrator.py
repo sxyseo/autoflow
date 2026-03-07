@@ -472,7 +472,7 @@ class HealingOrchestrator:
 
             # Phase 2: Diagnosis
             diagnostic_result = await self._diagnosis_phase(assessment)
-            if not diagnostic_result or not diagnostic_result.root_cause:
+            if not diagnostic_result or not diagnostic_result.root_causes:
                 return self._complete_session(HealingOutcome.ESCALATED)
 
             # Phase 3: Healing

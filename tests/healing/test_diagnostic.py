@@ -33,8 +33,6 @@ from autoflow.healing.diagnostic import (
 from autoflow.healing.monitor import (
     DegradationSignal,
     HealthAssessment,
-    SeverityLevel,
-    SignalType,
     WorkflowHealthStatus,
 )
 
@@ -72,15 +70,14 @@ def sample_root_cause() -> RootCause:
 def sample_degradation_signal() -> DegradationSignal:
     """Create a sample degradation signal for testing."""
     return DegradationSignal(
-        signal_type=SignalType.TIMEOUT,
-        severity=SeverityLevel.CRITICAL,
+        signal_type="timeout",
+        severity="critical",
         metric_name="response_time",
         current_value=120.0,
         baseline_value=50.0,
         degradation_rate=2.4,
         confidence=0.9,
         description="Response time increased significantly",
-        evidence=["API calls timing out", "Database queries slow"],
     )
 
 
@@ -116,15 +113,15 @@ class TestFailureCategory:
 
     def test_failure_category_values(self) -> None:
         """Test FailureCategory enum values."""
-        assert FailureCategory.RESOURCE_EXHAUSTION == "resource_exhaustion"
-        assert FailureCategory.DEPENDENCY_FAILURE == "dependency_failure"
-        assert FailureCategory.CONFIGURATION_ERROR == "configuration_error"
-        assert FailureCategory.PERFORMANCE_DEGRADATION == "performance_degradation"
-        assert FailureCategory.NETWORK_ISSUE == "network_issue"
-        assert FailureCategory.CODE_ERROR == "code_error"
-        assert FailureCategory.DATA_CORRUPTION == "data_corruption"
-        assert FailureCategory.TIMEOUT == "timeout"
-        assert FailureCategory.UNKNOWN == "unknown"
+        assert FailureCategory.RESOURCE_EXHAUSTION.value == "resource_exhaustion"
+        assert FailureCategory.DEPENDENCY_FAILURE.value == "dependency_failure"
+        assert FailureCategory.CONFIGURATION_ERROR.value == "configuration_error"
+        assert FailureCategory.PERFORMANCE_DEGRADATION.value == "performance_degradation"
+        assert FailureCategory.NETWORK_ISSUE.value == "network_issue"
+        assert FailureCategory.CODE_ERROR.value == "code_error"
+        assert FailureCategory.DATA_CORRUPTION.value == "data_corruption"
+        assert FailureCategory.TIMEOUT.value == "timeout"
+        assert FailureCategory.UNKNOWN.value == "unknown"
 
     def test_failure_category_is_string(self) -> None:
         """Test that category values are strings."""
@@ -136,13 +133,13 @@ class TestHealingStrategy:
 
     def test_healing_strategy_values(self) -> None:
         """Test HealingStrategy enum values."""
-        assert HealingStrategy.RETRY == "retry"
-        assert HealingStrategy.ROLLBACK == "rollback"
-        assert HealingStrategy.RECONFIGURE == "reconfigure"
-        assert HealingStrategy.ESCALATE == "escalate"
-        assert HealingStrategy.RESTART == "restart"
-        assert HealingStrategy.SCALE == "scale"
-        assert HealingStrategy.ISOLATE == "isolate"
+        assert HealingStrategy.RETRY.value == "retry"
+        assert HealingStrategy.ROLLBACK.value == "rollback"
+        assert HealingStrategy.RECONFIGURE.value == "reconfigure"
+        assert HealingStrategy.ESCALATE.value == "escalate"
+        assert HealingStrategy.RESTART.value == "restart"
+        assert HealingStrategy.SCALE.value == "scale"
+        assert HealingStrategy.ISOLATE.value == "isolate"
 
     def test_healing_strategy_is_string(self) -> None:
         """Test that strategy values are strings."""
@@ -154,9 +151,9 @@ class TestConfidenceLevel:
 
     def test_confidence_level_values(self) -> None:
         """Test ConfidenceLevel enum values."""
-        assert ConfidenceLevel.HIGH == "high"
-        assert ConfidenceLevel.MEDIUM == "medium"
-        assert ConfidenceLevel.LOW == "low"
+        assert ConfidenceLevel.HIGH.value == "high"
+        assert ConfidenceLevel.MEDIUM.value == "medium"
+        assert ConfidenceLevel.LOW.value == "low"
 
     def test_confidence_level_is_string(self) -> None:
         """Test that confidence values are strings."""
@@ -168,10 +165,10 @@ class TestExecutionStatus:
 
     def test_execution_status_values(self) -> None:
         """Test ExecutionStatus enum values."""
-        assert ExecutionStatus.SUCCESS == "success"
-        assert ExecutionStatus.FAILURE == "failure"
-        assert ExecutionStatus.TIMEOUT == "timeout"
-        assert ExecutionStatus.ERROR == "error"
+        assert ExecutionStatus.SUCCESS.value == "success"
+        assert ExecutionStatus.FAILURE.value == "failure"
+        assert ExecutionStatus.TIMEOUT.value == "timeout"
+        assert ExecutionStatus.ERROR.value == "error"
 
     def test_execution_status_is_string(self) -> None:
         """Test that status values are strings."""

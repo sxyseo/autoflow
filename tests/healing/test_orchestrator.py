@@ -35,7 +35,6 @@ from autoflow.healing.diagnostic import (
     DiagnosticResult,
     FailureCategory,
     HealingPlan,
-    HealingRiskLevel,
     HealingStrategy,
     RootCause,
     RootCauseAnalyzer,
@@ -45,8 +44,6 @@ from autoflow.healing.monitor import (
     DegradationSignal,
     HealthAssessment,
     MetricReading,
-    SeverityLevel,
-    SignalType,
     WorkflowHealthMonitor,
     WorkflowHealthStatus,
 )
@@ -248,13 +245,13 @@ class TestOrchestratorState:
 
     def test_orchestrator_state_values(self) -> None:
         """Test OrchestratorState enum values."""
-        assert OrchestratorState.IDLE == "idle"
-        assert OrchestratorState.MONITORING == "monitoring"
-        assert OrchestratorState.DIAGNOSING == "diagnosing"
-        assert OrchestratorState.HEALING == "healing"
-        assert OrchestratorState.VERIFYING == "verifying"
-        assert OrchestratorState.ESCALATING == "escalating"
-        assert OrchestratorState.PAUSED == "paused"
+        assert OrchestratorState.IDLE.value == "idle"
+        assert OrchestratorState.MONITORING.value == "monitoring"
+        assert OrchestratorState.DIAGNOSING.value == "diagnosing"
+        assert OrchestratorState.HEALING.value == "healing"
+        assert OrchestratorState.VERIFYING.value == "verifying"
+        assert OrchestratorState.ESCALATING.value == "escalating"
+        assert OrchestratorState.PAUSED.value == "paused"
 
     def test_orchestrator_state_is_string(self) -> None:
         """Test that state values are strings."""
@@ -266,11 +263,11 @@ class TestHealingOutcome:
 
     def test_healing_outcome_values(self) -> None:
         """Test HealingOutcome enum values."""
-        assert HealingOutcome.HEALED == "healed"
-        assert HealingOutcome.FAILED == "failed"
-        assert HealingOutcome.ROLLED_BACK == "rolled_back"
-        assert HealingOutcome.ESCALATED == "escalated"
-        assert HealingOutcome.SKIPPED == "skipped"
+        assert HealingOutcome.HEALED.value == "healed"
+        assert HealingOutcome.FAILED.value == "failed"
+        assert HealingOutcome.ROLLED_BACK.value == "rolled_back"
+        assert HealingOutcome.ESCALATED.value == "escalated"
+        assert HealingOutcome.SKIPPED.value == "skipped"
 
     def test_healing_outcome_is_string(self) -> None:
         """Test that outcome values are strings."""

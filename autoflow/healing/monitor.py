@@ -61,6 +61,20 @@ class HealthAssessment:
     violations: list[dict]
     recommendations: list[str]
 
+    @property
+    def overall_score(self) -> float:
+        """Calculate overall health score (0.0 to 1.0).
+
+        Returns:
+            1.0 for HEALTHY, 0.5 for DEGRADED, 0.0 for CRITICAL.
+        """
+        if self.status == WorkflowHealthStatus.HEALTHY:
+            return 1.0
+        elif self.status == WorkflowHealthStatus.DEGRADED:
+            return 0.5
+        else:  # CRITICAL
+            return 0.0
+
 
 @dataclass
 class TaskExecution:
