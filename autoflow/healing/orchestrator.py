@@ -36,8 +36,10 @@ if TYPE_CHECKING:
         DegradationSignal,
         HealthAssessment,
         WorkflowHealthMonitor,
-        WorkflowHealthStatus,
     )
+
+# Runtime import for WorkflowHealthStatus (needed outside type hints)
+from autoflow.healing.monitor import WorkflowHealthStatus
 
 
 logger = logging.getLogger(__name__)
