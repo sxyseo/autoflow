@@ -6,6 +6,17 @@ degradation, diagnose root causes, and apply automatic fixes with rollback safet
 
 from __future__ import annotations
 
+from autoflow.healing.actions import (
+    ActionExecutor,
+    ActionResult,
+    ActionRegistry,
+    ActionSeverity,
+    ActionStatus,
+    ActionType,
+    HealingAction,
+    RollbackManager,
+    get_global_registry,
+)
 from autoflow.healing.config import HealingConfig, HealingThreshold
 from autoflow.healing.diagnostic import (
     ConfidenceLevel,
@@ -41,4 +52,13 @@ __all__ = [
     "StrategyEvaluation",
     "HealingPlan",
     "StrategySelector",
+    "HealingAction",
+    "ActionResult",
+    "ActionType",
+    "ActionStatus",
+    "ActionSeverity",
+    "ActionExecutor",
+    "ActionRegistry",
+    "RollbackManager",
+    "get_global_registry",
 ]
