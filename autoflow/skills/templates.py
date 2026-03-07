@@ -400,18 +400,12 @@ BUILTIN_TEMPLATES: dict[str, SkillTemplate] = {
     "planner": SkillTemplate(
         name="planner",
         display_name="Planner",
-        description="Creates planning and design skills with structured workflow",
+        description="Plan and design implementation strategies for tasks. Use when starting a new feature or complex task that needs architectural planning.",
         category=TemplateCategory.PLANNING,
         variables=["name", "description"],
         metadata_template={
             "name": "{{ name }}",
             "description": "{{ description }}",
-            "version": "1.0.0",
-            "triggers": ["task.start"],
-            "inputs": ["spec", "task"],
-            "outputs": ["plan", "design"],
-            "agents": ["claude-code"],
-            "enabled": True,
         },
         content="""# {{ name }}
 
@@ -419,37 +413,31 @@ BUILTIN_TEMPLATES: dict[str, SkillTemplate] = {
 
 ## Workflow
 
-1. Read and understand the task requirements and specifications
-2. Analyze the current codebase structure and patterns
-3. Create a detailed implementation plan
-4. Identify potential risks and dependencies
-5. Design the solution architecture
-6. Document expected outputs and success criteria
+1. Read the task, requirements, and acceptance criteria.
+2. Analyze the current codebase structure and patterns.
+3. Create a detailed implementation plan with steps.
+4. Identify potential risks, dependencies, and edge cases.
+5. Design the solution architecture.
+6. Document expected outputs and success criteria.
 
 ## Rules
 
-- Follow existing code patterns and conventions
-- Consider edge cases and error handling
-- Plan for testing and validation
-- Document assumptions and constraints
-- Break down complex tasks into manageable steps
+- Follow existing code patterns and conventions.
+- Consider edge cases and error handling.
+- Plan for testing and validation.
+- Document assumptions and constraints.
+- Break down complex tasks into manageable steps.
 """,
     ),
     "implementer": SkillTemplate(
         name="implementer",
         display_name="Implementer",
-        description="Creates code implementation skills with workflow and rules",
+        description="Execute a bounded coding task in the Autoflow harness. Use when a specific task has a defined scope, acceptance criteria, and repository context and needs code changes.",
         category=TemplateCategory.WORKFLOW,
         variables=["name", "description"],
         metadata_template={
             "name": "{{ name }}",
             "description": "{{ description }}",
-            "version": "1.0.0",
-            "triggers": ["implement"],
-            "inputs": ["task", "spec"],
-            "outputs": ["code", "summary"],
-            "agents": ["claude-code"],
-            "enabled": True,
         },
         content="""# {{ name }}
 
@@ -457,40 +445,33 @@ BUILTIN_TEMPLATES: dict[str, SkillTemplate] = {
 
 ## Workflow
 
-1. Read the task specification and acceptance criteria
-2. Analyze the existing codebase structure
-3. Implement changes following the task scope
-4. Write or update tests as needed
-5. Run verification tests locally
-6. Document changes and potential issues
-7. Create a summary of implementation
+1. Read the spec, the selected task, and the latest reviewer handoff.
+2. If `QA_FIX_REQUEST.md` exists, read it before making changes.
+3. Work only inside the task scope.
+4. Make the smallest set of changes that satisfies acceptance criteria.
+5. Run local verification where possible.
+6. Produce:
+   - code changes
+   - a run summary
+   - unresolved risks
 
 ## Rules
 
-- Work only within the defined task scope
-- Follow existing code patterns and style
-- Add tests for new functionality
-- Update documentation if applicable
-- Handle errors gracefully
-- Leave code in a working state
-- Ask for clarification if requirements are unclear
+- Do not expand scope on your own.
+- If the task is underspecified, write back the blocker instead of improvising a redesign.
+- Leave the repository in a runnable state.
+- On retries, explicitly change approach instead of repeating the same attempt.
 """,
     ),
     "reviewer": SkillTemplate(
         name="reviewer",
         display_name="Reviewer",
-        description="Creates code review skills with validation checks",
+        description="Review Autoflow-generated changes for bugs, regressions, missing tests, and acceptance-criteria gaps. Use after any implementation run and before a task is marked complete or committed.",
         category=TemplateCategory.REVIEW,
         variables=["name", "description"],
         metadata_template={
             "name": "{{ name }}",
             "description": "{{ description }}",
-            "version": "1.0.0",
-            "triggers": ["review"],
-            "inputs": ["task", "changes"],
-            "outputs": ["feedback", "status"],
-            "agents": ["claude-code"],
-            "enabled": True,
         },
         content="""# {{ name }}
 
@@ -498,29 +479,20 @@ BUILTIN_TEMPLATES: dict[str, SkillTemplate] = {
 
 ## Workflow
 
-1. Read the task requirements and acceptance criteria
-2. Review all code changes thoroughly
-3. Check for:
-   - Correctness and logic errors
-   - Security vulnerabilities
-   - Performance issues
-   - Code style and consistency
-   - Missing tests or test coverage gaps
-   - Documentation completeness
-4. Verify all acceptance criteria are met
-5. Test the changes if applicable
-6. Provide clear, actionable feedback
-7. Mark status as approved or needs changes
+1. Read the task, acceptance criteria, diff summary, and test results.
+2. Look for:
+   - correctness issues
+   - missing tests
+   - architectural regressions
+   - mismatch with the spec
+3. If the task should be retried, leave a clear summary suitable for `QA_FIX_REQUEST.md`.
+4. Write findings first, ordered by severity.
+5. Mark the task as `needs_changes` or `done`.
 
 ## Rules
 
-- Be thorough but constructive
-- Explain issues clearly with examples
-- Suggest improvements when applicable
-- Verify test coverage is adequate
-- Check for edge cases
-- Ensure documentation is updated
-- Follow project coding standards
+- Be strict on acceptance criteria.
+- Do not rewrite large parts of the implementation unless the task is explicitly reassigned.
 """,
     ),
 }
