@@ -99,6 +99,51 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class IssueSourceConfig(BaseModel):
+    """Configuration for a single issue source."""
+
+    id: str
+    type: str  # "github", "gitlab", "linear", "jira", "custom"
+    name: str
+    url: str
+    enabled: bool = True
+    api_token: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebhookConfig(BaseModel):
+    """Webhook server configuration."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8765
+    path: str = "/webhooks"
+    auto_start: bool = False
+
+
+class SyncConfig(BaseModel):
+    """Synchronization settings."""
+
+    enabled: bool = True
+    auto_import: bool = True
+    auto_sync_status: bool = True
+    sync_comments: bool = True
+    interval_seconds: int = 300  # 5 minutes
+    batch_size: int = 50
+
+
+class IntakeConfig(BaseModel):
+    """Issue intake system configuration."""
+
+    enabled: bool = True
+    sources: list[IssueSourceConfig] = Field(default_factory=list)
+    webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+    sync: SyncConfig = Field(default_factory=SyncConfig)
+    default_priority: str = "no_priority"
+    default_category: Optional[str] = None
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -110,6 +155,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    intake: IntakeConfig = Field(default_factory=IntakeConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
