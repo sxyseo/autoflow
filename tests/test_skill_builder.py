@@ -971,6 +971,345 @@ class TestCreateBuilder:
 
 
 # ============================================================================
+# CLI Command Tests
+# ============================================================================
+
+
+class TestSkillCreateCLI:
+    """Tests for skill create CLI command."""
+
+    def test_skill_create_non_interactive_basic(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create in non-interactive mode."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "TEST_SKILL",
+                    "--template", "implementer",
+                    "--output-dir", "skills",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "Skill created successfully" in result.output
+            assert "TEST_SKILL" in result.output
+
+            # Verify skill file was created
+            skill_path = tmp_path / "skills" / "TEST_SKILL" / "SKILL.md"
+            assert skill_path.exists()
+
+    def test_skill_create_non_interactive_with_variables(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create with template variables."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "VAR_SKILL",
+                    "--template", "implementer",
+                    "--variable", "description=My custom variable skill",
+                    "--output-dir", "skills",
+                ],
+            )
+
+            assert result.exit_code == 0
+            assert "VAR_SKILL" in result.output
+
+            # Verify content
+            skill_path = tmp_path / "skills" / "VAR_SKILL" / "SKILL.md"
+            content = skill_path.read_text(encoding="utf-8")
+            assert "My custom variable skill" in content
+
+    def test_skill_create_non_interactive_missing_template(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create without template in non-interactive mode."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "TEST_SKILL",
+                ],
+            )
+
+            assert result.exit_code == 1
+            assert "--template is required" in result.output
+
+    def test_skill_create_overwrite_flag(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create with overwrite flag."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            # Create skill first time
+            result1 = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "OVERWRITE_SKILL",
+                    "--template", "planner",
+                    "--output-dir", "skills",
+                ],
+            )
+            assert result1.exit_code == 0
+
+            # Try to create again without overwrite - should fail
+            result2 = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "OVERWRITE_SKILL",
+                    "--template", "implementer",
+                    "--output-dir", "skills",
+                ],
+            )
+            assert result2.exit_code == 1
+            assert "already exists" in result2.output
+
+            # Create again with overwrite - should succeed
+            result3 = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "OVERWRITE_SKILL",
+                    "--template", "implementer",
+                    "--output-dir", "skills",
+                    "--overwrite",
+                ],
+            )
+            assert result3.exit_code == 0
+
+    def test_skill_create_json_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create with JSON output."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+        import json
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "JSON_SKILL",
+                    "--template", "reviewer",
+                    "--output-dir", "skills",
+                    "--json",
+                ],
+            )
+
+            assert result.exit_code == 0
+
+            # Parse JSON output
+            output_data = json.loads(result.output)
+            assert output_data["status"] == "created"
+            assert output_data["name"] == "JSON_SKILL"
+            assert "path" in output_data
+
+    def test_skill_create_invalid_variable_format(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Test skill create with invalid variable format."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(
+                skill,
+                [
+                    "create",
+                    "--name", "TEST_SKILL",
+                    "--template", "implementer",
+                    "--variable", "invalid_format_no_equals",
+                ],
+            )
+
+            assert result.exit_code == 1
+            assert "Invalid variable format" in result.output
+
+
+class TestSkillTemplateListCLI:
+    """Tests for skill template list CLI command."""
+
+    def test_skill_template_list_all(self, tmp_path: Path) -> None:
+        """Test listing all templates."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "list"],
+        )
+
+        assert result.exit_code == 0
+        assert "Available Templates" in result.output
+        assert "implementer" in result.output
+        assert "planner" in result.output
+        assert "reviewer" in result.output
+
+    def test_skill_template_list_by_category(self, tmp_path: Path) -> None:
+        """Test listing templates filtered by category."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "list", "--category", "workflow"],
+        )
+
+        assert result.exit_code == 0
+        assert "WORKFLOW" in result.output or "workflow" in result.output.lower()
+
+    def test_skill_template_list_json_output(self, tmp_path: Path) -> None:
+        """Test template list with JSON output."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+        import json
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "list", "--json"],
+        )
+
+        assert result.exit_code == 0
+
+        # Parse JSON output
+        output_data = json.loads(result.output)
+        assert "templates" in output_data
+        assert "count" in output_data
+        assert isinstance(output_data["templates"], list)
+        assert len(output_data["templates"]) > 0
+
+        # Verify template structure
+        template = output_data["templates"][0]
+        assert "name" in template
+        assert "display_name" in template
+        assert "description" in template
+        assert "category" in template
+        assert "variables" in template
+
+    def test_skill_template_list_empty_category(self, tmp_path: Path) -> None:
+        """Test listing templates with non-existent category."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        # Use an invalid category (this will fail Click's choice validation)
+        result = runner.invoke(
+            skill,
+            ["template", "list", "--category", "nonexistent"],
+        )
+
+        # Should fail with Click validation error
+        assert result.exit_code != 0
+
+
+class TestSkillTemplateShowCLI:
+    """Tests for skill template show CLI command."""
+
+    def test_skill_template_show_existing(self, tmp_path: Path) -> None:
+        """Test showing existing template details."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "show", "implementer"],
+        )
+
+        assert result.exit_code == 0
+        assert "Implementer" in result.output
+        assert "Name: implementer" in result.output
+        assert "Description:" in result.output
+        assert "Required Variables:" in result.output
+
+    def test_skill_template_show_not_found(self, tmp_path: Path) -> None:
+        """Test showing non-existent template."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "show", "nonexistent_template"],
+        )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_skill_template_show_json_output(self, tmp_path: Path) -> None:
+        """Test template show with JSON output."""
+        from click.testing import CliRunner
+        from autoflow.cli import skill
+        import json
+
+        runner = CliRunner()
+
+        result = runner.invoke(
+            skill,
+            ["template", "show", "planner", "--json"],
+        )
+
+        assert result.exit_code == 0
+
+        # Parse JSON output
+        output_data = json.loads(result.output)
+        assert output_data["name"] == "planner"
+        assert "display_name" in output_data
+        assert "description" in output_data
+        assert "category" in output_data
+        assert "variables" in output_data
+        assert "content" in output_data
+        assert "metadata_template" in output_data
+
+
+# ============================================================================
 # Edge Cases and Special Scenarios
 # ============================================================================
 
