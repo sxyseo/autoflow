@@ -40,22 +40,46 @@ from autoflow.memory.models import (
 )
 
 # Memory consolidation (created in phase 2)
-from autoflow.memory.consolidation import MemoryConsolidator
+try:
+    from autoflow.memory.consolidation import MemoryConsolidator
+    _has_consolidation = True
+except ImportError:
+    _has_consolidation = False
 
 # Pattern recognition (created in phase 3)
-from autoflow.memory.patterns import PatternRecognizer
+try:
+    from autoflow.memory.patterns import PatternRecognizer
+    _has_patterns = True
+except ImportError:
+    _has_patterns = False
 
 # Convention capture (created in phase 4)
-from autoflow.memory.conventions import ConventionCapture
+try:
+    from autoflow.memory.conventions import ConventionCapture
+    _has_conventions = True
+except ImportError:
+    _has_conventions = False
 
 # Memory search (created in phase 5)
-from autoflow.memory.search import MemorySearch
+try:
+    from autoflow.memory.search import MemorySearch
+    _has_search = True
+except ImportError:
+    _has_search = False
 
 # Scope isolation (created in phase 6)
-from autoflow.memory.isolation import MemoryIsolation
+try:
+    from autoflow.memory.isolation import MemoryIsolation
+    _has_isolation = True
+except ImportError:
+    _has_isolation = False
 
 # Memory manager (created in phase 7)
-from autoflow.memory.manager import MemoryManager
+try:
+    from autoflow.memory.manager import MemoryManager
+    _has_manager = True
+except ImportError:
+    _has_manager = False
 
 __all__ = [
     # Core models
@@ -65,16 +89,18 @@ __all__ = [
     "PatternType",
     "Convention",
     "ConsolidationRecord",
-    # Memory consolidation
-    "MemoryConsolidator",
-    # Pattern recognition
-    "PatternRecognizer",
-    # Convention capture
-    "ConventionCapture",
-    # Memory search
-    "MemorySearch",
-    # Scope isolation
-    "MemoryIsolation",
-    # Memory manager
-    "MemoryManager",
 ]
+
+# Add optional imports to __all__ if they exist
+if _has_consolidation:
+    __all__.append("MemoryConsolidator")
+if _has_patterns:
+    __all__.append("PatternRecognizer")
+if _has_conventions:
+    __all__.append("ConventionCapture")
+if _has_search:
+    __all__.append("MemorySearch")
+if _has_isolation:
+    __all__.append("MemoryIsolation")
+if _has_manager:
+    __all__.append("MemoryManager")
