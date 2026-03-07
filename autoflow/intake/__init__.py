@@ -41,6 +41,14 @@ from autoflow.intake.models import (
     IssueStatus,
     SourceType,
 )
+from autoflow.intake.webhook import (
+    WebhookConfig,
+    WebhookEvent,
+    WebhookEventType,
+    WebhookResult,
+    WebhookServer,
+    WebhookSourceType,
+)
 
 __all__ = [
     "Issue",
@@ -58,4 +66,10 @@ __all__ = [
     "GitLabClient",
     "LinearClient",
     "make_http_request",
+    "WebhookServer",
+    "WebhookConfig",
+    "WebhookEvent",
+    "WebhookEventType",
+    "WebhookResult",
+    "WebhookSourceType",
 ]
