@@ -108,6 +108,9 @@ class FeedbackSummary:
         accuracy: Accuracy rate (correct / total_completed)
         avg_confidence_correct: Average confidence for correct predictions
         avg_confidence_incorrect: Average confidence for incorrect predictions
+        precision: Precision score (true positives / all predicted positives)
+        recall: Recall score (true positives / all actual positives)
+        f1: F1 score (harmonic mean of precision and recall)
     """
 
     total_predictions: int
@@ -117,6 +120,9 @@ class FeedbackSummary:
     accuracy: float
     avg_confidence_correct: float
     avg_confidence_incorrect: float
+    precision: float = 0.0
+    recall: float = 0.0
+    f1: float = 0.0
 
 
 class FeedbackCollector:
@@ -277,12 +283,72 @@ class FeedbackCollector:
 
         return correct / total
 
+    def get_precision_recall_f1(self) -> tuple[float, float, float]:
+        """
+        Calculate precision, recall, and F1 score for success predictions.
+
+        Treats "success" as the positive class and "needs_changes"/"failed"
+        as the negative class for binary classification metrics.
+
+        Returns:
+            Tuple of (precision, recall, f1) scores from 0.0 to 1.0
+            Returns (0.0, 0.0, 0.0) if unable to calculate
+
+        Examples:
+            >>> collector = FeedbackCollector()
+            >>> precision, recall, f1 = collector.get_precision_recall_f1()
+            >>> print(f"Precision: {precision:.2%}, Recall: {recall:.2%}, F1: {f1:.2%}")
+        """
+        # Count true positives, false positives, false negatives, true negatives
+        # Positive class: "success"
+        # Negative class: "needs_changes" or "failed"
+        tp = 0  # True positive: predicted success, actual success
+        fp = 0  # False positive: predicted success, actual not success
+        fn = 0  # False negative: predicted not success, actual success
+        tn = 0  # True negative: predicted not success, actual not success
+
+        for record in self.predictions.values():
+            # Skip pending predictions
+            if record.status == PredictionStatus.PENDING:
+                continue
+
+            # Normalize predictions and outcomes
+            predicted = record.predicted_outcome.lower()
+            actual = record.actual_outcome.lower() if record.actual_outcome else ""
+
+            # Determine if success (positive) or not (negative)
+            predicted_positive = "success" in predicted
+            actual_positive = "success" in actual
+
+            if predicted_positive and actual_positive:
+                tp += 1
+            elif predicted_positive and not actual_positive:
+                fp += 1
+            elif not predicted_positive and actual_positive:
+                fn += 1
+            else:
+                tn += 1
+
+        # Calculate precision, recall, F1
+        # Precision = TP / (TP + FP) - of all predicted positive, how many were actually positive?
+        # Recall = TP / (TP + FN) - of all actually positive, how many did we predict?
+        # F1 = 2 * (precision * recall) / (precision + recall)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+        if precision + recall > 0:
+            f1 = 2 * (precision * recall) / (precision + recall)
+        else:
+            f1 = 0.0
+
+        return precision, recall, f1
+
     def get_summary(self) -> FeedbackSummary:
         """
         Get comprehensive summary of feedback statistics.
 
-        Calculates metrics including accuracy, confidence distributions,
-        and prediction counts.
+        Calculates metrics including accuracy, precision, recall, F1,
+        confidence distributions, and prediction counts.
 
         Returns:
             FeedbackSummary with all statistics
@@ -316,6 +382,9 @@ class FeedbackCollector:
         avg_conf_correct = sum(confidences_correct) / len(confidences_correct) if confidences_correct else 0.0
         avg_conf_incorrect = sum(confidences_incorrect) / len(confidences_incorrect) if confidences_incorrect else 0.0
 
+        # Calculate precision, recall, F1
+        precision, recall, f1 = self.get_precision_recall_f1()
+
         return FeedbackSummary(
             total_predictions=total,
             correct_predictions=correct,
@@ -324,6 +393,9 @@ class FeedbackCollector:
             accuracy=accuracy,
             avg_confidence_correct=avg_conf_correct,
             avg_confidence_incorrect=avg_conf_incorrect,
+            precision=precision,
+            recall=recall,
+            f1=f1,
         )
 
     def get_predictions_for_retraining(
@@ -463,3 +535,62 @@ class FeedbackCollector:
             if temp_path.exists():
                 temp_path.unlink()
             raise IOError(f"Failed to write feedback to {self.feedback_path}: {e}") from e
+
+    def save_performance_metrics(self, performance_path: Optional[Path] = None) -> None:
+        """
+        Save current performance metrics to a JSON file.
+
+        Stores accuracy, precision, recall, F1, and other metrics
+        for model monitoring and comparison over time.
+
+        Args:
+            performance_path: Path to performance metrics JSON file.
+                If None, uses .autoflow/model_performance.json
+
+        Raises:
+            IOError: If unable to write performance metrics to disk
+        """
+        if performance_path is None:
+            performance_path = self.feedback_path.parent / "model_performance.json"
+
+        performance_path = Path(performance_path)
+        performance_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Get current metrics
+        summary = self.get_summary()
+        precision, recall, f1 = self.get_precision_recall_f1()
+
+        # Build performance data structure
+        performance_data = {
+            "metrics": {
+                "accuracy": summary.accuracy,
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            },
+            "predictions": {
+                "total": summary.total_predictions,
+                "correct": summary.correct_predictions,
+                "incorrect": summary.incorrect_predictions,
+                "pending": summary.pending_predictions,
+            },
+            "confidence": {
+                "avg_correct": summary.avg_confidence_correct,
+                "avg_incorrect": summary.avg_confidence_incorrect,
+            },
+            "metadata": {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "model_version": "1.0",
+            },
+        }
+
+        # Write to file with atomic update
+        temp_path = performance_path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(performance_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.replace(performance_path)
+        except OSError as e:
+            # Clean up temp file if write fails
+            if temp_path.exists():
+                temp_path.unlink()
+            raise IOError(f"Failed to write performance metrics to {performance_path}: {e}") from e
