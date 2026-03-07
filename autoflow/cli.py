@@ -33,6 +33,7 @@ from autoflow.core.config import Config, load_config, load_system_config, get_st
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
 from autoflow.skills.validation import SkillValidator, ValidationResult
+from autoflow.skills.templates import TemplateLoader, TemplateCategory
 
 
 # Click context settings
@@ -935,6 +936,139 @@ def skill_validate(
     # Exit with error code if validation failed
     if not is_valid:
         ctx.exit(1)
+
+
+@skill.group()
+def template() -> None:
+    """Manage skill templates."""
+    pass
+
+
+@template.command("list")
+@click.option(
+    "--category",
+    "-c",
+    type=click.Choice([c.value for c in TemplateCategory]),
+    default=None,
+    help="Filter by template category.",
+)
+@click.pass_context
+def skill_template_list(ctx: click.Context, category: Optional[str]) -> None:
+    """
+    List available skill templates.
+
+    Shows all templates available for creating new skills.
+    Can be filtered by category.
+
+    \b
+    Examples:
+        autoflow skill template list
+        autoflow skill template list --category workflow
+        autoflow skill template list -c planning
+    """
+    loader = TemplateLoader()
+
+    # Filter by category if specified
+    category_enum = TemplateCategory(category) if category else None
+    templates = loader.list_templates(category=category_enum)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "templates": [
+                {
+                    "name": t.name,
+                    "display_name": t.display_name,
+                    "description": t.description,
+                    "category": t.category.value,
+                    "variables": t.get_required_variables(),
+                }
+                for t in templates
+            ],
+            "count": len(templates),
+        })
+        return
+
+    click.echo("Available Templates")
+    click.echo("=" * 60)
+
+    if not templates:
+        if category:
+            click.echo(f"No templates found in category '{category}'.")
+        else:
+            click.echo("No templates found.")
+        return
+
+    # Group by category
+    categories = {}
+    for template in templates:
+        if template.category not in categories:
+            categories[template.category] = []
+        categories[template.category].append(template)
+
+    # Display by category
+    for cat in sorted(categories.keys(), key=lambda c: c.value):
+        click.echo(f"\n{cat.value.upper()}")
+        for template in categories[cat]:
+            click.echo(f"  {template.name:12} - {template.display_name}")
+            click.echo(f"                {template.description}")
+
+
+@template.command("show")
+@click.argument("name", type=str)
+@click.pass_context
+def skill_template_show(ctx: click.Context, name: str) -> None:
+    """
+    Show details of a specific template.
+
+    Displays the full template definition including variables and content structure.
+
+    \b
+    Examples:
+        autoflow skill template show planner
+        autoflow skill template show implementer
+        autoflow skill template show reviewer
+    """
+    loader = TemplateLoader()
+    template = loader.get_template(name)
+
+    if not template:
+        click.echo(f"Error: Template '{name}' not found.", err=True)
+        click.echo("Run 'autoflow skill template list' to see available templates.", err=True)
+        ctx.exit(1)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "name": template.name,
+            "display_name": template.display_name,
+            "description": template.description,
+            "category": template.category.value,
+            "variables": template.get_required_variables(),
+            "content": template.content,
+            "metadata_template": template.metadata_template,
+        })
+        return
+
+    click.echo(f"Template: {template.display_name}")
+    click.echo(f"Name: {template.name}")
+    click.echo(f"Category: {template.category.value}")
+    click.echo("=" * 60)
+    click.echo(f"\nDescription:\n  {template.description}")
+
+    variables = template.get_required_variables()
+    click.echo(f"\nRequired Variables:")
+    if variables:
+        for var in variables:
+            click.echo(f"  - {var}")
+    else:
+        click.echo("  (None)")
+
+    click.echo(f"\nContent Preview:")
+    click.echo("-" * 60)
+    # Show first 20 lines of content
+    lines = template.content.split("\n")[:20]
+    click.echo("\n".join(lines))
+    if len(template.content.split("\n")) > 20:
+        click.echo("\n... (content truncated)")
 
 
 # === Task Commands ===
