@@ -31,6 +31,7 @@ import click
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
+from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
 
 
 # Click context settings
@@ -641,6 +642,154 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
 
     click.echo(f"Error: Skill '{name}' not found.", err=True)
     ctx.exit(1)
+
+
+@skill.command("create")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    default=None,
+    help="Skill name in UPPER_SNAKE_CASE (e.g., MY_CUSTOM_SKILL). If not provided, enters interactive mode.",
+)
+@click.option(
+    "--template",
+    "-t",
+    type=str,
+    default=None,
+    help="Template to use (e.g., planner, implementer, reviewer).",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output directory for the skill.",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite existing skill directory.",
+)
+@click.option(
+    "--variable",
+    "-v",
+    type=str,
+    multiple=True,
+    help="Template variables as key=value pairs. Can be used multiple times.",
+)
+@click.pass_context
+def skill_create(
+    ctx: click.Context,
+    name: Optional[str],
+    template: Optional[str],
+    output_dir: Optional[Path],
+    overwrite: bool,
+    variable: tuple[str, ...],
+) -> None:
+    """
+    Create a new custom skill.
+
+    Creates a new skill from a template. Can run interactively or with explicit parameters.
+
+    \b
+    Interactive mode:
+        autoflow skill create
+
+    \b
+    Non-interactive mode:
+        autoflow skill create --name MY_SKILL --template implementer
+        autoflow skill create -n MY_SKILL -t reviewer -o ./skills --overwrite
+
+    \b
+    With template variables:
+        autoflow skill create --name MY_SKILL --template implementer \\
+            --variable description="My custom skill" \\
+            --variable version="1.0.0"
+    """
+    config: Config = ctx.obj["config"]
+
+    # Parse variables
+    variables = {}
+    for var in variable:
+        if "=" not in var:
+            click.echo(f"Error: Invalid variable format '{var}'. Use key=value", err=True)
+            ctx.exit(1)
+        key, value = var.split("=", 1)
+        variables[key] = value
+
+    # Create builder config
+    builder_config = BuilderConfig(
+        output_dir=str(output_dir) if output_dir else "skills",
+        overwrite=overwrite,
+        use_defaults=False,
+    )
+
+    builder = SkillBuilder(config=builder_config)
+
+    try:
+        if name is None:
+            # Interactive mode
+            if ctx.obj["output_json"]:
+                click.echo("Error: JSON output not supported in interactive mode", err=True)
+                ctx.exit(1)
+
+            if variable:
+                click.echo("Warning: --variable options are ignored in interactive mode", err=True)
+
+            skill_path = builder.build_interactive(output_dir=output_dir)
+        else:
+            # Non-interactive mode
+            if template is None:
+                click.echo("Error: --template is required in non-interactive mode", err=True)
+                ctx.exit(1)
+
+            skill_path = builder.build(
+                name=name,
+                template=template,
+                variables=variables,
+                output_dir=output_dir,
+            )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "created",
+                "name": name,
+                "path": str(skill_path),
+                "template": template,
+            })
+        else:
+            click.echo(f"\n✓ Skill created successfully!")
+            click.echo(f"  Name: {name if name else skill_path.name}")
+            click.echo(f"  Path: {skill_path}")
+            click.echo(f"  Template: {template if template else 'interactive'}")
+            click.echo(f"\nNext steps:")
+            click.echo(f"  1. Review the skill at: {skill_path}/SKILL.md")
+            click.echo(f"  2. Test the skill: autoflow skill run {name if name else skill_path.name}")
+            click.echo(f"  3. Validate: autoflow skill validate {name if name else skill_path.name}")
+
+    except SkillBuilderError as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        if ctx.obj["verbose"]:
+            import traceback
+            traceback.print_exc()
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
 
 
 # === Task Commands ===
