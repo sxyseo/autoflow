@@ -1626,7 +1626,7 @@ def create_run_record(
         "created_at": now_stamp(),
         "command_preview": command,
         "status": "created",
-        "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
+        "attempt_count": len(task_run_history_cached(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
         "native_resume_supported": bool(agent.resume),
