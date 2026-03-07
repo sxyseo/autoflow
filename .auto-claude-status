@@ -3,23 +3,23 @@
   "spec": "017-custom-skill-builder",
   "state": "building",
   "subtasks": {
-    "completed": 15,
+    "completed": 16,
     "total": 25,
-    "in_progress": 0,
+    "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "CLI Integration",
+    "current": "Skill Sharing & Versioning",
     "id": null,
-    "total": 4
+    "total": 5
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 16,
+    "number": 18,
     "started_at": "2026-03-07T14:40:51.816155"
   },
-  "last_update": "2026-03-07T15:30:00.000000"
+  "last_update": "2026-03-07T15:09:32.992799"
 }
