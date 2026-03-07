@@ -45,8 +45,14 @@ class PredictionResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
+        # Handle both QualityOutcome enum and string values
+        prediction_value = (
+            self.prediction.value
+            if isinstance(self.prediction, QualityOutcome)
+            else self.prediction
+        )
         return {
-            "prediction": self.prediction.value,
+            "prediction": prediction_value,
             "confidence": self.confidence,
             "feature_importances": self.feature_importances,
             "rationale": self.rationale,
