@@ -479,6 +479,8 @@ class StrategySelector:
                 rationale.append("Unknown or low-confidence issues require human expertise")
 
         # Apply penalties based on health status
+        from autoflow.healing.monitor import WorkflowHealthStatus
+
         if diagnostic.health_status == WorkflowHealthStatus.CRITICAL:
             # Critical issues need faster resolution
             if strategy in [HealingStrategy.RETRY, HealingStrategy.ESCALATE]:
