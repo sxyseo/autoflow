@@ -18,13 +18,16 @@ Endpoints:
     GET /api/tasks/{id} - Get specific task details
     GET /api/runs      - List all runs
     GET /api/runs/{id} - Get specific run details with logs
+    WS  /ws            - WebSocket endpoint for real-time updates
 """
 
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
+import json
+from typing import Optional, Set
 
-from fastapi import FastAPI, HTTPException, status as http_status
+from fastapi import FastAPI, HTTPException, status as http_status, WebSocket, WebSocketDisconnect
 
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, get_state_dir
@@ -47,6 +50,85 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+
+class ConnectionManager:
+    """
+    Manager for WebSocket connections.
+
+    Manages active WebSocket connections and broadcasts updates to all
+    connected clients. Provides thread-safe connection handling.
+
+    Attributes:
+        active_connections: Set of active WebSocket connections
+
+    Example:
+        >>> manager = ConnectionManager()
+        >>> await manager.broadcast({"type": "status", "data": {...}})
+    """
+
+    def __init__(self) -> None:
+        """Initialize the connection manager with empty connections set."""
+        self.active_connections: Set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        """
+        Accept and register a new WebSocket connection.
+
+        Args:
+            websocket: The WebSocket connection to accept and register.
+        """
+        await websocket.accept()
+        async with self._lock:
+            self.active_connections.add(websocket)
+
+    async def disconnect(self, websocket: WebSocket) -> None:
+        """
+        Remove a WebSocket connection from active connections.
+
+        Args:
+            websocket: The WebSocket connection to remove.
+        """
+        async with self._lock:
+            self.active_connections.discard(websocket)
+
+    async def send_personal_message(self, message: dict[str, object], websocket: WebSocket) -> None:
+        """
+        Send a message to a specific WebSocket connection.
+
+        Args:
+            message: The message dictionary to send.
+            websocket: The WebSocket connection to send the message to.
+        """
+        try:
+            await websocket.send_json(message)
+        except Exception:
+            # Connection may be closed, remove it
+            await self.disconnect(websocket)
+
+    async def broadcast(self, message: dict[str, object]) -> None:
+        """
+        Broadcast a message to all active WebSocket connections.
+
+        Args:
+            message: The message dictionary to broadcast to all connections.
+        """
+        async with self._lock:
+            # Create a copy of connections to avoid modification during iteration
+            connections = list(self.active_connections)
+
+        # Send to all connections
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                # Connection may be closed, remove it
+                await self.disconnect(connection)
+
+
+# Global connection manager instance
+manager = ConnectionManager()
 
 
 def _get_state_manager(config: Optional[Config] = None) -> StateManager:
@@ -484,3 +566,93 @@ async def health_check() -> dict[str, str]:
         Dictionary with health status.
     """
     return {"status": "healthy"}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    """
+    WebSocket endpoint for real-time updates.
+
+    Provides real-time updates for:
+    - Task status changes
+    - Run status changes
+    - System status updates
+
+    Clients connect to this endpoint and receive JSON messages with updates.
+    Connection is kept alive and receives updates as they occur.
+
+    Message format:
+        {
+            "type": "task" | "run" | "status" | "error",
+            "action": "created" | "updated" | "deleted",
+            "data": {...}
+        }
+
+    Example:
+        >>> import websockets
+        >>> async with websockets.connect("ws://localhost:8000/ws") as ws:
+        ...     message = await ws.recv()
+
+    Args:
+        websocket: The WebSocket connection instance.
+
+    Raises:
+        HTTPException: If there's an error establishing the connection.
+    """
+    await manager.connect(websocket)
+
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connection",
+            "status": "connected",
+            "message": "Connected to Autoflow real-time updates",
+        })
+
+        # Keep connection alive and listen for incoming messages
+        while True:
+            try:
+                # Receive any incoming messages (for future bidirectional support)
+                data = await websocket.receive_text()
+
+                # Parse and handle incoming messages if needed
+                # For now, we just acknowledge receipt
+                try:
+                    message = json.loads(data)
+                    # Echo back or process the message if needed
+                    if message.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+                except json.JSONDecodeError:
+                    # Invalid JSON, send error
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid JSON format",
+                    })
+
+            except WebSocketDisconnect:
+                # Client disconnected
+                break
+            except Exception as e:
+                # Error receiving message, send error response
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"Error processing message: {e}",
+                    })
+                except Exception:
+                    # Connection may be closed
+                    break
+
+    except Exception as e:
+        # Error in connection handling
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Connection error: {e}",
+            })
+        except Exception:
+            # Connection may be closed
+            pass
+    finally:
+        # Always disconnect on exit
+        await manager.disconnect(websocket)
