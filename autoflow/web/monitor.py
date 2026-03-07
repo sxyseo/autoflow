@@ -25,7 +25,84 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional, Set
 
+from fastapi import WebSocket
+
 from autoflow.core.state import StateManager
+
+
+class WebSocketConnectionManager:
+    """
+    Manager for WebSocket connections.
+
+    Manages active WebSocket connections and broadcasts updates to all
+    connected clients. Provides thread-safe connection handling.
+
+    Attributes:
+        active_connections: Set of active WebSocket connections
+
+    Example:
+        >>> manager = WebSocketConnectionManager()
+        >>> await manager.broadcast({"type": "status", "data": {...}})
+    """
+
+    def __init__(self) -> None:
+        """Initialize the connection manager with empty connections set."""
+        self.active_connections: Set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        """
+        Accept and register a new WebSocket connection.
+
+        Args:
+            websocket: The WebSocket connection to accept and register.
+        """
+        await websocket.accept()
+        async with self._lock:
+            self.active_connections.add(websocket)
+
+    async def disconnect(self, websocket: WebSocket) -> None:
+        """
+        Remove a WebSocket connection from active connections.
+
+        Args:
+            websocket: The WebSocket connection to remove.
+        """
+        async with self._lock:
+            self.active_connections.discard(websocket)
+
+    async def send_personal_message(self, message: dict[str, object], websocket: WebSocket) -> None:
+        """
+        Send a message to a specific WebSocket connection.
+
+        Args:
+            message: The message dictionary to send.
+            websocket: The WebSocket connection to send the message to.
+        """
+        try:
+            await websocket.send_json(message)
+        except Exception:
+            # Connection may be closed, remove it
+            await self.disconnect(websocket)
+
+    async def broadcast(self, message: dict[str, object]) -> None:
+        """
+        Broadcast a message to all active WebSocket connections.
+
+        Args:
+            message: The message dictionary to broadcast to all connections.
+        """
+        async with self._lock:
+            # Create a copy of connections to avoid modification during iteration
+            connections = list(self.active_connections)
+
+        # Send to all connections
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                # Connection may be closed, remove it
+                await self.disconnect(connection)
 
 
 class FileEvent:
@@ -131,6 +208,9 @@ class StateMonitor:
         self.state_dir = Path(state_dir).resolve()
         self.poll_interval = poll_interval
         self.state_manager = StateManager(self.state_dir)
+
+        # WebSocket connection manager for broadcasting events
+        self.connection_manager = WebSocketConnectionManager()
 
         # Tracking state
         self._running = False
@@ -336,11 +416,22 @@ class StateMonitor:
 
     async def _emit_event(self, event: FileEvent) -> None:
         """
-        Emit a file event to the registered callback.
+        Emit a file event to the registered callback and broadcast via WebSocket.
+
+        Broadcasts the event to all connected WebSocket clients and invokes
+        the registered callback if one exists.
 
         Args:
             event: The file event to emit
         """
+        # Broadcast to all WebSocket connections
+        try:
+            await self.broadcast(event.to_dict())
+        except Exception:
+            # Broadcast failed, but don't stop monitoring
+            pass
+
+        # Call registered callback if exists
         if self._callback:
             try:
                 result = self._callback(event)
@@ -399,3 +490,22 @@ class StateMonitor:
             "tracked_files": len(self._tracked_files),
             "callback_registered": self._callback is not None,
         }
+
+    async def broadcast(self, message: dict[str, object]) -> None:
+        """
+        Broadcast a message to all connected WebSocket clients.
+
+        Delegates to the connection manager to send the message to all
+        active connections.
+
+        Args:
+            message: The message dictionary to broadcast to all connections.
+
+        Example:
+            >>> await monitor.broadcast({
+            ...     "type": "task",
+            ...     "action": "created",
+            ...     "data": {...}
+            ... })
+        """
+        await self.connection_manager.broadcast(message)

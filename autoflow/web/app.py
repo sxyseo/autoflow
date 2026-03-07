@@ -39,6 +39,7 @@ from autoflow.web.models import (
     RunResponse,
     RunListResponse,
 )
+from autoflow.web.monitor import WebSocketConnectionManager
 
 
 # FastAPI application instance
@@ -52,83 +53,8 @@ app = FastAPI(
 )
 
 
-class ConnectionManager:
-    """
-    Manager for WebSocket connections.
-
-    Manages active WebSocket connections and broadcasts updates to all
-    connected clients. Provides thread-safe connection handling.
-
-    Attributes:
-        active_connections: Set of active WebSocket connections
-
-    Example:
-        >>> manager = ConnectionManager()
-        >>> await manager.broadcast({"type": "status", "data": {...}})
-    """
-
-    def __init__(self) -> None:
-        """Initialize the connection manager with empty connections set."""
-        self.active_connections: Set[WebSocket] = set()
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        """
-        Accept and register a new WebSocket connection.
-
-        Args:
-            websocket: The WebSocket connection to accept and register.
-        """
-        await websocket.accept()
-        async with self._lock:
-            self.active_connections.add(websocket)
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        """
-        Remove a WebSocket connection from active connections.
-
-        Args:
-            websocket: The WebSocket connection to remove.
-        """
-        async with self._lock:
-            self.active_connections.discard(websocket)
-
-    async def send_personal_message(self, message: dict[str, object], websocket: WebSocket) -> None:
-        """
-        Send a message to a specific WebSocket connection.
-
-        Args:
-            message: The message dictionary to send.
-            websocket: The WebSocket connection to send the message to.
-        """
-        try:
-            await websocket.send_json(message)
-        except Exception:
-            # Connection may be closed, remove it
-            await self.disconnect(websocket)
-
-    async def broadcast(self, message: dict[str, object]) -> None:
-        """
-        Broadcast a message to all active WebSocket connections.
-
-        Args:
-            message: The message dictionary to broadcast to all connections.
-        """
-        async with self._lock:
-            # Create a copy of connections to avoid modification during iteration
-            connections = list(self.active_connections)
-
-        # Send to all connections
-        for connection in connections:
-            try:
-                await connection.send_json(message)
-            except Exception:
-                # Connection may be closed, remove it
-                await self.disconnect(connection)
-
-
 # Global connection manager instance
-manager = ConnectionManager()
+manager = WebSocketConnectionManager()
 
 
 def _get_state_manager(config: Optional[Config] = None) -> StateManager:
