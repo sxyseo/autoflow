@@ -77,6 +77,9 @@ class QualityModel:
         is_trained: Whether the model has been trained
     """
 
+    # Default model directory for automatic model management
+    DEFAULT_MODEL_DIR = Path(".autoflow/models")
+
     def __init__(
         self,
         n_estimators: int = 100,
@@ -389,18 +392,27 @@ class QualityModel:
         # Default: just return the feature name and value
         return f"{feature_name}: {value}"
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path | None = None) -> Path:
         """
-        Save the trained model to disk.
+        Save the model to disk.
 
         Args:
-            path: Path to save the model
+            path: Path to save the model. If None, saves to default model directory
+                  with auto-generated filename.
+
+        Returns:
+            Path where the model was saved
 
         Raises:
-            ValueError: If model is not trained
+            IOError: If unable to write to the specified path
         """
-        if not self.is_trained:
-            raise ValueError("Cannot save untrained model")
+        # Use default model directory if no path specified
+        if path is None:
+            self.DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            path = self.DEFAULT_MODEL_DIR / "quality_model.pkl"
+
+        # Ensure path is a Path object
+        path = Path(path)
 
         # Create parent directory if needed
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -415,17 +427,29 @@ class QualityModel:
 
         joblib.dump(model_data, path)
 
+        return path
+
     @classmethod
-    def load(cls, path: Path) -> "QualityModel":
+    def load(cls, path: Path | None = None) -> "QualityModel":
         """
         Load a trained model from disk.
 
         Args:
-            path: Path to the saved model
+            path: Path to the saved model. If None, loads from default model directory.
 
         Returns:
             Loaded QualityModel instance
+
+        Raises:
+            FileNotFoundError: If the model file does not exist
         """
+        # Use default model path if no path specified
+        if path is None:
+            path = cls.DEFAULT_MODEL_DIR / "quality_model.pkl"
+
+        # Ensure path is a Path object
+        path = Path(path)
+
         model_data = joblib.load(path)
 
         # Create new instance
