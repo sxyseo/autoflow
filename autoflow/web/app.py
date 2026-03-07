@@ -16,8 +16,8 @@ Endpoints:
     GET /api/status    - System status and statistics
     GET /api/tasks     - List all tasks
     GET /api/tasks/{id} - Get specific task details
-    GET /api/runs      - List all runs (future)
-    GET /api/runs/{id} - Get specific run (future)
+    GET /api/runs      - List all runs
+    GET /api/runs/{id} - Get specific run details with logs
 """
 
 from __future__ import annotations
@@ -29,7 +29,13 @@ from fastapi import FastAPI, HTTPException, status as http_status
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, get_state_dir
 from autoflow.core.state import StateManager
-from autoflow.web.models import StatusResponse, TaskResponse, TaskListResponse
+from autoflow.web.models import (
+    StatusResponse,
+    TaskResponse,
+    TaskListResponse,
+    RunResponse,
+    RunListResponse,
+)
 
 
 # FastAPI application instance
@@ -278,6 +284,167 @@ async def get_task(task_id: str) -> TaskResponse:
             labels=task_data.get("labels", []),
             dependencies=task_data.get("dependencies", []),
             metadata=task_data.get("metadata", {}),
+        )
+
+        return response
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404)
+        raise
+    except FileNotFoundError as e:
+        # State directory not initialized
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"State directory not initialized: {e}",
+        ) from e
+    except PermissionError as e:
+        # Permission error accessing state
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied accessing state: {e}",
+        ) from e
+    except Exception as e:
+        # Generic internal server error
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {e}",
+        ) from e
+
+
+@app.get(
+    "/api/runs",
+    response_model=RunListResponse,
+    tags=["runs"],
+    responses={
+        200: {"description": "Successfully retrieved run list"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def list_runs() -> RunListResponse:
+    """
+    List all runs in the system.
+
+    Returns a list of all runs with their current status and metadata.
+    Runs are sorted by start date (newest first).
+
+    Returns:
+        RunListResponse: List of runs with metadata.
+
+    Raises:
+        HTTPException: If there's an error retrieving run information.
+    """
+    try:
+        # Load configuration
+        config = load_config()
+        state_manager = _get_state_manager(config)
+
+        # Get all runs from state manager
+        runs_data = state_manager.list_runs()
+
+        # Convert to RunResponse models
+        runs = [
+            RunResponse(
+                id=run.get("id", ""),
+                task_id=run.get("task_id"),
+                agent=run.get("agent", ""),
+                status=run.get("status", "started"),
+                started_at=run.get("started_at", ""),
+                completed_at=run.get("completed_at"),
+                duration_seconds=run.get("duration_seconds"),
+                workdir=run.get("workdir", "."),
+                command=run.get("command"),
+                exit_code=run.get("exit_code"),
+                output=run.get("output"),
+                error=run.get("error"),
+                metadata=run.get("metadata", {}),
+            )
+            for run in runs_data
+        ]
+
+        # Build response
+        response = RunListResponse(
+            runs=runs,
+            total=len(runs),
+            filtered=False,
+        )
+
+        return response
+
+    except FileNotFoundError as e:
+        # State directory not initialized
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"State directory not initialized: {e}",
+        ) from e
+    except PermissionError as e:
+        # Permission error accessing state
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied accessing state: {e}",
+        ) from e
+    except Exception as e:
+        # Generic internal server error
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {e}",
+        ) from e
+
+
+@app.get(
+    "/api/runs/{run_id}",
+    response_model=RunResponse,
+    tags=["runs"],
+    responses={
+        200: {"description": "Successfully retrieved run"},
+        404: {"description": "Run not found"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def get_run(run_id: str) -> RunResponse:
+    """
+    Get details of a specific run.
+
+    Returns detailed information about a single run including its
+    current status, output, error logs, and metadata.
+
+    Args:
+        run_id: Unique identifier of the run
+
+    Returns:
+        RunResponse: Detailed run information.
+
+    Raises:
+        HTTPException: If run is not found or error occurs.
+    """
+    try:
+        # Load configuration
+        config = load_config()
+        state_manager = _get_state_manager(config)
+
+        # Get run from state manager
+        run_data = state_manager.load_run(run_id)
+
+        if run_data is None:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Run '{run_id}' not found",
+            )
+
+        # Convert to RunResponse model
+        response = RunResponse(
+            id=run_data.get("id", run_id),
+            task_id=run_data.get("task_id"),
+            agent=run_data.get("agent", ""),
+            status=run_data.get("status", "started"),
+            started_at=run_data.get("started_at", ""),
+            completed_at=run_data.get("completed_at"),
+            duration_seconds=run_data.get("duration_seconds"),
+            workdir=run_data.get("workdir", "."),
+            command=run_data.get("command"),
+            exit_code=run_data.get("exit_code"),
+            output=run_data.get("output"),
+            error=run_data.get("error"),
+            metadata=run_data.get("metadata", {}),
         )
 
         return response
