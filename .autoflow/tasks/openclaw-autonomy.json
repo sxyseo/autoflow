@@ -1,0 +1,282 @@
+{
+  "spec_slug": "openclaw-autonomy",
+  "updated_at": "20260306T195419Z",
+  "backlog_version": "phase6-seeded",
+  "goal": "Turn Autoflow from a capable CLI harness into a stable, continuously iterating AI delivery pipeline with recovery, queueing, QA loops, CI gates, and delivery automation.",
+  "execution_strategy": {
+    "planning_rule": "Complete T1 before dispatching implementation-heavy work so the backlog, slice sizing, and verification rules are explicit.",
+    "retry_rule": "Do not allow implementation retries without structured QA findings, strategy memory context, and a bounded retry count.",
+    "parallelism_rule": "Do not run more than one task per role until queue leases and zombie recovery exist in T2 and T4.",
+    "delivery_rule": "Do not automate PR creation or merge until T7 and T8 pass with green CI and push safeguards."
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Compile and normalize the autonomous delivery backlog",
+      "status": "in_progress",
+      "priority": "P0",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "slice_size": "small",
+      "auto_dispatch_allowed": true,
+      "verification_commands": [
+        "python3 scripts/autoflow.py workflow-state --spec openclaw-autonomy",
+        "python3 scripts/autoflow.py export-taskmaster --spec openclaw-autonomy"
+      ],
+      "artifacts": [
+        ".autoflow/tasks/openclaw-autonomy.json",
+        ".autoflow/specs/openclaw-autonomy/spec.md",
+        ".autoflow/memory/strategy/specs/openclaw-autonomy.json"
+      ],
+      "acceptance_criteria": [
+        "The spec backlog contains at least these 9 executable tasks with explicit dependencies, priorities, owner roles, slice sizes, and verification commands.",
+        "The backlog is compatible with the current Autoflow state machine and can be exported through the Taskmaster adapter without schema loss.",
+        "Each task includes acceptance criteria that are concrete enough for an implementation agent to act on without additional human decomposition.",
+        "The active planning run is reflected in task state and notes so the scheduler is not working against stale backlog state."
+      ],
+      "notes": [
+        {
+          "at": "20260306T195419Z",
+          "note": "Expanded the single-task backlog into a 9-task roadmap aligned to the current control-plane architecture."
+        },
+        {
+          "at": "20260306T195419Z",
+          "note": "Current active run is 20260306T172243Z-spec-writer-openclaw-autonomy; its prompt should be treated as stale planning context and either completed with refreshed output or replaced."
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Implement run leases, heartbeats, and zombie session recovery",
+      "status": "todo",
+      "priority": "P0",
+      "depends_on": [
+        "T1"
+      ],
+      "owner_role": "implementation-runner",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 scripts/autoflow.py workflow-state --spec openclaw-autonomy",
+        "python3 -m unittest tests/test_phase4d.py tests/test_autonomy_orchestrator.py"
+      ],
+      "artifacts": [
+        "scripts/autoflow.py",
+        "scripts/workflow-dispatch.sh",
+        ".autoflow/runs/<run-id>/lease.json"
+      ],
+      "acceptance_criteria": [
+        "Each run writes lease metadata including tmux session id, last heartbeat timestamp, and stale timeout policy.",
+        "A stalled or dead tmux session can be detected and reclassified from active to stalled/abandoned without manual file editing.",
+        "Autoflow exposes explicit recovery commands such as sweep-runs and recover-run, and workflow-state stops treating stale runs as blockers.",
+        "Tests cover normal heartbeat updates, stale-run detection, and safe recovery of an interrupted implementation run."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T3",
+      "title": "Implement a bounded QA self-healing loop",
+      "status": "todo",
+      "priority": "P0",
+      "depends_on": [
+        "T2"
+      ],
+      "owner_role": "implementation-runner",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 -m unittest tests/test_phase4d.py tests/test_autonomy_orchestrator.py",
+        "python3 scripts/autoflow.py show-fix-request --spec openclaw-autonomy"
+      ],
+      "artifacts": [
+        "scripts/autoflow.py",
+        "scripts/continuous_iteration.py",
+        ".autoflow/specs/openclaw-autonomy/QA_FIX_REQUEST.json"
+      ],
+      "acceptance_criteria": [
+        "A reviewer failure can trigger a bounded fix-and-re-review loop without human prompting between every attempt.",
+        "The loop reuses structured findings, resume metadata, and native backend continuation instead of spawning unrelated fresh sessions.",
+        "Each QA iteration records findings, summaries, and retry decisions in durable state so the loop can resume after interruption.",
+        "Tests cover pass-on-first-review, pass-after-fix, repeated failure until retry cap, and missing-fix-request rejection."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T4",
+      "title": "Build a persistent queue and worker-slot scheduler",
+      "status": "todo",
+      "priority": "P0",
+      "depends_on": [
+        "T2",
+        "T3"
+      ],
+      "owner_role": "task-graph-manager",
+      "slice_size": "large",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 scripts/autonomy_orchestrator.py coordination-brief --spec openclaw-autonomy --config config/autonomy.example.json",
+        "python3 scripts/autonomy_orchestrator.py tick --spec openclaw-autonomy --config config/autonomy.example.json"
+      ],
+      "artifacts": [
+        "scripts/continuous_iteration.py",
+        "scripts/autonomy_orchestrator.py",
+        ".autoflow/queue.json"
+      ],
+      "acceptance_criteria": [
+        "Autoflow maintains a persistent queue with per-task lease ownership, worker-slot limits, and deduplication for repeated dispatch ticks.",
+        "The scheduler can safely run multiple background workers without dispatching the same task twice.",
+        "Role-based and backend-based concurrency limits are configurable and visible in coordination-brief output.",
+        "Tests cover queue acquisition, lease expiry, duplicate-dispatch prevention, and fallback behavior when no slot is available."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T5",
+      "title": "Turn strategy memory into an adaptive policy engine",
+      "status": "todo",
+      "priority": "P1",
+      "depends_on": [
+        "T1",
+        "T3"
+      ],
+      "owner_role": "task-graph-manager",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 scripts/autoflow.py show-strategy --spec openclaw-autonomy",
+        "python3 -m unittest tests/test_phase4d.py tests/test_autonomy_orchestrator.py"
+      ],
+      "artifacts": [
+        "scripts/autoflow.py",
+        ".autoflow/memory/strategy/global.json",
+        ".autoflow/memory/strategy/specs/openclaw-autonomy.json"
+      ],
+      "acceptance_criteria": [
+        "Repeated failure patterns can automatically influence dispatch policy, verification intensity, or backend/model selection.",
+        "Strategy memory can create planner notes or follow-up tasks when recurring categories, hotspots, or retry storms are detected.",
+        "The policy engine distinguishes between informational history and actionable strategy changes so prompts do not accumulate noise.",
+        "Tests cover policy escalation on repeated findings and verify that success runs do not pollute the failure playbook."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T6",
+      "title": "Add a real agent registry with auth and capability health",
+      "status": "todo",
+      "priority": "P1",
+      "depends_on": [
+        "T2",
+        "T4"
+      ],
+      "owner_role": "maintainer",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 scripts/cli_healthcheck.py --require codex --require claude",
+        "python3 scripts/autonomy_orchestrator.py coordination-brief --spec openclaw-autonomy --config config/autonomy.example.json"
+      ],
+      "artifacts": [
+        "scripts/cli_healthcheck.py",
+        "scripts/autoflow.py",
+        ".autoflow/discovered_agents.json"
+      ],
+      "acceptance_criteria": [
+        "Health checks distinguish binary presence from actual readiness, including auth state, model flag support, and ACP handshake status where applicable.",
+        "The discovered-agent registry persists capability snapshots and feeds dispatch decisions instead of relying only on --help probing.",
+        "Dispatch can block or reroute when an agent backend is installed but not actually usable for the required protocol or model.",
+        "Tests cover healthy, missing, degraded-auth, and degraded-capability agent states."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T7",
+      "title": "Expand CI into end-to-end autonomy gates and scheduled dry-runs",
+      "status": "todo",
+      "priority": "P1",
+      "depends_on": [
+        "T2",
+        "T3",
+        "T4",
+        "T6"
+      ],
+      "owner_role": "maintainer",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "bash scripts/ci_check.sh",
+        "gh workflow view CI || true"
+      ],
+      "artifacts": [
+        "scripts/ci_check.sh",
+        ".github/workflows/ci.yml",
+        ".github/workflows/autonomy-dry-run.yml"
+      ],
+      "acceptance_criteria": [
+        "CI validates not only unit tests but also a representative CLI-level end-to-end flow for run creation, completion, retry, and orchestration.",
+        "A scheduled dry-run workflow can execute the outer orchestrator in non-destructive mode and upload health/dispatch artifacts for inspection.",
+        "The same repo-local check contract is used by local iteration ticks and GitHub Actions so automation cannot bypass CI expectations.",
+        "Failures in CI or dry-run workflows produce actionable artifacts rather than only exit codes."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T8",
+      "title": "Add command policy, secret scanning, and push safeguards",
+      "status": "todo",
+      "priority": "P1",
+      "depends_on": [
+        "T6",
+        "T7"
+      ],
+      "owner_role": "maintainer",
+      "slice_size": "medium",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "bash scripts/ci_check.sh",
+        "python3 scripts/autonomy_orchestrator.py tick --spec openclaw-autonomy --config config/autonomy.example.json"
+      ],
+      "artifacts": [
+        "scripts/continuous_iteration.py",
+        "scripts/autonomy_orchestrator.py",
+        "scripts/security_scan.py"
+      ],
+      "acceptance_criteria": [
+        "Configured verification and dispatch commands are validated against an allowlist or policy layer before execution.",
+        "Push and commit automation can block on detected secrets, oversized diffs, or risky file classes such as workflows or auth config.",
+        "The orchestrator reports security or policy blockers explicitly so scheduled jobs fail safely instead of silently.",
+        "Tests cover blocked dangerous commands, secret-detection failures, and safe overrides for explicitly allowed maintenance tasks."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T9",
+      "title": "Close the delivery loop with PR automation, cleanup, and metrics",
+      "status": "todo",
+      "priority": "P2",
+      "depends_on": [
+        "T4",
+        "T7",
+        "T8"
+      ],
+      "owner_role": "maintainer",
+      "slice_size": "large",
+      "auto_dispatch_allowed": false,
+      "verification_commands": [
+        "python3 scripts/autonomy_orchestrator.py coordination-brief --spec openclaw-autonomy --config config/autonomy.example.json",
+        "bash scripts/ci_check.sh"
+      ],
+      "artifacts": [
+        "scripts/autonomy_orchestrator.py",
+        "scripts/git-auto-commit.sh",
+        ".autoflow/reports/openclaw-autonomy-metrics.json"
+      ],
+      "acceptance_criteria": [
+        "Completed work can automatically prepare draft PR metadata, merge-readiness signals, and cleanup actions for stale worktrees or branches.",
+        "Autoflow produces delivery metrics such as cycle time, retry rate, finding categories, and commit granularity for each spec.",
+        "Scheduled automation can summarize progress and blockers without needing a human to inspect raw state files.",
+        "Tests or dry-run fixtures cover PR metadata generation, stale-worktree cleanup, and metrics aggregation from historical runs."
+      ],
+      "notes": []
+    }
+  ]
+}
