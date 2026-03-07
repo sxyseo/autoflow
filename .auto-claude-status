@@ -3,23 +3,23 @@
   "spec": "021-self-healing-workflows",
   "state": "building",
   "subtasks": {
-    "completed": 10,
+    "completed": 12,
     "total": 20,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Healing Orchestration",
-    "id": null,
-    "total": 3
+    "current": "Core Integration",
+    "id": "phase-5-integration",
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 12,
+    "number": 13,
     "started_at": "2026-03-07T11:18:51.396923"
   },
-  "last_update": "2026-03-07T11:48:17.729066"
+  "last_update": "2026-03-07T12:00:00.000000"
 }
