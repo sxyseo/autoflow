@@ -1,25 +1,25 @@
 {
   "active": true,
   "spec": "020-ai-code-quality-prediction",
-  "state": "building",
+  "state": "error",
   "subtasks": {
-    "completed": 10,
+    "completed": 16,
     "total": 20,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Prediction Service",
+    "current": "Workflow Integration",
     "id": null,
-    "total": 3
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 12,
+    "number": 33,
     "started_at": "2026-03-07T11:18:54.149808"
   },
-  "last_update": "2026-03-07T11:47:07.229963"
+  "last_update": "2026-03-07T11:57:28.654875"
 }
