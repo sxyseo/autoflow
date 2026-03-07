@@ -37,6 +37,9 @@ dependencies = [
     "pydantic>=2.0.0",
     "json5>=0.9.0",
     "apscheduler>=3.10.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "websockets>=12.0.0",
 ]
 
 [project.optional-dependencies]
@@ -108,6 +111,9 @@ show_error_codes = true
 module = [
     "json5.*",
     "apscheduler.*",
+    "fastapi.*",
+    "uvicorn.*",
+    "websockets.*",
 ]
 ignore_missing_imports = true
 
