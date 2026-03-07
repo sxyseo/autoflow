@@ -100,14 +100,6 @@ def task_history(spec: str, task: str) -> list[dict]:
     return get_task_history(spec, task)
 
 
-def sync_agents(overwrite: bool = False) -> dict:
-    cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
-    if overwrite:
-        cmd.append("--overwrite")
-    result = run(cmd)
-    return json.loads(result.stdout)
-
-
 def load_agent_catalog() -> dict[str, dict]:
     return load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
 
