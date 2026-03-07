@@ -15,8 +15,10 @@ Usage:
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from autoflow.prediction.feature_extractor import FeatureExtractor, FeatureVector
 from autoflow.prediction.model import PredictionResult, QualityModel
@@ -257,3 +259,128 @@ class QualityPredictor:
                 lines.append(f"  - {feature}: {importance:.3f}")
 
         return "\n".join(lines)
+
+    def create_review_task(
+        self,
+        spec_path: Path,
+        prediction: PredictionResult,
+    ) -> bool:
+        """
+        Create a proactive review task for high-risk predictions.
+
+        When a prediction indicates high risk (low confidence or predicted issues),
+        this method adds a new subtask to the implementation plan for manual review.
+
+        Args:
+            spec_path: Path to the spec directory containing implementation_plan.json
+            prediction: PredictionResult indicating potential quality issues
+
+        Returns:
+            True if review task was created, False if prediction was not high-risk
+
+        Raises:
+            FileNotFoundError: If implementation_plan.json doesn't exist
+            ValueError: If implementation_plan.json is malformed
+        """
+        # Only create review tasks for high-risk predictions
+        if not self.is_high_risk(prediction):
+            return False
+
+        plan_file = spec_path / "implementation_plan.json"
+
+        if not plan_file.exists():
+            raise FileNotFoundError(f"Implementation plan not found: {plan_file}")
+
+        # Read existing plan
+        try:
+            plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in implementation plan: {e}") from e
+
+        # Generate subtask ID
+        existing_subtasks = []
+        for phase in plan_data.get("phases", []):
+            for subtask in phase.get("subtasks", []):
+                existing_subtasks.append(subtask.get("id", ""))
+
+        # Find next available subtask ID
+        subtask_num = 1
+        while f"subtask-review-{subtask_num}" in existing_subtasks:
+            subtask_num += 1
+
+        new_subtask_id = f"subtask-review-{subtask_num}"
+
+        # Build review task description based on prediction
+        from autoflow.prediction.data_collector import QualityOutcome
+
+        risk_reasons = []
+        if prediction.confidence < 0.6:
+            risk_reasons.append(f"low confidence ({prediction.confidence:.1%})")
+        if prediction.prediction == QualityOutcome.NEEDS_CHANGES:
+            risk_reasons.append("predicted to need changes")
+        elif prediction.prediction == QualityOutcome.FAILED:
+            risk_reasons.append("predicted to fail")
+
+        description = (
+            f"Quality Review: High-risk prediction ({', '.join(risk_reasons)}). "
+            f"Manual review recommended before implementation."
+        )
+
+        # Create new review subtask
+        review_subtask: dict[str, Any] = {
+            "id": new_subtask_id,
+            "description": description,
+            "service": "autoflow",
+            "files_to_modify": [],
+            "files_to_create": [],
+            "patterns_from": [],
+            "verification": {
+                "type": "manual",
+                "instructions": f"Review prediction rationale: {prediction.rationale}",
+            },
+            "status": "pending",
+            "notes": (
+                f"Created by quality prediction system at {datetime.now(UTC).isoformat()}. "
+                f"Prediction: {prediction.prediction.value}, "
+                f"Confidence: {prediction.confidence:.2%}. "
+                f"Rationale: {prediction.rationale}"
+            ),
+        }
+
+        # Find or create a review phase
+        phases = plan_data.get("phases", [])
+        review_phase = None
+        review_phase_index = len(phases)  # Default to end
+
+        for i, phase in enumerate(phases):
+            if "review" in phase.get("name", "").lower():
+                review_phase = phase
+                review_phase_index = i
+                break
+
+        # Add review subtask to the phase
+        if review_phase is None:
+            # Create a new review phase at the end
+            review_phase = {
+                "id": "phase-quality-review",
+                "name": "Quality Review",
+                "type": "review",
+                "description": "Manual review tasks for high-risk predictions",
+                "depends_on": [],
+                "parallel_safe": True,
+                "subtasks": [review_subtask],
+            }
+            phases.append(review_phase)
+        else:
+            # Add to existing review phase
+            if "subtasks" not in review_phase:
+                review_phase["subtasks"] = []
+            review_phase["subtasks"].append(review_subtask)
+
+        # Update phases in plan data
+        plan_data["phases"] = phases
+
+        # Write updated plan back to file
+        plan_file.write_text(json.dumps(plan_data, indent=2) + "\n", encoding="utf-8")
+
+        return True
