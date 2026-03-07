@@ -960,12 +960,17 @@ def _populate_run_cache_for_spec(spec_slug: str) -> None:
     if spec_slug not in _run_metadata_cache:
         _run_metadata_cache[spec_slug] = []
 
+    # Track all specs encountered during this scan for opportunistic caching
+    specs_to_load = {spec_slug}
+
     # Load runs from filesystem for this spec
     # Note: We must scan all directories to find runs matching this spec
     if not RUNS_DIR.exists():
         _cache_loaded_specs.add(spec_slug)
         return
 
+    # First pass: discover all specs and collect their run IDs
+    spec_runs = {}
     for run_dir in sorted(RUNS_DIR.iterdir()):
         if not run_dir.is_dir():
             continue
@@ -973,15 +978,18 @@ def _populate_run_cache_for_spec(spec_slug: str) -> None:
         if metadata_path.exists():
             metadata = read_json(metadata_path)
             run_spec = metadata.get("spec", "")
-            if run_spec == spec_slug:
-                _run_metadata_cache[spec_slug].append(metadata)
-            # Also cache other specs we encounter to avoid future scans
-            elif run_spec and run_spec not in _cache_loaded_specs:
-                if run_spec not in _run_metadata_cache:
-                    _run_metadata_cache[run_spec] = []
-                _run_metadata_cache[run_spec].append(metadata)
+            if run_spec:
+                if run_spec not in spec_runs:
+                    spec_runs[run_spec] = []
+                spec_runs[run_spec].append(metadata)
+                specs_to_load.add(run_spec)
 
-    _cache_loaded_specs.add(spec_slug)
+    # Second pass: add all discovered runs to cache
+    for discovered_spec, runs in spec_runs.items():
+        if discovered_spec not in _run_metadata_cache:
+            _run_metadata_cache[discovered_spec] = []
+        _run_metadata_cache[discovered_spec].extend(runs)
+        _cache_loaded_specs.add(discovered_spec)
 
 
 def _populate_run_cache() -> None:
