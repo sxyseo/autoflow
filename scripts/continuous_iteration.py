@@ -7,6 +7,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -21,14 +22,16 @@ def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
 
 
-def load_config(path: str) -> dict:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
+def load_config(path: str) -> dict[str, Any]:
+    result: dict[str, Any] = json.loads((ROOT / path).read_text(encoding="utf-8"))
+    return result
 
 
-def load_json(path: Path, default: dict | None = None) -> dict:
+def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.exists():
         return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def git_dirty() -> bool:
@@ -41,8 +44,8 @@ def git_branch() -> str:
     return result.stdout.strip()
 
 
-def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
-    results = []
+def run_verify_commands(commands: list[str], spec: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
     for command in commands:
         rendered = command.replace("{spec}", spec)
         proc = subprocess.run(
@@ -65,7 +68,7 @@ def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
     return results
 
 
-def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
+def auto_commit(config: dict[str, Any], spec: str, push: bool, state: dict[str, Any]) -> dict[str, Any]:
     commit_cfg = config.get("commit", {})
     if state.get("active_runs") and not commit_cfg.get("allow_during_active_runs", False):
         return {"committed": False, "reason": "active_run_exists"}
@@ -92,16 +95,19 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     }
 
 
-def workflow_state(spec: str) -> dict:
+def workflow_state(spec: str) -> dict[str, Any]:
     return get_workflow_state(spec)
 
 
-def task_history(spec: str, task: str) -> list[dict]:
+def task_history(spec: str, task: str) -> list[dict[str, Any]]:
     return get_task_history(spec, task)
 
 
-def load_agent_catalog() -> dict[str, dict]:
-    return load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
+def load_agent_catalog() -> dict[str, dict[str, Any]]:
+    result = load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
+    assert isinstance(result, dict)
+    catalog: dict[str, dict[str, Any]] = {k: v for k, v in result.items() if isinstance(v, dict)}
+    return catalog
 
 
 def default_role_preferences(role: str) -> list[str]:
@@ -115,10 +121,10 @@ def default_role_preferences(role: str) -> list[str]:
     return preferences.get(role, [])
 
 
-def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> tuple[str | None, str]:
-    selection_cfg = config.get("agent_selection", {})
-    candidates = []
-    explicit = config.get("role_agents", {}).get(role)
+def select_agent_for_role(config: dict[str, Any], role: str, catalog: dict[str, dict[str, Any]]) -> tuple[str | None, str]:
+    selection_cfg: dict[str, Any] = config.get("agent_selection", {})
+    candidates: list[str] = []
+    explicit: str | None = config.get("role_agents", {}).get(role)
     if explicit:
         candidates.append(explicit)
     candidates.extend(selection_cfg.get("role_preferences", {}).get(role, []))
@@ -134,7 +140,7 @@ def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> 
     return None, "missing"
 
 
-def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict | None:
+def dispatch_gate(config: dict[str, Any], state: dict[str, Any], next_action: dict[str, Any] | None) -> dict[str, Any] | None:
     if state.get("active_runs"):
         return {"blocked": True, "reason": "active_run_exists"}
     if state.get("blocking_reason"):
@@ -163,15 +169,17 @@ def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict |
     return None
 
 
-def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
+def dispatch_next(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
     state = workflow_state(spec)
     next_action = state.get("recommended_next_action")
     gate = dispatch_gate(config, state, next_action)
     if gate:
         return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
+    if not next_action or not isinstance(next_action, dict):
+        return {"dispatched": False, "reason": "invalid_next_action", "state": state}
     role = next_action["owner_role"]
-    selection_cfg = config.get("agent_selection", {})
-    sync_result = None
+    selection_cfg: dict[str, Any] = config.get("agent_selection", {})
+    sync_result: dict[str, Any] | None = None
     if selection_cfg.get("sync_before_dispatch", True):
         sync_result = sync_agents(overwrite=selection_cfg.get("overwrite_discovered", False))
     catalog = load_agent_catalog()

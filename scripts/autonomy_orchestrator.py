@@ -25,11 +25,13 @@ DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
 def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.exists():
         return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def load_config(path: str) -> dict[str, Any]:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads((ROOT / path).read_text(encoding="utf-8"))
+    return result
 
 
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
@@ -126,7 +128,7 @@ def run_tick(
 
     # Load continuous iteration config and run iteration
     ci_cfg = continuous_iteration.load_config(continuous_config)
-    result = {"spec": spec}
+    result: dict[str, Any] = {"spec": spec}
     initial_state = continuous_iteration.workflow_state(spec)
     if commit_if_dirty:
         result["commit"] = continuous_iteration.auto_commit(ci_cfg, spec, push, initial_state)

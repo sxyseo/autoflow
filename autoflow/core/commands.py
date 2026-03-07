@@ -92,14 +92,16 @@ def _load_tasks(spec_slug: str) -> dict[str, Any]:
     path = _task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def _task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
     """Look up a task by ID in task data."""
     for task in data.get("tasks", []):
         if task["id"] == task_id:
-            return task
+            result: dict[str, Any] = task
+            return result
     raise SystemExit(f"unknown task: {task_id}")
 
 
@@ -156,10 +158,11 @@ def _review_state_default() -> dict[str, Any]:
 
 def _load_review_state(spec_slug: str) -> dict[str, Any]:
     """Load review state for a spec."""
-    return _read_json_or_default(
+    result: dict[str, Any] = _read_json_or_default(
         _spec_files(spec_slug)["review_state"],
         _review_state_default()
     )
+    return result
 
 
 def _save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
@@ -199,7 +202,7 @@ def _review_status_summary(spec_slug: str) -> dict[str, Any]:
 
 def _run_metadata_iter() -> list[dict[str, Any]]:
     """Iterate over all run metadata."""
-    items = []
+    items: list[dict[str, Any]] = []
     if not RUNS_DIR.exists():
         return items
     for run_dir in sorted(RUNS_DIR.iterdir()):
@@ -230,10 +233,11 @@ def _load_fix_request(spec_slug: str) -> str:
 
 def _load_fix_request_data(spec_slug: str) -> dict[str, Any]:
     """Load QA fix request JSON data for a spec."""
-    return _read_json_or_default(
+    result: dict[str, Any] = _read_json_or_default(
         _spec_files(spec_slug)["qa_fix_request_json"],
         {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
     )
+    return result
 
 
 def _strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
@@ -264,10 +268,11 @@ def _strategy_memory_default() -> dict[str, Any]:
 
 def _load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
     """Load strategy memory."""
-    return _read_json_or_default(
+    result: dict[str, Any] = _read_json_or_default(
         _strategy_memory_file(scope, spec_slug),
         _strategy_memory_default()
     )
+    return result
 
 
 def _strategy_summary(spec_slug: str) -> dict[str, Any]:
@@ -322,7 +327,8 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
 def _system_config_default() -> dict[str, Any]:
     """Get default system configuration."""
     if SYSTEM_CONFIG_TEMPLATE.exists():
-        return _read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+        result: dict[str, Any] = _read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+        return result
     return {
         "memory": {
             "enabled": True,
@@ -640,8 +646,13 @@ def sync_agents(overwrite: bool = False) -> dict[str, Any]:
         existing = _read_json_or_default(AGENTS_FILE, existing)
         existing.setdefault("defaults", {"workspace": ".", "shell": "bash"})
         existing.setdefault("agents", {})
-    merged = dict(existing["agents"])
-    added = []
+    agents_dict = existing.get("agents", {})
+    assert isinstance(agents_dict, dict)
+    merged: dict[str, dict[str, Any]] = {}
+    for key, value in agents_dict.items():
+        if isinstance(key, str) and isinstance(value, dict):
+            merged[key] = value
+    added: list[str] = []
     for agent in discovered.get("agents", []):
         name = agent["name"]
         if name in merged and not overwrite:
