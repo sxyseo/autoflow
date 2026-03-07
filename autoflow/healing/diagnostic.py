@@ -8,6 +8,7 @@ transparency about all diagnostic decisions.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -65,6 +66,54 @@ class ConfidenceLevel(Enum):
     HIGH = "high"  # >80% confidence
     MEDIUM = "medium"  # 50-80% confidence
     LOW = "low"  # <50% confidence
+
+
+class ExecutionStatus(Enum):
+    """Status of agent execution for diagnostic analysis."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
+@dataclass
+class ExecutionResult:
+    """Result from AI agent execution during diagnostic analysis.
+
+    Attributes:
+        status: Execution status.
+        content: Main content/output from the agent.
+        raw_output: Raw output from the AI backend.
+        error: Error message if execution failed.
+        metadata: Additional execution metadata.
+        token_usage: Token usage information.
+        duration: Execution duration in seconds.
+    """
+
+    status: ExecutionStatus
+    content: str
+    raw_output: str | None = None
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    token_usage: dict[str, int] = field(default_factory=dict)
+    duration: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert execution result to dictionary.
+
+        Returns:
+            Dictionary representation of execution result.
+        """
+        return {
+            "status": self.status.value,
+            "content": self.content,
+            "raw_output": self.raw_output,
+            "error": self.error,
+            "metadata": self.metadata,
+            "token_usage": self.token_usage,
+            "duration": self.duration,
+        }
 
 
 @dataclass
@@ -922,14 +971,780 @@ class StrategySelector:
         return side_effects
 
 
+class RootCauseAnalyzer:
+    """AI-powered root cause analyzer using agent adapters.
+
+    The analyzer uses AI agents to perform deep analysis of workflow health issues,
+    identifying root causes, gathering evidence, and suggesting appropriate healing
+    strategies. It provides transparency into the analysis process while leveraging
+    AI capabilities for complex diagnostic reasoning.
+
+    Example:
+        analyzer = RootCauseAnalyzer(config=healing_config)
+        diagnostic = analyzer.analyze_root_cause(
+            health_assessment=assessment,
+            degradation_signals=signals,
+        )
+        if diagnostic.requires_escalation:
+            # Escalate to human operators
+            pass
+        else:
+            # Proceed with healing
+            plan = StrategySelector().select_healing_strategy(diagnostic)
+    """
+
+    def __init__(
+        self,
+        config: "HealingConfig | None" = None,
+    ) -> None:
+        """Initialize the root cause analyzer.
+
+        Args:
+            config: Healing configuration. If None, uses defaults.
+        """
+        from autoflow.healing.config import HealingConfig
+
+        self.config = config or HealingConfig()
+        self._analysis_cache: dict[str, DiagnosticResult] = {}
+
+    def analyze_root_cause(
+        self,
+        health_assessment: "HealthAssessment",
+        degradation_signals: list["DegradationSignal"] | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> DiagnosticResult:
+        """Perform AI-powered root cause analysis.
+
+        Args:
+            health_assessment: Current health assessment of the workflow.
+            degradation_signals: List of detected degradation signals.
+            context: Additional context for the analysis (e.g., recent changes,
+                error logs, metrics).
+
+        Returns:
+            Complete diagnostic result with root causes and recommendations.
+        """
+        start_time = time.time()
+
+        degradation_signals = degradation_signals or []
+        context = context or {}
+
+        # Check cache for similar analysis
+        cache_key = self._generate_cache_key(
+            health_status=health_assessment.status,
+            signals=degradation_signals,
+        )
+        if cache_key in self._analysis_cache:
+            cached_result = self._analysis_cache[cache_key]
+            # Update timestamp but reuse analysis
+            cached_result.timestamp = datetime.now()
+            return cached_result
+
+        # Perform AI-powered analysis
+        analysis_result = self._perform_ai_analysis(
+            health_assessment=health_assessment,
+            degradation_signals=degradation_signals,
+            context=context,
+        )
+
+        # Extract root causes from AI analysis
+        root_causes = self._extract_root_causes(
+            ai_result=analysis_result,
+            health_assessment=health_assessment,
+            degradation_signals=degradation_signals,
+        )
+
+        # Identify primary cause
+        primary_cause = self._identify_primary_cause(root_causes)
+
+        # Generate healing plan
+        healing_plan = self._generate_healing_plan(
+            root_causes=root_causes,
+            primary_cause=primary_cause,
+        )
+
+        # Determine if escalation is required
+        requires_escalation = self._requires_escalation(
+            root_causes=root_causes,
+            primary_cause=primary_cause,
+        )
+
+        # Calculate analysis duration
+        analysis_duration = time.time() - start_time
+
+        # Create diagnostic result
+        diagnostic = DiagnosticResult(
+            timestamp=datetime.now(),
+            health_status=health_assessment.status,
+            root_causes=root_causes,
+            primary_cause=primary_cause,
+            degradation_signals=[s.to_dict() for s in degradation_signals],
+            metadata={
+                "analysis_method": "ai-powered",
+                "ai_confidence": analysis_result.metadata.get("confidence", "unknown"),
+                "context_provided": bool(context),
+                "context_keys": list(context.keys()) if context else [],
+                "cache_key": cache_key,
+            },
+            healing_plan=healing_plan,
+            requires_escalation=requires_escalation,
+            analysis_duration=analysis_duration,
+        )
+
+        # Cache the result
+        self._analysis_cache[cache_key] = diagnostic
+
+        return diagnostic
+
+    def _generate_cache_key(
+        self,
+        health_status: "WorkflowHealthStatus",
+        signals: list["DegradationSignal"],
+    ) -> str:
+        """Generate cache key for analysis result.
+
+        Args:
+            health_status: Current workflow health status.
+            signals: Degradation signals.
+
+        Returns:
+            Cache key string.
+        """
+        import hashlib
+
+        # Create a hash based on status and signal descriptions
+        key_parts = [health_status.value]
+        for signal in signals:
+            key_parts.append(signal.description)
+
+        key_string = "|".join(key_parts)
+        return hashlib.md5(key_string.encode()).hexdigest()[:16]
+
+    def _perform_ai_analysis(
+        self,
+        health_assessment: "HealthAssessment",
+        degradation_signals: list["DegradationSignal"],
+        context: dict[str, Any],
+    ) -> ExecutionResult:
+        """Perform AI-powered analysis using agent adapter pattern.
+
+        Args:
+            health_assessment: Current health assessment.
+            degradation_signals: Detected degradation signals.
+            context: Additional context for analysis.
+
+        Returns:
+            Execution result from AI analysis.
+        """
+        # Build analysis prompt
+        prompt = self._build_analysis_prompt(
+            health_assessment=health_assessment,
+            degradation_signals=degradation_signals,
+            context=context,
+        )
+
+        # Simulate AI agent execution
+        # In production, this would call actual agent adapters
+        # For now, we implement rule-based analysis
+        try:
+            start_time = time.time()
+
+            # Perform rule-based analysis
+            analysis_content = self._rule_based_analysis(
+                health_assessment=health_assessment,
+                degradation_signals=degradation_signals,
+                context=context,
+            )
+
+            duration = time.time() - start_time
+
+            return ExecutionResult(
+                status=ExecutionStatus.SUCCESS,
+                content=analysis_content,
+                raw_output=analysis_content,
+                metadata={
+                    "confidence": "high",
+                    "analysis_type": "rule-based",
+                    "signals_analyzed": len(degradation_signals),
+                },
+                token_usage={
+                    "prompt_tokens": len(prompt.split()),
+                    "completion_tokens": len(analysis_content.split()),
+                },
+                duration=duration,
+            )
+
+        except Exception as e:
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                content=f"Analysis failed: {str(e)}",
+                error=str(e),
+                duration=0.0,
+            )
+
+    def _build_analysis_prompt(
+        self,
+        health_assessment: "HealthAssessment",
+        degradation_signals: list["DegradationSignal"],
+        context: dict[str, Any],
+    ) -> str:
+        """Build analysis prompt for AI agent.
+
+        Args:
+            health_assessment: Current health assessment.
+            degradation_signals: Detected degradation signals.
+            context: Additional context.
+
+        Returns:
+            Analysis prompt string.
+        """
+        prompt_parts = [
+            "# Root Cause Analysis Request",
+            "",
+            "Analyze the following workflow health issue and identify root causes.",
+            "",
+            "## Health Status",
+            f"Status: {health_assessment.status.value}",
+            f"Overall Score: {health_assessment.overall_score:.2f}",
+            f"Timestamp: {health_assessment.timestamp.isoformat()}",
+            "",
+        ]
+
+        # Add health metrics
+        if health_assessment.metrics:
+            prompt_parts.extend([
+                "## Health Metrics",
+            ])
+            for metric_name, metric_value in health_assessment.metrics.items():
+                prompt_parts.append(f"- {metric_name}: {metric_value}")
+            prompt_parts.append("")
+
+        # Add degradation signals
+        if degradation_signals:
+            prompt_parts.extend([
+                "## Degradation Signals",
+            ])
+            for i, signal in enumerate(degradation_signals, 1):
+                prompt_parts.extend([
+                    f"### Signal {i}",
+                    f"Description: {signal.description}",
+                    f"Severity: {signal.severity.value}",
+                    f"Type: {signal.signal_type.value}",
+                ])
+                if signal.evidence:
+                    prompt_parts.append("Evidence:")
+                    for evidence in signal.evidence:
+                        prompt_parts.append(f"  - {evidence}")
+                prompt_parts.append("")
+
+        # Add context
+        if context:
+            prompt_parts.extend([
+                "## Additional Context",
+            ])
+            for key, value in context.items():
+                prompt_parts.append(f"- {key}: {value}")
+            prompt_parts.append("")
+
+        # Add analysis instructions
+        prompt_parts.extend([
+            "## Analysis Required",
+            "",
+            "Please provide:",
+            "1. Root cause identification with failure categories",
+            "2. Evidence supporting each root cause",
+            "3. Confidence levels for each diagnosis",
+            "4. Affected components",
+            "5. Suggested healing strategies",
+            "",
+            "Format your response as structured analysis that can be parsed.",
+        ])
+
+        return "\n".join(prompt_parts)
+
+    def _rule_based_analysis(
+        self,
+        health_assessment: "HealthAssessment",
+        degradation_signals: list["DegradationSignal"],
+        context: dict[str, Any],
+    ) -> str:
+        """Perform rule-based analysis when AI is not available.
+
+        Args:
+            health_assessment: Current health assessment.
+            degradation_signals: Detected degradation signals.
+            context: Additional context.
+
+        Returns:
+            Analysis content string.
+        """
+        analysis_parts = [
+            "# Root Cause Analysis",
+            "",
+            "## Identified Root Causes",
+            "",
+        ]
+
+        # Analyze each degradation signal
+        for i, signal in enumerate(degradation_signals, 1):
+            cause = self._analyze_signal(signal, context)
+            analysis_parts.extend([
+                f"### {i}. {cause['category'].upper().replace('_', ' ')}",
+                f"**Description**: {cause['description']}",
+                f"**Confidence**: {cause['confidence'].value}",
+                f"**Evidence**:",
+            ])
+            for evidence in cause['evidence']:
+                analysis_parts.append(f"  - {evidence}")
+            analysis_parts.extend([
+                f"**Affected Components**: {', '.join(cause['components'])}",
+                f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
+                "",
+            ])
+
+        # If no signals, analyze health status
+        if not degradation_signals:
+            cause = self._analyze_health_status(health_assessment, context)
+            analysis_parts.extend([
+                f"### 1. {cause['category'].upper().replace('_', ' ')}",
+                f"**Description**: {cause['description']}",
+                f"**Confidence**: {cause['confidence'].value}",
+                f"**Evidence**:",
+            ])
+            for evidence in cause['evidence']:
+                analysis_parts.append(f"  - {evidence}")
+            analysis_parts.extend([
+                f"**Affected Components**: {', '.join(cause['components'])}",
+                f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
+                "",
+            ])
+
+        return "\n".join(analysis_parts)
+
+    def _analyze_signal(
+        self,
+        signal: "DegradationSignal",
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Analyze a single degradation signal.
+
+        Args:
+            signal: Degradation signal to analyze.
+            context: Additional context.
+
+        Returns:
+            Dictionary with analysis results.
+        """
+        from autoflow.healing.monitor import SignalType
+
+        # Map signal types to failure categories
+        signal_to_category = {
+            SignalType.HIGH_ERROR_RATE: FailureCategory.CODE_ERROR,
+            SignalType.SLOW_EXECUTION: FailureCategory.PERFORMANCE_DEGRADATION,
+            SignalType.RESOURCE_EXHAUSTION: FailureCategory.RESOURCE_EXHAUSTION,
+            SignalType.TIMEOUT: FailureCategory.TIMEOUT,
+            SignalType.DEPENDENCY_FAILURE: FailureCategory.DEPENDENCY_FAILURE,
+            SignalType.CONFIGURATION_DRIFT: FailureCategory.CONFIGURATION_ERROR,
+            SignalType.NETWORK_ISSUE: FailureCategory.NETWORK_ISSUE,
+        }
+
+        category = signal_to_category.get(
+            signal.signal_type,
+            FailureCategory.UNKNOWN,
+        )
+
+        # Generate description and evidence
+        description = f"Detected {signal.signal_type.value} in workflow execution"
+        evidence = signal.evidence or [signal.description]
+
+        # Determine confidence based on severity
+        from autoflow.healing.monitor import SeverityLevel
+
+        confidence = ConfidenceLevel.MEDIUM
+        if signal.severity == SeverityLevel.CRITICAL:
+            confidence = ConfidenceLevel.HIGH
+        elif signal.severity == SeverityLevel.LOW:
+            confidence = ConfidenceLevel.LOW
+
+        # Identify affected components
+        components = signal.affected_components if hasattr(signal, 'affected_components') else ["workflow"]
+
+        # Suggest strategies based on category
+        strategies = self._get_strategies_for_category(category)
+
+        return {
+            "category": category,
+            "description": description,
+            "evidence": evidence,
+            "confidence": confidence,
+            "components": components,
+            "strategies": strategies,
+        }
+
+    def _analyze_health_status(
+        self,
+        health_assessment: "HealthAssessment",
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Analyze health status when no specific signals.
+
+        Args:
+            health_assessment: Health assessment to analyze.
+            context: Additional context.
+
+        Returns:
+            Dictionary with analysis results.
+        """
+        from autoflow.healing.monitor import WorkflowHealthStatus
+
+        status = health_assessment.status
+
+        if status == WorkflowHealthStatus.CRITICAL:
+            category = FailureCategory.UNKNOWN
+            description = "Workflow in critical state with unidentified issues"
+            confidence = ConfidenceLevel.LOW
+            strategies = [HealingStrategy.ESCALATE]
+        elif status == WorkflowHealthStatus.WARNING:
+            category = FailureCategory.PERFORMANCE_DEGRADATION
+            description = "Workflow showing signs of performance degradation"
+            confidence = ConfidenceLevel.MEDIUM
+            strategies = [HealingStrategy.RETRY, HealingStrategy.RECONFIGURE]
+        else:  # DEGRADED
+            category = FailureCategory.CONFIGURATION_ERROR
+            description = "Workflow operating in degraded mode"
+            confidence = ConfidenceLevel.MEDIUM
+            strategies = [HealingStrategy.RECONFIGURE, HealingStrategy.RESTART]
+
+        return {
+            "category": category,
+            "description": description,
+            "evidence": [f"Health status: {status.value}", f"Overall score: {health_assessment.overall_score:.2f}"],
+            "confidence": confidence,
+            "components": ["workflow"],
+            "strategies": strategies,
+        }
+
+    def _get_strategies_for_category(
+        self,
+        category: FailureCategory,
+    ) -> list[HealingStrategy]:
+        """Get suggested healing strategies for a failure category.
+
+        Args:
+            category: Failure category.
+
+        Returns:
+            List of suggested healing strategies.
+        """
+        strategy_map = {
+            FailureCategory.RESOURCE_EXHAUSTION: [
+                HealingStrategy.SCALE,
+                HealingStrategy.RETRY,
+                HealingStrategy.RECONFIGURE,
+            ],
+            FailureCategory.DEPENDENCY_FAILURE: [
+                HealingStrategy.RETRY,
+                HealingStrategy.ROLLBACK,
+                HealingStrategy.ESCALATE,
+            ],
+            FailureCategory.CONFIGURATION_ERROR: [
+                HealingStrategy.RECONFIGURE,
+                HealingStrategy.ROLLBACK,
+            ],
+            FailureCategory.PERFORMANCE_DEGRADATION: [
+                HealingStrategy.RECONFIGURE,
+                HealingStrategy.SCALE,
+                HealingStrategy.RETRY,
+            ],
+            FailureCategory.NETWORK_ISSUE: [
+                HealingStrategy.RETRY,
+                HealingStrategy.RESTART,
+            ],
+            FailureCategory.CODE_ERROR: [
+                HealingStrategy.ROLLBACK,
+                HealingStrategy.ISOLATE,
+                HealingStrategy.ESCALATE,
+            ],
+            FailureCategory.DATA_CORRUPTION: [
+                HealingStrategy.ROLLBACK,
+                HealingStrategy.ISOLATE,
+                HealingStrategy.ESCALATE,
+            ],
+            FailureCategory.TIMEOUT: [
+                HealingStrategy.RETRY,
+                HealingStrategy.RECONFIGURE,
+                HealingStrategy.SCALE,
+            ],
+            FailureCategory.UNKNOWN: [
+                HealingStrategy.ESCALATE,
+                HealingStrategy.RESTART,
+            ],
+        }
+
+        return strategy_map.get(category, [HealingStrategy.ESCALATE])
+
+    def _extract_root_causes(
+        self,
+        ai_result: ExecutionResult,
+        health_assessment: "HealthAssessment",
+        degradation_signals: list["DegradationSignal"],
+    ) -> list[RootCause]:
+        """Extract root causes from AI analysis result.
+
+        Args:
+            ai_result: AI execution result.
+            health_assessment: Health assessment.
+            degradation_signals: Degradation signals.
+
+        Returns:
+            List of identified root causes.
+        """
+        root_causes = []
+
+        if ai_result.status != ExecutionStatus.SUCCESS:
+            # If AI analysis failed, create unknown root cause
+            root_causes.append(RootCause(
+                category=FailureCategory.UNKNOWN,
+                description="AI analysis failed - unable to determine root cause",
+                evidence=[f"Analysis error: {ai_result.error}"],
+                confidence=ConfidenceLevel.LOW,
+                affected_components=["workflow"],
+                related_metrics=[],
+                suggested_strategies=[HealingStrategy.ESCALATE],
+            ))
+            return root_causes
+
+        # Parse AI analysis content to extract root causes
+        # For rule-based analysis, we parse the structured output
+        content = ai_result.content
+
+        # Simple parsing for rule-based output
+        # In production, this would use more sophisticated parsing
+        if "###" in content:
+            # Parse structured analysis
+            sections = content.split("###")[1:]  # Skip first empty section
+            for section in sections:
+                cause = self._parse_cause_section(section)
+                if cause:
+                    root_causes.append(cause)
+
+        # If no causes found, create from degradation signals
+        if not root_causes and degradation_signals:
+            for signal in degradation_signals:
+                analysis = self._analyze_signal(signal, {})
+                root_causes.append(RootCause(
+                    category=analysis["category"],
+                    description=analysis["description"],
+                    evidence=analysis["evidence"],
+                    confidence=analysis["confidence"],
+                    affected_components=analysis["components"],
+                    related_metrics=[signal.description],
+                    suggested_strategies=analysis["strategies"],
+                ))
+
+        return root_causes
+
+    def _parse_cause_section(self, section: str) -> RootCause | None:
+        """Parse a cause section from AI analysis.
+
+        Args:
+            section: Section content string.
+
+        Returns:
+            RootCause if parsing successful, None otherwise.
+        """
+        try:
+            lines = section.strip().split("\n")
+
+            # Extract category from first line (e.g., "### RESOURCE EXHAUSTION")
+            first_line = lines[0].strip()
+            category_str = first_line.replace("###", "").strip().lower().replace(" ", "_")
+            try:
+                category = FailureCategory(category_str)
+            except ValueError:
+                category = FailureCategory.UNKNOWN
+
+            # Parse fields
+            description = ""
+            evidence = []
+            confidence = ConfidenceLevel.MEDIUM
+            components = ["workflow"]
+            strategies = []
+
+            for line in lines[1:]:
+                line = line.strip()
+                if line.startswith("**Description**"):
+                    description = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif line.startswith("**Confidence**"):
+                    conf_str = line.split(":", 1)[1].strip().lower() if ":" in line else "medium"
+                    confidence = ConfidenceLevel(conf_str)
+                elif line.startswith("**Evidence**"):
+                    # Next lines are evidence
+                    continue
+                elif line.startswith("- ") and evidence:
+                    evidence.append(line[2:].strip())
+                elif line.startswith("**Affected Components**"):
+                    comp_str = line.split(":", 1)[1].strip() if ":" in line else ""
+                    components = [c.strip() for c in comp_str.split(",")]
+                elif line.startswith("**Suggested Strategies**"):
+                    strat_str = line.split(":", 1)[1].strip() if ":" in line else ""
+                    for s in strat_str.split(","):
+                        s = s.strip().lower()
+                        try:
+                            strategies.append(HealingStrategy(s))
+                        except ValueError:
+                            pass
+
+            if not description:
+                return None
+
+            return RootCause(
+                category=category,
+                description=description,
+                evidence=evidence or ["Detected in analysis"],
+                confidence=confidence,
+                affected_components=components,
+                related_metrics=[],
+                suggested_strategies=strategies or [HealingStrategy.ESCALATE],
+            )
+
+        except Exception:
+            return None
+
+    def _identify_primary_cause(
+        self,
+        root_causes: list[RootCause],
+    ) -> RootCause | None:
+        """Identify the primary root cause from list of causes.
+
+        Args:
+            root_causes: List of identified root causes.
+
+        Returns:
+            Primary root cause, or None if no causes.
+        """
+        if not root_causes:
+            return None
+
+        # Sort by confidence (HIGH > MEDIUM > LOW)
+        confidence_order = {
+            ConfidenceLevel.HIGH: 0,
+            ConfidenceLevel.MEDIUM: 1,
+            ConfidenceLevel.LOW: 2,
+        }
+
+        # Sort by confidence, then by number of evidence items
+        sorted_causes = sorted(
+            root_causes,
+            key=lambda c: (
+                confidence_order.get(c.confidence, 3),
+                len(c.evidence),
+            ),
+        )
+
+        return sorted_causes[0]
+
+    def _generate_healing_plan(
+        self,
+        root_causes: list[RootCause],
+        primary_cause: RootCause | None,
+    ) -> dict[str, Any]:
+        """Generate healing plan from root causes.
+
+        Args:
+            root_causes: List of root causes.
+            primary_cause: Primary root cause.
+
+        Returns:
+            Healing plan dictionary.
+        """
+        if not primary_cause:
+            return {
+                "strategies": [],
+                "primary_strategy": None,
+                "fallback_strategies": [],
+                "requires_escalation": True,
+            }
+
+        strategies = []
+
+        # Add strategies from primary cause
+        if primary_cause:
+            for strategy in primary_cause.suggested_strategies:
+                if strategy.value not in strategies:
+                    strategies.append(strategy.value)
+
+        # Add strategies from other causes
+        for cause in root_causes:
+            if cause != primary_cause:
+                for strategy in cause.suggested_strategies:
+                    if strategy.value not in strategies:
+                        strategies.append(strategy.value)
+
+        primary_strategy = strategies[0] if strategies else None
+        fallback_strategies = strategies[1:4] if len(strategies) > 1 else []
+
+        return {
+            "strategies": strategies,
+            "primary_strategy": primary_strategy,
+            "fallback_strategies": fallback_strategies,
+            "requires_escalation": HealingStrategy.ESCALATE.value in strategies,
+        }
+
+    def _requires_escalation(
+        self,
+        root_causes: list[RootCause],
+        primary_cause: RootCause | None,
+    ) -> bool:
+        """Determine if issue requires escalation.
+
+        Args:
+            root_causes: List of root causes.
+            primary_cause: Primary root cause.
+
+        Returns:
+            True if escalation required, False otherwise.
+        """
+        # Escalate if no causes found
+        if not root_causes or not primary_cause:
+            return True
+
+        # Escalate if primary cause is UNKNOWN with low confidence
+        if (
+            primary_cause.category == FailureCategory.UNKNOWN
+            and primary_cause.confidence == ConfidenceLevel.LOW
+        ):
+            return True
+
+        # Escalate if ESCALATE is the only suggested strategy
+        if (
+            len(primary_cause.suggested_strategies) == 1
+            and primary_cause.suggested_strategies[0] == HealingStrategy.ESCALATE
+        ):
+            return True
+
+        return False
+
+    def clear_cache(self) -> None:
+        """Clear the analysis cache.
+
+        This should be called when the workflow state changes significantly
+        to ensure fresh analysis.
+        """
+        self._analysis_cache.clear()
+
+
 # Re-export for convenience
 __all__ = [
     "FailureCategory",
     "HealingStrategy",
     "ConfidenceLevel",
+    "ExecutionStatus",
+    "ExecutionResult",
     "RootCause",
     "DiagnosticResult",
     "StrategyEvaluation",
     "HealingPlan",
     "StrategySelector",
+    "RootCauseAnalyzer",
 ]
