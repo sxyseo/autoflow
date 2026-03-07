@@ -308,3 +308,111 @@ class FeatureExtractor:
 
         # Normalize to reasonable range (0-100 approximately)
         return min(base_score, 100.0)
+
+    def extract_file_features(
+        self, file_timelines_dir: Optional[Path] = None
+    ) -> FileFeatures:
+        """
+        Extract features from file change history.
+
+        Args:
+            file_timelines_dir: Path to directory containing file timeline JSON files.
+                              Defaults to .auto-claude/file-timelines/
+
+        Returns:
+            FileFeatures object with extracted features
+
+        Raises:
+            FileNotFoundError: If file_timelines_dir doesn't exist
+        """
+        if file_timelines_dir is None:
+            file_timelines_dir = self.root_dir / ".auto-claude" / "file-timelines"
+
+        if not file_timelines_dir.exists():
+            raise FileNotFoundError(f"File timelines directory not found: {file_timelines_dir}")
+
+        # Read all timeline JSON files
+        timeline_files = list(file_timelines_dir.glob("*.json"))
+
+        if not timeline_files:
+            return FileFeatures()
+
+        # Aggregate data from all timelines
+        all_files: set[str] = set()
+        total_changes = 0
+        test_files: set[str] = set()
+        failed_files: set[str] = set()
+        file_complexities: list[int] = []
+
+        for timeline_file in timeline_files:
+            try:
+                timeline_data = json.loads(timeline_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            # Extract file information from timeline
+            # Timeline structure: {task_id: {files: [{path, changes, status, ...}]}}
+            for task_data in timeline_data.values():
+                if not isinstance(task_data, dict):
+                    continue
+
+                files = task_data.get("files", [])
+                if not isinstance(files, list):
+                    continue
+
+                for file_info in files:
+                    if not isinstance(file_info, dict):
+                        continue
+
+                    file_path = file_info.get("path", "")
+                    if not file_path:
+                        continue
+
+                    all_files.add(file_path)
+
+                    # Count changes
+                    changes = file_info.get("changes", 0)
+                    if isinstance(changes, int):
+                        total_changes += changes
+
+                    # Check if test file
+                    if "test" in file_path.lower():
+                        test_files.add(file_path)
+
+                    # Check for previous failures
+                    status = file_info.get("status", "")
+                    if status and "fail" in status.lower():
+                        failed_files.add(file_path)
+
+                    # Calculate file complexity (based on lines or function count)
+                    complexity = file_info.get("complexity", 0)
+                    if not complexity:
+                        # Estimate complexity from changes if not provided
+                        complexity = min(changes or 1, 50)
+                    if isinstance(complexity, (int, float)):
+                        file_complexities.append(int(complexity))
+
+        # Calculate features
+        files_modified_count = len(all_files)
+
+        file_change_frequency = (
+            total_changes / files_modified_count if files_modified_count > 0 else 0.0
+        )
+
+        test_file_ratio = (
+            len(test_files) / files_modified_count if files_modified_count > 0 else 0.0
+        )
+
+        previous_failures = len(failed_files)
+
+        file_complexity = (
+            sum(file_complexities) / len(file_complexities) if file_complexities else 0.0
+        )
+
+        return FileFeatures(
+            files_modified_count=files_modified_count,
+            file_change_frequency=file_change_frequency,
+            test_file_ratio=test_file_ratio,
+            previous_failures=previous_failures,
+            file_complexity=file_complexity,
+        )
