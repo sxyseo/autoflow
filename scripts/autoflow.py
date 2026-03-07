@@ -2035,6 +2035,13 @@ def build_parser() -> argparse.ArgumentParser:
     status_cmd = sub.add_parser("status", help="print current specs and runs")
     status_cmd.set_defaults(func=show_status)
 
+    list_runs_cmd = sub.add_parser("list-runs", help="list runs with optional filtering")
+    list_runs_cmd.add_argument("--spec", default="", help="filter by spec slug")
+    list_runs_cmd.add_argument("--status", default="", help="filter by run status")
+    list_runs_cmd.add_argument("--role", default="", help="filter by role")
+    list_runs_cmd.add_argument("--agent", default="", help="filter by agent name")
+    list_runs_cmd.set_defaults(func=list_runs)
+
     return parser
 
 
