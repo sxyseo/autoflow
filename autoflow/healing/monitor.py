@@ -7,6 +7,7 @@ It follows the severity-based categorization pattern from the rollback/recovery 
 
 from __future__ import annotations
 
+import statistics
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -78,6 +79,31 @@ class TaskExecution:
     duration: float
     timestamp: datetime
     error_message: str | None = None
+
+
+@dataclass
+class DegradationSignal:
+    """A signal indicating potential workflow degradation.
+
+    Attributes:
+        signal_type: Type of degradation detected.
+        severity: Severity level (info, warning, critical).
+        metric_name: Name of the metric showing degradation.
+        current_value: Current metric value.
+        baseline_value: Expected/baseline value.
+        degradation_rate: Rate of degradation (e.g., -0.15 for 15% decline).
+        confidence: Confidence score (0.0 to 1.0).
+        description: Human-readable description.
+    """
+
+    signal_type: str
+    severity: str
+    metric_name: str
+    current_value: float
+    baseline_value: float
+    degradation_rate: float
+    confidence: float
+    description: str
 
 
 class WorkflowHealthMonitor:
@@ -324,7 +350,7 @@ class WorkflowHealthMonitor:
         """Generate healing recommendations based on violations.
 
         Args:
-            violations: List of threshold violations.
+            violations: List of threshold violations and degradation signals.
 
         Returns:
             List of recommended actions.
@@ -332,8 +358,14 @@ class WorkflowHealthMonitor:
         recommendations = []
 
         for violation in violations:
-            metric_type = violation["metric_type"]
-            severity = violation["severity"]
+            metric_type = violation.get("metric_type", violation.get("metric_name", ""))
+            severity = violation.get("severity", "info")
+
+            # Handle degradation signals
+            if "description" in violation and "degradation_rate" in violation:
+                # This is a degradation signal
+                recommendations.append(f"Degradation detected: {violation['description']}")
+                continue
 
             if metric_type == HealingThresholdType.TASK_FAILURE_RATE:
                 if severity == "critical":
@@ -347,7 +379,7 @@ class WorkflowHealthMonitor:
                         "Review error patterns and task configurations."
                     )
 
-            elif metric_type == HealingThresholdType.EXECUTION_TIME:
+            elif metric_type == HealingThresholdType.EXECUTION_TIME or metric_type == "execution_time":
                 if severity == "critical":
                     recommendations.append(
                         "Severe execution time degradation. "
@@ -359,6 +391,12 @@ class WorkflowHealthMonitor:
                         "Review recent changes for performance impact."
                     )
 
+            elif metric_type == "execution_time_volatility":
+                recommendations.append(
+                    "Execution time volatility increased. "
+                    "Check for resource contention or intermittent failures."
+                )
+
         # Check for recurring error patterns
         error_patterns = self.get_error_patterns()
         if error_patterns:
@@ -366,6 +404,14 @@ class WorkflowHealthMonitor:
             recommendations.append(
                 f"Most common error: '{top_error[0]}' "
                 f"(occurred {top_error[1]} times)"
+            )
+
+        # Add proactive recommendation if degradation detected but no critical violations
+        degradation_summary = self.get_degradation_summary()
+        if degradation_summary["degradation_detected"] and degradation_summary["critical_signals"] == 0:
+            recommendations.append(
+                "Early degradation detected. Consider proactive investigation "
+                "before performance further degrades."
             )
 
         return recommendations
@@ -378,15 +424,37 @@ class WorkflowHealthMonitor:
             and recommendations.
         """
         violations = self.check_thresholds()
-        recommendations = self.generate_recommendations(violations)
+        degradation_signals = self.detect_degradation()
 
-        # Determine overall status
-        has_critical = any(v["severity"] == "critical" for v in violations)
-        has_warning = any(v["severity"] == "warning" for v in violations)
+        # Combine violations and degradation signals for recommendations
+        all_issues = violations.copy()
+        for signal in degradation_signals:
+            all_issues.append({
+                "metric_type": signal.metric_name,
+                "severity": signal.severity,
+                "current_value": signal.current_value,
+                "threshold_value": signal.baseline_value,
+                "degradation_rate": signal.degradation_rate,
+                "description": signal.description,
+            })
+
+        recommendations = self.generate_recommendations(all_issues)
+
+        # Determine overall status (degradation can lower status even without threshold violations)
+        has_critical = any(
+            v.get("severity") == "critical" or
+            (isinstance(v, dict) and v.get("severity") == "critical")
+            for v in all_issues
+        )
+        has_warning = any(
+            v.get("severity") == "warning" or
+            (isinstance(v, dict) and v.get("severity") == "warning")
+            for v in all_issues
+        )
 
         if has_critical:
             status = WorkflowHealthStatus.CRITICAL
-        elif has_warning:
+        elif has_warning or any(s.severity in ["warning", "info"] for s in degradation_signals):
             status = WorkflowHealthStatus.DEGRADED
         else:
             status = WorkflowHealthStatus.HEALTHY
@@ -458,6 +526,314 @@ class WorkflowHealthMonitor:
             ),
             "window_size": self.window_size,
             "window_utilization": len(executions) / self.window_size,
+        }
+
+    def detect_degradation(self) -> list[DegradationSignal]:
+        """Detect workflow degradation using multiple algorithms.
+
+        Analyzes trends, anomalies, and patterns to identify degradation before
+        it reaches critical levels. Uses statistical methods to detect:
+        - Gradual performance decline
+        - Sudden metric changes
+        - Baseline drift
+        - Multi-metric correlation issues
+
+        Returns:
+            List of degradation signals ordered by severity.
+        """
+        signals = []
+
+        # Detect execution time degradation
+        time_signal = self._detect_execution_time_degradation()
+        if time_signal:
+            signals.append(time_signal)
+
+        # Detect failure rate trends
+        failure_signal = self._detect_failure_rate_trend()
+        if failure_signal:
+            signals.append(failure_signal)
+
+        # Detect baseline drift
+        drift_signal = self._detect_baseline_drift()
+        if drift_signal:
+            signals.append(drift_signal)
+
+        # Detect volatility increase
+        volatility_signal = self._detect_volatility_increase()
+        if volatility_signal:
+            signals.append(volatility_signal)
+
+        # Sort by severity (critical > warning > info)
+        severity_order = {"critical": 0, "warning": 1, "info": 2}
+        signals.sort(key=lambda s: severity_order.get(s.severity, 3))
+
+        return signals
+
+    def _detect_execution_time_degradation(self) -> DegradationSignal | None:
+        """Detect degradation in execution time using trend analysis.
+
+        Returns:
+            DegradationSignal if degradation detected, None otherwise.
+        """
+        if len(self._task_executions) < 5:
+            return None
+
+        # Get recent successful execution times
+        recent_times = [
+            e.duration
+            for e in list(self._task_executions)[-20:]
+            if e.success
+        ]
+
+        if len(recent_times) < 5:
+            return None
+
+        # Calculate trend using linear regression
+        n = len(recent_times)
+        x = list(range(n))
+        y = recent_times
+
+        # Simple linear regression: y = mx + b
+        sum_x = sum(x)
+        sum_y = sum(y)
+        sum_xy = sum(xi * yi for xi, yi in zip(x, y))
+        sum_x2 = sum(xi * xi for xi in x)
+
+        if n * sum_x2 - sum_x * sum_x == 0:
+            return None
+
+        slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+
+        # Calculate current average vs baseline
+        current_avg = statistics.mean(recent_times[-5:])
+        baseline_avg = statistics.mean(recent_times[:5])
+
+        if baseline_avg == 0:
+            return None
+
+        degradation_rate = (current_avg - baseline_avg) / baseline_avg
+
+        # Determine severity based on trend and degradation
+        severity = "info"
+        confidence = min(abs(degradation_rate) * 2, 1.0)
+
+        if degradation_rate > 0.5:  # 50% slower
+            severity = "critical"
+        elif degradation_rate > 0.25:  # 25% slower
+            severity = "warning"
+        elif degradation_rate > 0.1:  # 10% slower
+            severity = "info"
+
+        # Only return signal if there's meaningful degradation
+        if degradation_rate > 0.1 and slope > 0:
+            return DegradationSignal(
+                signal_type="execution_time_trend",
+                severity=severity,
+                metric_name="execution_time",
+                current_value=current_avg,
+                baseline_value=baseline_avg,
+                degradation_rate=degradation_rate,
+                confidence=confidence,
+                description=(
+                    f"Execution time degrading at {slope:.2f}s per execution. "
+                    f"Currently {degradation_rate * 100:.1f}% slower than baseline."
+                ),
+            )
+
+        return None
+
+    def _detect_failure_rate_trend(self) -> DegradationSignal | None:
+        """Detect increasing failure rate trends.
+
+        Returns:
+            DegradationSignal if degradation detected, None otherwise.
+        """
+        if len(self._task_executions) < 10:
+            return None
+
+        # Calculate failure rate in sliding windows
+        executions = list(self._task_executions)
+        window_size = 5
+        failure_rates = []
+
+        for i in range(len(executions) - window_size + 1):
+            window = executions[i : i + window_size]
+            failures = sum(1 for e in window if not e.success)
+            failure_rates.append(failures / window_size)
+
+        if len(failure_rates) < 3:
+            return None
+
+        # Compare recent to older
+        recent_rate = statistics.mean(failure_rates[-3:])
+        older_rate = statistics.mean(failure_rates[:3])
+
+        if older_rate == 0:
+            # If baseline is 0, check for any failures
+            if recent_rate > 0:
+                degradation_rate = recent_rate
+            else:
+                return None
+        else:
+            degradation_rate = (recent_rate - older_rate) / older_rate
+
+        # Determine severity
+        severity = "info"
+        if recent_rate > 0.3:  # 30% failure rate
+            severity = "critical"
+        elif recent_rate > 0.15:  # 15% failure rate
+            severity = "warning"
+        elif recent_rate > 0.05 and degradation_rate > 0.5:  # 5% with increasing trend
+            severity = "info"
+
+        confidence = min(recent_rate * 3, 1.0)
+
+        # Only return if there's meaningful degradation
+        if degradation_rate > 0.3 and recent_rate > 0.05:
+            return DegradationSignal(
+                signal_type="failure_rate_trend",
+                severity=severity,
+                metric_name="failure_rate",
+                current_value=recent_rate,
+                baseline_value=older_rate,
+                degradation_rate=degradation_rate,
+                confidence=confidence,
+                description=(
+                    f"Failure rate increased by {degradation_rate * 100:.1f}%. "
+                    f"Current rate: {recent_rate * 100:.1f}%"
+                ),
+            )
+
+        return None
+
+    def _detect_baseline_drift(self) -> DegradationSignal | None:
+        """Detect when current baseline drifts from initial baseline.
+
+        Returns:
+            DegradationSignal if drift detected, None otherwise.
+        """
+        if self._baseline_duration is None or len(self._task_executions) < 10:
+            return None
+
+        # Get recent successful executions
+        recent_times = [
+            e.duration
+            for e in list(self._task_executions)[-10:]
+            if e.success
+        ]
+
+        if len(recent_times) < 5:
+            return None
+
+        current_avg = statistics.mean(recent_times)
+        drift_ratio = current_avg / self._baseline_duration
+
+        # Detect significant drift (>20%)
+        if drift_ratio > 1.2:
+            severity = "warning" if drift_ratio < 1.5 else "critical"
+            confidence = min((drift_ratio - 1.0) * 2, 1.0)
+
+            return DegradationSignal(
+                signal_type="baseline_drift",
+                severity=severity,
+                metric_name="execution_time",
+                current_value=current_avg,
+                baseline_value=self._baseline_duration,
+                degradation_rate=drift_ratio - 1.0,
+                confidence=confidence,
+                description=(
+                    f"Baseline drifted {drift_ratio * 100:.1f}% from initial. "
+                    f"Current: {current_avg:.2f}s, Initial: {self._baseline_duration:.2f}s"
+                ),
+            )
+
+        return None
+
+    def _detect_volatility_increase(self) -> DegradationSignal | None:
+        """Detect increased volatility in execution times.
+
+        High volatility can indicate unstable performance or resource contention.
+
+        Returns:
+            DegradationSignal if volatility increase detected, None otherwise.
+        """
+        if len(self._task_executions) < 15:
+            return None
+
+        executions = list(self._task_executions)
+        # Split into two halves
+        mid = len(executions) // 2
+
+        older_times = [
+            e.duration for e in executions[:mid] if e.success
+        ]
+        recent_times = [
+            e.duration for e in executions[mid:] if e.success
+        ]
+
+        if len(older_times) < 3 or len(recent_times) < 3:
+            return None
+
+        # Calculate coefficient of variation (CV = std/mean)
+        if statistics.mean(older_times) == 0 or statistics.mean(recent_times) == 0:
+            return None
+
+        older_cv = (
+            statistics.stdev(older_times) / statistics.mean(older_times)
+            if len(older_times) > 1
+            else 0
+        )
+        recent_cv = (
+            statistics.stdev(recent_times) / statistics.mean(recent_times)
+            if len(recent_times) > 1
+            else 0
+        )
+
+        # Detect significant volatility increase
+        if recent_cv > older_cv * 1.5 and recent_cv > 0.2:
+            severity = "warning" if recent_cv < 0.4 else "critical"
+            confidence = min((recent_cv - older_cv) * 2, 1.0)
+
+            return DegradationSignal(
+                signal_type="volatility_increase",
+                severity=severity,
+                metric_name="execution_time_volatility",
+                current_value=recent_cv,
+                baseline_value=older_cv,
+                degradation_rate=(recent_cv - older_cv) / older_cv if older_cv > 0 else 1.0,
+                confidence=confidence,
+                description=(
+                    f"Execution time volatility increased. "
+                    f"Recent CV: {recent_cv:.2f}, Historical CV: {older_cv:.2f}"
+                ),
+            )
+
+        return None
+
+    def get_degradation_summary(self) -> dict:
+        """Get summary of degradation analysis.
+
+        Returns:
+            Dictionary with degradation metrics and signals.
+        """
+        signals = self.detect_degradation()
+
+        return {
+            "degradation_detected": len(signals) > 0,
+            "signal_count": len(signals),
+            "critical_signals": sum(1 for s in signals if s.severity == "critical"),
+            "warning_signals": sum(1 for s in signals if s.severity == "warning"),
+            "info_signals": sum(1 for s in signals if s.severity == "info"),
+            "signals": [
+                {
+                    "type": s.signal_type,
+                    "severity": s.severity,
+                    "metric": s.metric_name,
+                    "description": s.description,
+                    "confidence": s.confidence,
+                }
+                for s in signals
+            ],
         }
 
     def reset(self) -> None:
