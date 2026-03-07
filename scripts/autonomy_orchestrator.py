@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +20,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
-
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=check, capture_output=True, text=True)
 
 
 def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
