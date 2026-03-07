@@ -594,3 +594,49 @@ class FeedbackCollector:
             if temp_path.exists():
                 temp_path.unlink()
             raise IOError(f"Failed to write performance metrics to {performance_path}: {e}") from e
+
+    def should_retrain(
+        self,
+        accuracy_threshold: float = 0.7,
+        min_samples_threshold: int = 10
+    ) -> bool:
+        """
+        Determine if model should be retrained based on feedback metrics.
+
+        Checks if the model's accuracy has dropped below the threshold
+        or if there are enough new samples available for retraining.
+
+        Args:
+            accuracy_threshold: Minimum acceptable accuracy (default 0.7).
+                If current accuracy is below this, retraining is recommended.
+            min_samples_threshold: Minimum number of completed samples needed
+                to trigger retraining (default 10). If there are at least this
+                many new samples with actual outcomes, retraining is recommended.
+
+        Returns:
+            True if retraining is recommended, False otherwise.
+
+        Examples:
+            >>> collector = FeedbackCollector()
+            >>> if collector.should_retrain():
+            ...     print("Model should be retrained")
+            ...     # Trigger retraining workflow
+        """
+        # Get current accuracy
+        current_accuracy = self.get_accuracy()
+
+        # Count completed predictions (non-pending)
+        # These are samples available for retraining
+        completed_samples = sum(
+            1 for record in self.predictions.values()
+            if record.status != PredictionStatus.PENDING
+        )
+
+        # Check if accuracy has dropped below threshold
+        accuracy_low = current_accuracy < accuracy_threshold
+
+        # Check if we have enough new samples for retraining
+        enough_samples = completed_samples >= min_samples_threshold
+
+        # Return True if either condition is met
+        return accuracy_low or enough_samples
