@@ -3,23 +3,23 @@
   "spec": "042-replace-subprocess-spawning-with-direct-python-imp",
   "state": "building",
   "subtasks": {
-    "completed": 14,
+    "completed": 16,
     "total": 27,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate - Update Orchestration Scripts",
+    "current": "Cleanup - Remove Subprocess Calls",
     "id": null,
-    "total": 8
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 17,
+    "number": 19,
     "started_at": "2026-03-07T22:09:24.708329"
   },
-  "last_update": "2026-03-07T22:33:05.228009"
+  "last_update": "2026-03-07T22:35:44.611760"
 }
