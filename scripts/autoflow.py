@@ -1171,7 +1171,7 @@ Use relative paths only.
 
 
 def recovery_context(spec_slug: str, task_id: str) -> str:
-    history = task_run_history(spec_slug, task_id, limit=5)
+    history = task_run_history_cached(spec_slug, task_id, limit=5)
     unsuccessful = [item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}]
     if not unsuccessful:
         return "No previous failed or blocked attempts recorded for this task."
@@ -1790,7 +1790,7 @@ def complete_run(args: argparse.Namespace) -> None:
 
 
 def show_task_history(args: argparse.Namespace) -> None:
-    print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
+    print(json.dumps(task_run_history_cached(args.spec, args.task), indent=2, ensure_ascii=True))
 
 
 def show_events(args: argparse.Namespace) -> None:
