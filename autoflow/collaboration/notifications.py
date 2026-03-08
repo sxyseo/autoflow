@@ -300,7 +300,7 @@ class NotificationManager:
 
         # Save to file
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.dict())
+        self._write_json(notification_path, notification.model_dump(mode='json'))
 
         return notification
 
@@ -328,7 +328,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.dict())
+        self._write_json(notification_path, notification.model_dump(mode='json'))
 
         return notification
 
@@ -356,7 +356,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.dict())
+        self._write_json(notification_path, notification.model_dump(mode='json'))
 
         return notification
 
@@ -384,7 +384,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.dict())
+        self._write_json(notification_path, notification.model_dump(mode='json'))
 
         return notification
 
@@ -412,7 +412,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.dict())
+        self._write_json(notification_path, notification.model_dump(mode='json'))
 
         return notification
 
