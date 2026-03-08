@@ -8,7 +8,9 @@ system to provide intelligent, adaptive recovery that improves over time.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -910,6 +912,270 @@ class RecoveryLearner:
             if temp_path.exists():
                 temp_path.unlink()
             raise IOError(f"Failed to write learning data to {self.learning_path}: {e}") from e
+
+    def extract_pattern(
+        self,
+        root_cause: "RootCause",
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Extract error pattern from diagnostic result.
+
+        Analyzes a root cause to generate a unique error signature and extract
+        features for pattern matching. This enables the system to identify similar
+        errors in the future and apply learned recovery strategies.
+
+        The pattern extraction process normalizes error messages to identify
+        the underlying error type while ignoring specific values (like file paths,
+        line numbers, timestamps) that vary between occurrences.
+
+        Args:
+            root_cause: The RootCause object from diagnostic analysis.
+            context: Additional context about the error (e.g., task_id, workflow_id,
+                error_message, stack_trace).
+
+        Returns:
+            Dictionary containing:
+                - pattern_id: Unique identifier for this error pattern.
+                - error_category: Category of the error.
+                - error_signature: Normalized error signature.
+                - features: Feature vector for pattern matching.
+
+        Raises:
+            ValueError: If root_cause is None or missing required fields.
+        """
+        if root_cause is None:
+            raise ValueError("root_cause cannot be None")
+
+        context = context or {}
+
+        # Extract basic error information
+        error_category = root_cause.category.value
+        description = root_cause.description
+        affected_components = root_cause.affected_components
+
+        # Generate normalized error signature
+        error_signature = self._generate_error_signature(
+            error_category=error_category,
+            description=description,
+            affected_components=affected_components,
+            error_message=context.get("error_message", ""),
+        )
+
+        # Generate unique pattern ID from signature
+        pattern_id = self._generate_pattern_id(error_signature)
+
+        # Extract feature vector for ML-based pattern matching
+        features = self._extract_features(
+            root_cause=root_cause,
+            context=context,
+        )
+
+        return {
+            "pattern_id": pattern_id,
+            "error_category": error_category,
+            "error_signature": error_signature,
+            "features": features,
+        }
+
+    def _generate_error_signature(
+        self,
+        error_category: str,
+        description: str,
+        affected_components: list[str],
+        error_message: str = "",
+    ) -> str:
+        """Generate normalized error signature for pattern matching.
+
+        Creates a unique signature that identifies the error type while
+        normalizing away variable elements like file paths, line numbers,
+        and specific values.
+
+        Args:
+            error_category: Category of the error.
+            description: Human-readable description of the root cause.
+            affected_components: List of components affected by this issue.
+            error_message: Original error message (if available).
+
+        Returns:
+            Normalized error signature string.
+        """
+        # Normalize the description
+        normalized_desc = self._normalize_error_text(description)
+
+        # Normalize error message if provided
+        normalized_error = ""
+        if error_message:
+            normalized_error = self._normalize_error_message(error_message)
+
+        # Build signature from category, normalized description, and components
+        signature_parts = [
+            error_category,
+            normalized_desc,
+        ]
+
+        # Add affected components if available
+        if affected_components:
+            # Sort for consistency
+            components_sorted = sorted(affected_components)
+            signature_parts.append(",".join(components_sorted))
+
+        # Add normalized error message if it provides additional context
+        if normalized_error and normalized_error != "unknown_error":
+            signature_parts.append(normalized_error)
+
+        # Join with delimiter
+        signature = "|".join(signature_parts)
+
+        return signature
+
+    def _normalize_error_message(self, error: str) -> str:
+        """Normalize error message for pattern matching.
+
+        Removes file paths, line numbers, and specific values to extract
+        the underlying error pattern. Follows the pattern from WorkflowHealthMonitor.
+
+        Args:
+            error: Raw error message.
+
+        Returns:
+            Normalized error key.
+        """
+        # Remove file paths, line numbers, and specific values
+        normalized = error
+
+        # Remove file paths like /path/to/file.py
+        normalized = re.sub(r"[/\w\-_\.]+\.py", "<file>", normalized)
+        normalized = re.sub(r"[/\w\-_\.]+\.js", "<file>", normalized)
+        normalized = re.sub(r"[/\w\-_\.]+\.ts", "<file>", normalized)
+
+        # Remove line numbers like :123
+        normalized = re.sub(r":\d+", ":<line>", normalized)
+
+        # Remove hexadecimal addresses like 0x12345678
+        normalized = re.sub(r"0x[0-9a-fA-F]+", "<addr>", normalized)
+
+        # Remove UUIDs
+        normalized = re.sub(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+            "<uuid>",
+            normalized,
+        )
+
+        # Remove specific numbers but keep error codes
+        normalized = re.sub(r"\b\d{3,}\b", "<num>", normalized)
+
+        # Get first part (before colon if present)
+        normalized = normalized.split(":")[0]
+
+        # Clean up whitespace
+        normalized = normalized.strip()
+
+        return normalized or "unknown_error"
+
+    def _normalize_error_text(self, text: str) -> str:
+        """Normalize error description text for pattern matching.
+
+        Args:
+            text: Error description text.
+
+        Returns:
+            Normalized text.
+        """
+        # Convert to lowercase
+        normalized = text.lower()
+
+        # Remove extra whitespace
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        # Remove specific values (numbers, quotes)
+        normalized = re.sub(r'\b\d+\b', "<num>", normalized)
+        normalized = re.sub(r'["\'].*?["\']', "<value>", normalized)
+
+        # Remove common filler words
+        filler_words = ["the", "a", "an", "is", "was", "been", "has", "have"]
+        for word in filler_words:
+            normalized = re.sub(rf"\b{word}\b", "", normalized)
+
+        # Clean up again
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        return normalized
+
+    def _generate_pattern_id(self, error_signature: str) -> str:
+        """Generate unique pattern ID from error signature.
+
+        Creates a consistent, readable pattern ID from the error signature.
+
+        Args:
+            error_signature: Normalized error signature.
+
+        Returns:
+            Unique pattern identifier.
+        """
+        import hashlib
+
+        # Create hash of signature for uniqueness
+        hash_obj = hashlib.md5(error_signature.encode())
+        short_hash = hash_obj.hexdigest()[:8]
+
+        # Extract category from signature (first part before |)
+        category = error_signature.split("|")[0] if error_signature else "unknown"
+
+        # Create readable pattern ID
+        pattern_id = f"{category}-{short_hash}"
+
+        return pattern_id
+
+    def _extract_features(
+        self,
+        root_cause: "RootCause",
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Extract feature vector for ML-based pattern matching.
+
+        Creates a feature vector that captures the characteristics of the error
+        for use in machine learning-based pattern matching and similarity detection.
+
+        Args:
+            root_cause: The RootCause object from diagnostic analysis.
+            context: Additional context about the error.
+
+        Returns:
+            Feature vector as a dictionary.
+        """
+        features = {
+            # Error category
+            "error_category": root_cause.category.value,
+            # Component information
+            "affected_components": root_cause.affected_components,
+            "component_count": len(root_cause.affected_components),
+            # Confidence level
+            "confidence": root_cause.confidence.value,
+            # Related metrics
+            "related_metrics": root_cause.related_metrics,
+            "metric_count": len(root_cause.related_metrics),
+            # Suggested strategies
+            "suggested_strategies": [s.value for s in root_cause.suggested_strategies],
+            # Context features
+            "has_stack_trace": bool(context.get("stack_trace")),
+            "has_error_message": bool(context.get("error_message")),
+            "task_id": context.get("task_id", ""),
+            "workflow_id": context.get("workflow_id", ""),
+        }
+
+        # Add error message features if available
+        error_message = context.get("error_message", "")
+        if error_message:
+            features["error_message_length"] = len(error_message)
+            features["error_has_file_path"] = "/" in error_message or "\\" in error_message
+            features["error_has_line_number"] = bool(re.search(r":\d+", error_message))
+
+        # Add description features
+        if root_cause.description:
+            features["description_length"] = len(root_cause.description)
+            features["description_word_count"] = len(root_cause.description.split())
+
+        return features
 
     def reset(self) -> None:
         """Reset all learning data.
