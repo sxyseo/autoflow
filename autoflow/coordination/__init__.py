@@ -34,6 +34,14 @@ from autoflow.coordination.client import NodeClient, NodeClientError
 from autoflow.coordination.node import Node, NodeStatus
 from autoflow.coordination.registry import NodeRegistry, RegistryStats
 from autoflow.coordination.server import NodeServer, create_node_server
+from autoflow.coordination.sync import (
+    ConflictResolution,
+    StateConflict,
+    StateSnapshot,
+    StateSynchronizer,
+    SyncStatus,
+    VersionVector,
+)
 from autoflow.coordination.work_queue import (
     DistributedWorkQueue,
     WorkItem as QueueWorkItem,
@@ -68,4 +76,10 @@ __all__ = [
     "NodeHealthInfo",
     "HealthMonitorStats",
     "HealthCheckError",
+    "StateSynchronizer",
+    "VersionVector",
+    "StateSnapshot",
+    "StateConflict",
+    "ConflictResolution",
+    "SyncStatus",
 ]
