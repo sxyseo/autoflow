@@ -245,7 +245,8 @@ class User(Base):
 
     def __repr__(self) -> str:
         """String representation of User."""
-        return f"<User(id={self.id}, email={self.email}, status={self.status.value})>"
+        status_val = self.status.value if self.status else None
+        return f"<User(id={self.id}, email={self.email}, status={status_val})>"
 
 
 class Role(Base):
