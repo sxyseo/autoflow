@@ -198,6 +198,19 @@ class PatternStore:
         if pattern is None:
             return 0.0
 
+        # Find all attempts for this pattern
+        pattern_attempts = [
+            attempt for attempt in self.attempts.values()
+            if attempt.pattern_id == pattern_id
+        ]
+
+        if not pattern_attempts:
+            return 0.0
+
+        # Calculate success rate
+        successful = sum(1 for attempt in pattern_attempts if attempt.success)
+        return successful / len(pattern_attempts)
+
         return pattern.get_success_rate()
 
     def get_all_patterns(self) -> list[RecoveryPattern]:
