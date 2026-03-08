@@ -123,6 +123,7 @@ class PRManager:
         repo_path: Path to the git repository
         git_ops: GitOperations instance for git commands
         state: StateManager instance for persistent storage
+        refresh_frequency: Refresh check frequency in seconds
 
     Example:
         >>> pr_manager = PRManager(repo_path="/path/to/repo")
@@ -140,6 +141,7 @@ class PRManager:
         self,
         repo_path: str | Path,
         state_dir: Optional[str | Path] = None,
+        refresh_frequency: Optional[int] = None,
     ):
         """
         Initialize PRManager.
@@ -147,18 +149,22 @@ class PRManager:
         Args:
             repo_path: Path to the git repository
             state_dir: Optional state directory path (defaults to .autoflow)
+            refresh_frequency: Optional refresh check frequency in seconds.
+                If None, uses default of 300 seconds (5 minutes).
 
         Example:
             >>> pr_manager = PRManager(repo_path="/path/to/repo")
             >>> pr_manager = PRManager(
             ...     repo_path="/path/to/repo",
-            ...     state_dir=".autoflow"
+            ...     state_dir=".autoflow",
+            ...     refresh_frequency=600
             ... )
         """
         self.repo_path = Path(repo_path).resolve()
         self.git_ops = create_git_operations(str(self.repo_path))
         self.state = StateManager(state_dir or ".autoflow")
         self.state.initialize()
+        self.refresh_frequency = refresh_frequency if refresh_frequency is not None else 300
 
     def track_pr(self, pr_state: PRState) -> None:
         """

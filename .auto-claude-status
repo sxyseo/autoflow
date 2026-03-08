@@ -3,13 +3,13 @@
   "spec": "013-automatic-pr-refresh-functionality",
   "state": "building",
   "subtasks": {
-    "completed": 12,
+    "completed": 17,
     "total": 20,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Scheduled PR Refresh Job",
+    "current": "Fix Task Integration",
     "id": null,
     "total": 4
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 14,
+    "number": 19,
     "started_at": "2026-03-08T11:21:40.235016"
   },
-  "last_update": "2026-03-08T12:09:00.249029"
+  "last_update": "2026-03-08T12:17:42.374307"
 }
