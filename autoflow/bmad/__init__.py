@@ -19,6 +19,12 @@ from autoflow.bmad.artifacts import (
     ArtifactType,
 )
 from autoflow.bmad.checkpoint import BMADCheckpoint
+from autoflow.bmad.handoff import (
+    Handoff,
+    HandoffContext,
+    HandoffStatus,
+    create_handoff,
+)
 
 
 __all__ = [
@@ -27,4 +33,8 @@ __all__ = [
     "ArtifactType",
     "ArtifactCollection",
     "BMADCheckpoint",
+    "Handoff",
+    "HandoffContext",
+    "HandoffStatus",
+    "create_handoff",
 ]
