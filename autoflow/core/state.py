@@ -838,6 +838,329 @@ class StateManager:
 
         return removed
 
+    # === Distributed State Sync Methods ===
+
+    def export_state(
+        self,
+        include_specs: bool = True,
+        include_tasks: bool = True,
+        include_runs: bool = False,
+        include_memory: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Export state for distribution to other nodes.
+
+        Args:
+            include_specs: Include specifications in export
+            include_tasks: Include tasks in export
+            include_runs: Include runs in export
+            include_memory: Include memory in export
+
+        Returns:
+            Dictionary containing exported state data
+
+        Example:
+            >>> state_snapshot = state.export_state()
+            >>> # Send to another node or save for backup
+        """
+        export_data: dict[str, Any] = {
+            "exported_at": datetime.utcnow().isoformat(),
+            "state_dir": str(self.state_dir),
+        }
+
+        if include_specs and self.specs_dir.exists():
+            export_data["specs"] = []
+            for spec_file in self.specs_dir.glob("*.json"):
+                try:
+                    spec = self.read_json(spec_file)
+                    export_data["specs"].append(spec)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        if include_tasks and self.tasks_dir.exists():
+            export_data["tasks"] = []
+            for task_file in self.tasks_dir.glob("*.json"):
+                try:
+                    task = self.read_json(task_file)
+                    export_data["tasks"].append(task)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        if include_runs and self.runs_dir.exists():
+            export_data["runs"] = []
+            for run_file in self.runs_dir.glob("*.json"):
+                try:
+                    run = self.read_json(run_file)
+                    export_data["runs"].append(run)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        if include_memory and self.memory_dir.exists():
+            export_data["memory"] = []
+            for memory_file in self.memory_dir.glob("*.json"):
+                try:
+                    memory = self.read_json(memory_file)
+                    # Only include non-expired memory
+                    if "expires_at" in memory:
+                        expires_at = datetime.fromisoformat(memory["expires_at"])
+                        if datetime.utcnow() > expires_at:
+                            continue
+                    export_data["memory"].append(memory)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        return export_data
+
+    def import_state(
+        self,
+        state_data: dict[str, Any],
+        merge_strategy: str = "remote_wins",
+        create_backups: bool = True,
+    ) -> dict[str, int]:
+        """
+        Import state from a remote source.
+
+        Args:
+            state_data: State data dictionary (from export_state)
+            merge_strategy: Strategy for conflicts - "remote_wins", "local_wins", or "skip"
+            create_backups: Create backups before overwriting
+
+        Returns:
+            Dictionary with counts of imported items by type
+
+        Raises:
+            ValueError: If merge_strategy is invalid
+
+        Example:
+            >>> state_snapshot = load_remote_state()
+            >>> counts = state.import_state(state_snapshot, merge_strategy="remote_wins")
+            >>> print(f"Imported {counts['tasks']} tasks")
+        """
+        if merge_strategy not in ("remote_wins", "local_wins", "skip"):
+            raise ValueError(
+                f"Invalid merge_strategy: {merge_strategy}. "
+                "Must be 'remote_wins', 'local_wins', or 'skip'"
+            )
+
+        counts: dict[str, int] = {"specs": 0, "tasks": 0, "runs": 0, "memory": 0, "errors": 0}
+
+        # Import specs
+        if "specs" in state_data:
+            for spec_data in state_data["specs"]:
+                try:
+                    spec_id = spec_data.get("id")
+                    if not spec_id:
+                        counts["errors"] += 1
+                        continue
+
+                    existing_path = self.specs_dir / f"{spec_id}.json"
+                    should_import = True
+
+                    if merge_strategy == "skip" and existing_path.exists():
+                        should_import = False
+                    elif merge_strategy == "local_wins" and existing_path.exists():
+                        should_import = False
+
+                    if should_import:
+                        if create_backups and existing_path.exists():
+                            self._create_backup(existing_path)
+                        self.save_spec(spec_id, spec_data)
+                        counts["specs"] += 1
+                except Exception:
+                    counts["errors"] += 1
+
+        # Import tasks
+        if "tasks" in state_data:
+            for task_data in state_data["tasks"]:
+                try:
+                    task_id = task_data.get("id")
+                    if not task_id:
+                        counts["errors"] += 1
+                        continue
+
+                    existing_path = self.tasks_dir / f"{task_id}.json"
+                    should_import = True
+
+                    if merge_strategy == "skip" and existing_path.exists():
+                        should_import = False
+                    elif merge_strategy == "local_wins" and existing_path.exists():
+                        should_import = False
+
+                    if should_import:
+                        if create_backups and existing_path.exists():
+                            self._create_backup(existing_path)
+                        self.save_task(task_id, task_data)
+                        counts["tasks"] += 1
+                except Exception:
+                    counts["errors"] += 1
+
+        # Import runs
+        if "runs" in state_data:
+            for run_data in state_data["runs"]:
+                try:
+                    run_id = run_data.get("id")
+                    if not run_id:
+                        counts["errors"] += 1
+                        continue
+
+                    existing_path = self.runs_dir / f"{run_id}.json"
+                    should_import = True
+
+                    if merge_strategy == "skip" and existing_path.exists():
+                        should_import = False
+                    elif merge_strategy == "local_wins" and existing_path.exists():
+                        should_import = False
+
+                    if should_import:
+                        if create_backups and existing_path.exists():
+                            self._create_backup(existing_path)
+                        self.save_run(run_id, run_data)
+                        counts["runs"] += 1
+                except Exception:
+                    counts["errors"] += 1
+
+        # Import memory
+        if "memory" in state_data:
+            for memory_data in state_data["memory"]:
+                try:
+                    key = memory_data.get("key")
+                    if not key:
+                        counts["errors"] += 1
+                        continue
+
+                    # Check if memory is expired
+                    if "expires_at" in memory_data:
+                        expires_at = datetime.fromisoformat(memory_data["expires_at"])
+                        if datetime.utcnow() > expires_at:
+                            continue
+
+                    existing_path = self.memory_dir / f"{memory_data['id']}.json"
+                    should_import = True
+
+                    if merge_strategy == "skip" and existing_path.exists():
+                        should_import = False
+                    elif merge_strategy == "local_wins" and existing_path.exists():
+                        should_import = False
+
+                    if should_import:
+                        if create_backups and existing_path.exists():
+                            self._create_backup(existing_path)
+                        self.write_json(existing_path, memory_data)
+                        counts["memory"] += 1
+                except Exception:
+                    counts["errors"] += 1
+
+        return counts
+
+    def sync_state(
+        self,
+        remote_state_func: callable,
+        merge_strategy: str = "remote_wins",
+    ) -> dict[str, Any]:
+        """
+        Synchronize state with a remote source.
+
+        Fetches remote state, merges it with local state using the specified
+        strategy, and returns sync results.
+
+        Args:
+            remote_state_func: Callable that returns remote state data
+            merge_strategy: Strategy for conflicts - "remote_wins", "local_wins", or "skip"
+
+        Returns:
+            Dictionary with sync results including import counts and status
+
+        Raises:
+            ValueError: If merge_strategy is invalid
+            Exception: If remote_state_func fails
+
+        Example:
+            >>> def fetch_remote():
+            ...     # Fetch state from remote source
+            ...     return remote_data
+            >>>
+            >>> result = state.sync_state(fetch_remote, merge_strategy="remote_wins")
+            >>> print(f"Synced {result['imported']['tasks']} tasks")
+        """
+        # Fetch remote state
+        try:
+            remote_state = remote_state_func()
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to fetch remote state: {e}",
+                "imported": {},
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+        if not isinstance(remote_state, dict):
+            return {
+                "success": False,
+                "error": "Remote state must be a dictionary",
+                "imported": {},
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+        # Import remote state
+        try:
+            imported_counts = self.import_state(
+                remote_state,
+                merge_strategy=merge_strategy,
+                create_backups=True,
+            )
+            return {
+                "success": True,
+                "imported": imported_counts,
+                "remote_exported_at": remote_state.get("exported_at"),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to import remote state: {e}",
+                "imported": {},
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+    def merge_state(
+        self,
+        other_state_dir: Union[str, Path],
+        merge_strategy: str = "newest_wins",
+    ) -> dict[str, int]:
+        """
+        Merge state from another StateManager directory.
+
+        Args:
+            other_state_dir: Path to another state directory
+            merge_strategy: Strategy for conflicts - "newest_wins", "local_wins", "remote_wins", or "skip"
+
+        Returns:
+            Dictionary with counts of merged items by type
+
+        Raises:
+            ValueError: If merge_strategy is invalid
+
+        Example:
+            >>> # Merge state from backup directory
+            >>> counts = state.merge_state(".autoflow.backup", merge_strategy="newest_wins")
+        """
+        if merge_strategy not in ("newest_wins", "local_wins", "remote_wins", "skip"):
+            raise ValueError(
+                f"Invalid merge_strategy: {merge_strategy}. "
+                "Must be 'newest_wins', 'local_wins', 'remote_wins', or 'skip'"
+            )
+
+        other_dir = Path(other_state_dir)
+        if not other_dir.exists():
+            raise FileNotFoundError(f"State directory not found: {other_dir}")
+
+        # Create StateManager for other directory
+        other_manager = StateManager(other_dir)
+
+        # Export and merge
+        other_state = other_manager.export_state()
+        return self.import_state(other_state, merge_strategy=merge_strategy, create_backups=True)
+
 
 # === Module-level convenience functions ===
 
