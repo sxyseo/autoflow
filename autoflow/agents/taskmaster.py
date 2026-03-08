@@ -1456,6 +1456,35 @@ class TaskmasterAdapter:
             taskmaster_id=taskmaster_id,
         )
 
+    def _detect_conflicts(
+        self,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> list[TaskConflict]:
+        """
+        Detect conflicts between an Autoflow task and a Taskmaster task.
+
+        Compares the two versions of the same task and identifies fields
+        that have different values, indicating concurrent updates.
+
+        Args:
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            List of detected conflicts (empty if no conflicts)
+
+        Example:
+            >>> adapter = TaskmasterAdapter(config)
+            >>> af_task = Task(id="task-001", title="Fix bug", status=TaskStatus.IN_PROGRESS)
+            >>> tm_task = TaskmasterTask(id="task-001", title="Fix bug", status=TaskmasterTaskStatus.DONE)
+            >>> conflicts = adapter._detect_conflicts(af_task, tm_task)
+            >>> if conflicts:
+            ...     for conflict in conflicts:
+            ...         print(f"Conflict: {conflict.conflict_type}")
+        """
+        return self.conflict_resolver.detect_conflicts(autoflow_task, taskmaster_task)
+
     async def sync_from_taskmaster(
         self,
         status: Optional[TaskmasterTaskStatus] = None,
