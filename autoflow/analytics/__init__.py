@@ -69,6 +69,12 @@ from autoflow.analytics.roi import (
     ROITrend,
     TaskComplexity,
 )
+from autoflow.analytics.reports import (
+    ReportFormat,
+    ReportData,
+    ReportGenerator,
+    ReportConfig,
+)
 
 __all__ = [
     "MetricsCollector",
@@ -96,4 +102,8 @@ __all__ = [
     "ROIRecord",
     "ROITrend",
     "TaskComplexity",
+    "ReportGenerator",
+    "ReportFormat",
+    "ReportData",
+    "ReportConfig",
 ]

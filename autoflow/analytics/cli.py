@@ -18,7 +18,7 @@ Usage:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -158,7 +158,7 @@ def velocity(
 
     try:
         # Get velocity metrics
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         metrics = tracker.get_velocity_metrics(
@@ -252,7 +252,7 @@ def quality(
 
     try:
         # Get quality metrics
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         metrics = trends.get_quality_metrics(
@@ -348,7 +348,7 @@ def agents(
     perf = AgentPerformance()
 
     try:
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         if compare:
@@ -448,7 +448,7 @@ def roi(
     calculator = ROICalculator()
 
     try:
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         metrics = calculator.get_roi_summary(
@@ -557,32 +557,31 @@ def export(
         autoflow analytics export --format html --output report.html
     """
     try:
+        from datetime import UTC
+
         from autoflow.analytics.reports import ReportGenerator
 
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         generator = ReportGenerator()
 
         # Generate report
         if output_format == "json":
-            report = generator.generate_json_report(
-                start_date=start_date,
-                end_date=end_date,
+            content = generator.generate_json_report(
+                start_time=start_date,
+                end_time=end_date,
             )
-            content = json.dumps(report, indent=2, default=str)
         elif output_format == "markdown":
-            report = generator.generate_markdown_report(
-                start_date=start_date,
-                end_date=end_date,
+            content = generator.generate_markdown_report(
+                start_time=start_date,
+                end_time=end_date,
             )
-            content = report
         elif output_format == "html":
-            report = generator.generate_html_report(
-                start_date=start_date,
-                end_date=end_date,
+            content = generator.generate_html_report(
+                start_time=start_date,
+                end_time=end_date,
             )
-            content = report
         else:
             click.echo(f"Unsupported format: {output_format}", err=True)
             ctx.exit(1)
@@ -647,7 +646,7 @@ def metrics(
     collector = MetricsCollector()
 
     try:
-        end_date = datetime.now()
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         if metric:
