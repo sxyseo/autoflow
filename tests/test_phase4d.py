@@ -434,6 +434,123 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(catalog["agents"]["codex"]["resume"]["subcommand"], "resume")
         self.assertEqual(result["total_agents"], 4)
 
+    def test_cancel_run_updates_run_and_task_status(self) -> None:
+        self.create_spec("cancel-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="cancel-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason=""),
+        )
+        self.assertEqual(result["run"], run_id)
+        self.assertEqual(result["task_status"], "todo")
+        run_metadata = self.autoflow.read_json(self.autoflow.RUNS_DIR / run_id / "run.json")
+        self.assertEqual(run_metadata["status"], "cancelled")
+        self.assertIn("cancelled_at", run_metadata)
+        tasks = self.autoflow.load_tasks("cancel-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(task["status"], "todo")
+
+    def test_cancel_run_records_event_and_summary(self) -> None:
+        self.create_spec("event-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="event-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason="Test cancellation"),
+        )
+        events = self.autoflow.load_events("event-spec", limit=10)
+        cancelled_event = next((e for e in events if e.get("type") == "run.cancelled"), None)
+        self.assertIsNotNone(cancelled_event)
+        self.assertEqual(cancelled_event["payload"]["run"], run_id)
+        self.assertEqual(cancelled_event["payload"]["task"], "T1")
+        summary_path = self.autoflow.RUNS_DIR / run_id / "summary.md"
+        self.assertTrue(summary_path.exists())
+        summary_content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("Test cancellation", summary_content)
+
+    def test_cancel_run_with_reason(self) -> None:
+        self.create_spec("reason-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="reason-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        reason = "Agent process crashed unexpectedly"
+        result = self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason=reason),
+        )
+        self.assertEqual(result["reason"], reason)
+        tasks = self.autoflow.load_tasks("reason-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertGreaterEqual(len(task["notes"]), 1)
+        cancellation_note = next((n for n in task["notes"] if n["note"] == reason), None)
+        self.assertIsNotNone(cancellation_note)
+        self.assertIn("at", cancellation_note)
+        summary_path = self.autoflow.RUNS_DIR / run_id / "summary.md"
+        summary_content = summary_path.read_text(encoding="utf-8")
+        self.assertIn(reason, summary_content)
+
+    def test_cancel_run_fails_on_completed_run(self) -> None:
+        self.create_spec("completed-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="completed-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=run_id, result="success", summary="Work completed."),
+        )
+        with self.assertRaises(SystemExit) as context:
+            self.autoflow.cancel_run(SimpleNamespace(run=run_id, reason=""))
+        self.assertIn("cannot cancel run with status completed", str(context.exception))
+
+    def test_cancel_run_fails_on_unknown_run(self) -> None:
+        self.create_spec("unknown-spec")
+        with self.assertRaises(SystemExit) as context:
+            self.autoflow.cancel_run(SimpleNamespace(run="nonexistent-run-id", reason=""))
+        self.assertIn("unknown run: nonexistent-run-id", str(context.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
