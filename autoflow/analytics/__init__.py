@@ -57,6 +57,11 @@ from autoflow.analytics.quality import (
     TestResult,
     TestStatus,
 )
+from autoflow.analytics.velocity import (
+    VelocityTracker,
+    VelocityMetrics,
+    TaskRecord as VelocityTaskRecord,
+)
 from autoflow.analytics.roi import (
     ROICalculator,
     ROIMetrics,
@@ -70,6 +75,9 @@ __all__ = [
     "MetricReading",
     "MetricSummary",
     "MetricType",
+    "VelocityTracker",
+    "VelocityMetrics",
+    "VelocityTaskRecord",
     "QualityTrends",
     "QualityMetrics",
     "QualitySummary",

@@ -29,6 +29,7 @@ from typing import Any, Optional
 import click
 
 from autoflow import __version__
+from autoflow.analytics.cli import analytics
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 
@@ -1103,6 +1104,9 @@ def memory_delete(ctx: click.Context, key: str) -> None:
 
 # Register config command group
 main.add_command(config_cmd, name="config")
+
+# Register analytics command group
+main.add_command(analytics)
 
 
 if __name__ == "__main__":
