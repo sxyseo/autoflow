@@ -538,7 +538,7 @@ class ParallelCoordinator:
         self._current_group = task_group
 
         # Save initial state
-        self.state.save_parallel_group(group_id, task_group.model_dump())
+        self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
 
         self._stats.total_groups += 1
         self._stats.total_tasks += len(tasks)
@@ -587,7 +587,7 @@ class ParallelCoordinator:
 
         finally:
             # Save final state
-            self.state.save_parallel_group(group_id, task_group.model_dump())
+            self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
             self._current_group = None
             self._status = CoordinatorStatus.IDLE
             self._update_average_group_duration(result.duration_seconds or 0)
