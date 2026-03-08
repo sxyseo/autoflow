@@ -70,7 +70,14 @@ class CoordinatorStatus(str, Enum):
 class ParallelExecutionError(Exception):
     """Exception raised for parallel execution errors."""
 
-    def __init__(self, message: str, task_id: Optional[str] = None):
+    def __init__(self, message: str, task_id: Optional[str] = None) -> None:
+        """
+        Initialize the parallel execution error.
+
+        Args:
+            message: Error message describing what went wrong
+            task_id: Optional identifier of the task that caused the error
+        """
         self.task_id = task_id
         super().__init__(message)
 
@@ -106,7 +113,14 @@ class ParallelTaskResult:
         output: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
-        """Mark the task as complete."""
+        """
+        Mark the task as complete and calculate duration.
+
+        Args:
+            success: Whether the task completed successfully
+            output: Optional output from the task execution
+            error: Optional error message if the task failed
+        """
         self.success = success
         self.output = output
         self.error = error
@@ -154,7 +168,13 @@ class ParallelExecutionResult:
         success: bool,
         error: Optional[str] = None,
     ) -> None:
-        """Mark the execution as complete and aggregate results."""
+        """
+        Mark the execution as complete and aggregate results.
+
+        Args:
+            success: Whether the entire group completed successfully
+            error: Optional error message if the group execution failed
+        """
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
@@ -170,7 +190,7 @@ class ParallelExecutionResult:
         Aggregate results from all tasks.
 
         Counts successful/failed tasks, collects all outputs and errors,
-        and builds aggregated metadata.
+        and builds aggregated metadata for easy access to execution summary.
         """
         # Count successful and failed tasks
         self.successful_tasks = sum(
@@ -201,7 +221,12 @@ class ParallelExecutionResult:
         })
 
     def _create_output_summary(self) -> str:
-        """Create a summary of all task outputs."""
+        """
+        Create a summary of all task outputs.
+
+        Returns:
+            String summary with task outputs truncated to 200 characters each
+        """
         if not self.task_results:
             return "No tasks executed"
 
@@ -217,7 +242,12 @@ class ParallelExecutionResult:
         return "\n".join(summaries) if summaries else "No successful outputs"
 
     def _create_error_summary(self) -> str:
-        """Create a summary of all task errors."""
+        """
+        Create a summary of all task errors.
+
+        Returns:
+            String summary with all error messages from failed tasks
+        """
         if not self.task_results:
             return "No tasks executed"
 
@@ -232,8 +262,12 @@ class ParallelExecutionResult:
         """
         Get all task outputs aggregated into a single string.
 
+        Collects all outputs from successful tasks and formats them with
+        task ID headers for easy reading.
+
         Returns:
-            Combined output from all tasks with task ID prefixes
+            Combined output from all tasks with task ID prefixes.
+            Returns empty string if no tasks produced output.
         """
         if not self.task_results:
             return ""
@@ -249,8 +283,11 @@ class ParallelExecutionResult:
         """
         Get all errors from failed tasks.
 
+        Collects all error messages from failed tasks with task ID context.
+
         Returns:
-            List of error messages with task ID context
+            List of error messages with task ID context.
+            Returns empty list if no errors occurred.
         """
         errors = []
         for task_id, result in self.task_results.items():
@@ -262,15 +299,21 @@ class ParallelExecutionResult:
         """
         Get a comprehensive summary of the parallel execution.
 
+        Calculates success rate and provides statistics about task execution
+        and any conflicts detected.
+
         Returns:
             Dictionary with execution summary including:
+            - group_id: Unique identifier for the task group
             - total_tasks: Total number of tasks
             - successful_tasks: Number of successful tasks
             - failed_tasks: Number of failed tasks
             - duration_seconds: Total execution duration
-            - success_rate: Percentage of successful tasks
+            - success_rate: Percentage of successful tasks (0-100)
             - has_errors: Whether any errors occurred
             - error_count: Number of errors
+            - conflicts_detected: Whether conflicts were detected
+            - high_severity_conflicts: Number of high-severity conflicts
         """
         success_rate = (
             (self.successful_tasks / self.total_tasks * 100)
@@ -297,7 +340,24 @@ class ParallelExecutionResult:
 
 
 class ParallelCoordinatorStats(BaseModel):
-    """Statistics about parallel coordinator runs."""
+    """
+    Statistics about parallel coordinator runs.
+
+    Tracks execution metrics for monitoring and performance analysis.
+
+    Attributes:
+        total_groups: Total number of task groups executed
+        successful_groups: Number of groups that completed successfully
+        failed_groups: Number of groups that failed
+        total_tasks: Total number of tasks across all groups
+        completed_tasks: Number of tasks that completed successfully
+        failed_tasks: Number of tasks that failed
+        average_group_duration: Average duration of task group executions
+        last_execution_at: Timestamp of the last execution
+        max_parallel: Maximum number of concurrent tasks allowed
+        active_tasks: Number of currently active tasks
+        started_at: Timestamp when the coordinator was created
+    """
 
     total_groups: int = 0
     successful_groups: int = 0
@@ -424,7 +484,12 @@ class ParallelCoordinator:
         return self._status
 
     def _update_stats(self) -> None:
-        """Update coordinator statistics."""
+        """
+        Update coordinator statistics.
+
+        Synchronizes the max_parallel setting and ensures statistics
+        are up-to-date for reporting.
+        """
         self._stats.max_parallel = self.max_parallel
         # Active tasks is tracked during execution
         # This is called when tasks start/complete
@@ -625,7 +690,14 @@ class ParallelCoordinator:
 
             Wraps task execution in a try/except block to ensure that
             exceptions from one task don't affect other tasks running
-            concurrently.
+            concurrently. Uses the semaphore to limit concurrent executions.
+
+            Args:
+                task_data: Dictionary containing task information (task, workdir, etc.)
+                task_id: Unique identifier for the task
+
+            Returns:
+                Tuple of (task_id, ParallelTaskResult) with execution results
             """
             task_result = ParallelTaskResult(task_id=task_id)
 
@@ -722,7 +794,15 @@ class ParallelCoordinator:
         return task_results
 
     def _update_average_group_duration(self, duration: float) -> None:
-        """Update running average of group duration."""
+        """
+        Update running average of group duration.
+
+        Calculates a new average duration including the newly completed
+        group execution.
+
+        Args:
+            duration: Duration of the just-completed group in seconds
+        """
         total = self._stats.total_groups
         current_avg = self._stats.average_group_duration
         self._stats.average_group_duration = (
@@ -733,8 +813,23 @@ class ParallelCoordinator:
         """
         Get a summary of coordinator statistics.
 
+        Provides a comprehensive view of coordinator performance and
+        current capacity for planning additional parallel executions.
+
         Returns:
-            Dictionary with stats summary including available slots
+            Dictionary with stats summary including:
+            - total_groups: Total number of task groups executed
+            - successful_groups: Number of successful groups
+            - failed_groups: Number of failed groups
+            - total_tasks: Total number of tasks executed
+            - completed_tasks: Number of completed tasks
+            - failed_tasks: Number of failed tasks
+            - average_group_duration: Average group execution time
+            - max_parallel: Maximum concurrent tasks allowed
+            - active_tasks: Currently active tasks
+            - available_slots: Number of available execution slots
+            - last_execution_at: ISO timestamp of last execution
+            - started_at: ISO timestamp of coordinator start
         """
         self._update_stats()
         return {
@@ -756,7 +851,9 @@ class ParallelCoordinator:
         """
         Clean up coordinator resources.
 
-        Resets the coordinator state and releases any held resources.
+        Resets the coordinator state, clears the current task group,
+        and releases the semaphore. This should be called when the
+        coordinator is no longer needed.
         """
         self._status = CoordinatorStatus.STOPPING
         self._current_group = None
@@ -764,16 +861,43 @@ class ParallelCoordinator:
         self._status = CoordinatorStatus.STOPPED
 
     async def __aenter__(self) -> "ParallelCoordinator":
-        """Async context manager entry."""
+        """
+        Async context manager entry.
+
+        Initializes the coordinator when entering the context.
+
+        Returns:
+            The initialized coordinator instance
+        """
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Async context manager exit."""
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
+        """
+        Async context manager exit.
+
+        Cleans up coordinator resources when exiting the context,
+        regardless of whether an exception occurred.
+
+        Args:
+            exc_type: Exception type if an exception was raised
+            exc_val: Exception value if an exception was raised
+            exc_tb: Exception traceback if an exception was raised
+        """
         await self.cleanup()
 
     def __repr__(self) -> str:
-        """Return string representation."""
+        """
+        Return string representation.
+
+        Returns:
+            String representation showing status, parallelism, and group count
+        """
         return (
             f"ParallelCoordinator("
             f"status={self._status.value}, "
