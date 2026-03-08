@@ -57,6 +57,16 @@ class RunStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ParallelGroupStatus(str, Enum):
+    """Status of a parallel task group."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class Task(BaseModel):
     """Represents a task in the system."""
 
@@ -142,6 +152,24 @@ class Memory(BaseModel):
         if self.expires_at is None:
             return False
         return datetime.utcnow() > self.expires_at
+
+
+class ParallelTaskGroup(BaseModel):
+    """Represents a group of tasks to be executed in parallel."""
+
+    id: str
+    title: str
+    description: str = ""
+    status: ParallelGroupStatus = ParallelGroupStatus.PENDING
+    task_ids: list[str] = Field(default_factory=list)
+    max_parallel: int = 3  # Maximum number of parallel tasks
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def touch(self) -> None:
+        """Update the updated_at timestamp."""
+        self.updated_at = datetime.utcnow()
 
 
 class StateManager:
