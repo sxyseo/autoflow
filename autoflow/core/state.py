@@ -591,12 +591,17 @@ class StateManager:
         except FileNotFoundError:
             return None
 
-    def list_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_specs(
+        self,
+        tags: Optional[list[str]] = None,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
         """
         List specifications, optionally filtered by tags.
 
         Args:
             tags: Filter by tags (specs must have all tags)
+            include_archived: If True, include archived specs in results
 
         Returns:
             List of spec dictionaries
@@ -615,6 +620,19 @@ class StateManager:
                 specs.append(spec)
             except (json.JSONDecodeError, KeyError):
                 continue
+
+        # Optionally include archived specs
+        if include_archived and self.archive_dir.exists():
+            for spec_file in self.archive_dir.glob("*.json"):
+                try:
+                    spec = self.read_json(spec_file)
+                    if tags:
+                        spec_tags = set(spec.get("tags", []))
+                        if not set(tags).issubset(spec_tags):
+                            continue
+                    specs.append(spec)
+                except (json.JSONDecodeError, KeyError):
+                    continue
 
         # Sort by created_at descending
         specs.sort(key=lambda s: s.get("created_at", ""), reverse=True)
