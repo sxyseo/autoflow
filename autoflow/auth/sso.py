@@ -88,7 +88,7 @@ class SAMLConfig(BaseModel):
         ...     idp_sso_url="https://idp.example.com/sso",
         ...     idp_certificate="-----BEGIN CERTIFICATE-----\\n..."
         ... )
-        >>> provider = SAMLProvider(config)
+        >>> provider = SAMLProvider(config=config)
     """
 
     # Service Provider (SP) Configuration
@@ -154,7 +154,7 @@ class SAMLProvider(BaseModel):
         config: SAML configuration
 
     Example:
-        >>> provider = SAMLProvider(config)
+        >>> provider = SAMLProvider(config=config)
         >>> auth_request = provider.create_auth_request()
         >>> user_attrs = provider.parse_response(saml_response)
     """
@@ -533,7 +533,7 @@ class OIDCProvider(BaseModel):
         config: OIDC configuration
 
     Example:
-        >>> provider = OIDCProvider(config)
+        >>> provider = OIDCProvider(config=config)
         >>> auth_url = provider.get_authorization_url()
         >>> tokens = provider.exchange_code_for_token(code)
         >>> user_info = provider.get_user_info(tokens["access_token"])
