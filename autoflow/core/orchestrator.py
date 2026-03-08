@@ -17,6 +17,14 @@ Usage:
         skill_name="IMPLEMENTER"
     )
 
+    # Run multiple tasks in parallel
+    result = await orchestrator.run_tasks_parallel(
+        tasks=[
+            {"task": "Fix bug in app.py", "workdir": "./src"},
+            {"task": "Update README", "workdir": "./docs"},
+        ]
+    )
+
     # Run continuous iteration cycle
     await orchestrator.run_continuous_iteration()
 """
@@ -44,6 +52,7 @@ from autoflow.agents.claude_code import ClaudeCodeAdapter
 from autoflow.agents.codex import CodexAdapter
 from autoflow.agents.openclaw import OpenClawAdapter, SpawnResult
 from autoflow.core.config import Config, load_config
+from autoflow.core.parallel import ParallelCoordinator, ParallelExecutionResult
 from autoflow.core.state import (
     Run,
     RunStatus,
@@ -228,6 +237,7 @@ class AutoflowOrchestrator:
         self._skill_executor: Optional[SkillExecutor] = None
         self._tmux_manager: Optional[TmuxManager] = None
         self._openclaw_adapter: Optional[OpenClawAdapter] = None
+        self._parallel_coordinator: Optional[ParallelCoordinator] = None
         self._adapters: dict[str, AgentAdapter] = {}
 
         # Statistics
@@ -299,6 +309,16 @@ class AutoflowOrchestrator:
                 gateway_url=self.config.openclaw.gateway_url,
             )
         return self._openclaw_adapter
+
+    @property
+    def parallel_coordinator(self) -> ParallelCoordinator:
+        """Get parallel coordinator, creating if needed."""
+        if self._parallel_coordinator is None:
+            self._parallel_coordinator = ParallelCoordinator(
+                config=self._config,
+                state_dir=self._state_dir,
+            )
+        return self._parallel_coordinator
 
     @property
     def status(self) -> OrchestratorStatus:
@@ -586,6 +606,73 @@ class AutoflowOrchestrator:
             )
         except Exception as e:
             raise OrchestratorError(f"Failed to spawn ACP agent: {e}") from e
+
+    async def run_tasks_parallel(
+        self,
+        tasks: list[dict[str, Any]],
+        check_conflicts: bool = True,
+        timeout_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> ParallelExecutionResult:
+        """
+        Run multiple tasks in parallel using the ParallelCoordinator.
+
+        Executes multiple independent tasks concurrently with proper resource
+        management, conflict detection, and result aggregation. This is useful
+        for speeding up work that can be split into independent pieces.
+
+        Args:
+            tasks: List of task dictionaries, each containing at least 'task' key.
+                   Each dict can include: task, workdir, skill_name, agent_type,
+                   context_files, context_text, etc.
+            check_conflicts: If True, check for file conflicts before execution
+            timeout_seconds: Timeout for each task (default: 300)
+            metadata: Additional metadata for the execution
+
+        Returns:
+            ParallelExecutionResult with aggregated results from all tasks
+
+        Raises:
+            OrchestratorError: If parallel execution setup fails
+
+        Example:
+            >>> result = await orchestrator.run_tasks_parallel(
+            ...     tasks=[
+            ...         {"task": "Fix bug in app.py", "workdir": "./src"},
+            ...         {"task": "Update README", "workdir": "./docs"},
+            ...         {"task": "Add tests", "workdir": "./tests"},
+            ...     ],
+            ...     timeout_seconds=600
+            ... )
+            >>>
+            >>> print(f"Completed: {result.successful_tasks}/{result.total_tasks}")
+            >>> for task_id, task_result in result.task_results.items():
+            ...     if task_result.success:
+            ...         print(f"{task_id}: {task_result.output}")
+        """
+        self._status = OrchestratorStatus.RUNNING
+
+        try:
+            # Execute tasks via parallel coordinator
+            result = await self.parallel_coordinator.execute_parallel(
+                tasks=tasks,
+                check_conflicts=check_conflicts,
+                timeout_seconds=timeout_seconds,
+                metadata=metadata,
+            )
+
+            # Update orchestrator statistics
+            self._stats.total_tasks += result.total_tasks
+            self._stats.completed_tasks += result.successful_tasks
+            self._stats.failed_tasks += result.failed_tasks
+
+            return result
+
+        except Exception as e:
+            raise OrchestratorError(f"Parallel execution failed: {e}") from e
+
+        finally:
+            self._status = OrchestratorStatus.IDLE
 
     async def run_cycle(
         self,
@@ -1049,6 +1136,9 @@ class AutoflowOrchestrator:
 
         if self._tmux_manager:
             await self._tmux_manager.cleanup_all()
+
+        if self._parallel_coordinator:
+            await self._parallel_coordinator.cleanup()
 
         for adapter in self._adapters.values():
             await adapter.cleanup()
