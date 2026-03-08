@@ -33,6 +33,8 @@ from autoflow.core.config import Config, load_config, load_system_config, get_st
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 from autoflow.collaboration.workspace import WorkspaceManager
 from autoflow.collaboration.models import RoleType
+from autoflow.collaboration.activity import ActivityTracker
+from autoflow.collaboration.notifications import NotificationManager
 
 
 # Click context settings
@@ -1652,6 +1654,265 @@ def workspace_update_member(
 
     except Exception as e:
         click.echo(f"Error updating member: {e}", err=True)
+        ctx.exit(1)
+
+
+# === Activity Commands ===
+
+@main.group()
+def activity() -> None:
+    """Manage activity feed and track events."""
+    pass
+
+
+@activity.command("list")
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=50,
+    help="Maximum number of activities to return.",
+)
+@click.option(
+    "--offset",
+    "-o",
+    type=int,
+    default=0,
+    help="Offset for pagination.",
+)
+@click.option(
+    "--user",
+    "-u",
+    "user_id",
+    type=str,
+    default=None,
+    help="Filter by user ID.",
+)
+@click.option(
+    "--workspace",
+    "-w",
+    "workspace_id",
+    type=str,
+    default=None,
+    help="Filter by workspace ID.",
+)
+@click.option(
+    "--type",
+    "-t",
+    "activity_type",
+    type=str,
+    default=None,
+    help="Filter by activity type.",
+)
+@click.option(
+    "--entity",
+    "-e",
+    "entity_id",
+    type=str,
+    default=None,
+    help="Filter by entity ID.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def activity_list(
+    ctx: click.Context,
+    limit: int,
+    offset: int,
+    user_id: Optional[str],
+    workspace_id: Optional[str],
+    activity_type: Optional[str],
+    entity_id: Optional[str],
+    output_json: bool,
+) -> None:
+    """
+    List recent activities.
+
+    Shows a feed of recent activities with optional filtering by user, workspace, type, or entity.
+
+    \b
+    Examples:
+        autoflow activity list
+        autoflow activity list --limit 20
+        autoflow activity list --user user-001
+        autoflow activity list --workspace workspace-001 --type task_created
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        tracker = ActivityTracker(state_dir)
+        tracker.initialize()
+
+        # Query activities based on filters
+        if user_id:
+            activities = tracker.get_activities_by_user(
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+            )
+        elif workspace_id:
+            activities = tracker.get_activities_by_workspace(
+                workspace_id=workspace_id,
+                limit=limit,
+                offset=offset,
+            )
+        elif activity_type:
+            activities = tracker.get_activities_by_type(
+                activity_type=activity_type,
+                limit=limit,
+                offset=offset,
+            )
+        elif entity_id:
+            activities = tracker.get_activities_for_entity(
+                entity_id=entity_id,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            activities = tracker.get_recent_activities(
+                limit=limit,
+                offset=offset,
+            )
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "activities": [a.model_dump(mode="json") for a in activities],
+                "count": len(activities),
+            })
+        else:
+            if not activities:
+                click.echo("No activities found.")
+                return
+
+            click.echo(f"Recent activities ({len(activities)}):")
+            for activity in activities:
+                click.echo(f"\n  [{activity.id}]")
+                click.echo(f"  Type: {activity.activity_type}")
+                click.echo(f"  Actor: {activity.actor_id}")
+                if activity.workspace_id:
+                    click.echo(f"  Workspace: {activity.workspace_id}")
+                if activity.entity_id:
+                    click.echo(f"  Entity: {activity.entity_id}")
+                click.echo(f"  Timestamp: {_format_datetime(activity.timestamp)}")
+                if activity.description:
+                    click.echo(f"  Description: {activity.description}")
+
+    except Exception as e:
+        click.echo(f"Error listing activities: {e}", err=True)
+        ctx.exit(1)
+
+
+@activity.group()
+def notifications() -> None:
+    """Manage notifications."""
+    pass
+
+
+@notifications.command("list")
+@click.argument("user_id", type=str)
+@click.option(
+    "--unread",
+    "-u",
+    is_flag=True,
+    help="Show only unread notifications.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=50,
+    help="Maximum number of notifications to return.",
+)
+@click.option(
+    "--offset",
+    "-o",
+    type=int,
+    default=0,
+    help="Offset for pagination.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def notifications_list(
+    ctx: click.Context,
+    user_id: str,
+    unread: bool,
+    limit: int,
+    offset: int,
+    output_json: bool,
+) -> None:
+    """
+    List notifications for a user.
+
+    Shows notifications for a specific user, optionally filtering for unread only.
+
+    \b
+    Examples:
+        autoflow activity notifications list user-001
+        autoflow activity notifications list user-001 --unread
+        autoflow activity notifications list user-001 --limit 20
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = NotificationManager(state_dir)
+        manager.initialize()
+
+        # Get notifications
+        if unread:
+            notifications_list = manager.get_unread_notifications(
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            notifications_list = manager.get_user_notifications(
+                user_id=user_id,
+                limit=limit,
+                offset=offset,
+            )
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "notifications": [n.model_dump(mode="json") for n in notifications_list],
+                "count": len(notifications_list),
+            })
+        else:
+            if not notifications_list:
+                if unread:
+                    click.echo(f"No unread notifications for user: {user_id}")
+                else:
+                    click.echo(f"No notifications for user: {user_id}")
+                return
+
+            if unread:
+                click.echo(f"Unread notifications for {user_id} ({len(notifications_list)}):")
+            else:
+                click.echo(f"Notifications for {user_id} ({len(notifications_list)}):")
+
+            for notification in notifications_list:
+                click.echo(f"\n  [{notification.id}]")
+                click.echo(f"  Type: {notification.type}")
+                click.echo(f"  Title: {notification.title}")
+                if notification.message:
+                    click.echo(f"  Message: {notification.message}")
+                click.echo(f"  Status: {notification.status}")
+                click.echo(f"  Created: {_format_datetime(notification.created_at)}")
+                if notification.read_at:
+                    click.echo(f"  Read: {_format_datetime(notification.read_at)}")
+
+    except Exception as e:
+        click.echo(f"Error listing notifications: {e}", err=True)
         ctx.exit(1)
 
 
