@@ -5,7 +5,7 @@ Provides data models for managing multiple git repositories with proper
 dependency tracking and branch configuration.
 
 Usage:
-    from autoflow.core.repository import Repository
+    from autoflow.core.repository import Repository, RepositoryDependency
 
     repo = Repository(
         id="frontend",
@@ -14,13 +14,23 @@ Usage:
         url="https://github.com/org/frontend.git",
         branch="main"
     )
+
+    # Define a dependency relationship
+    dep = RepositoryDependency(
+        source_repo_id="frontend",
+        target_repo_id="backend-api",
+        dependency_type="runtime",
+        branch_constraint="main"
+    )
 """
 
 from __future__ import annotations
 
 import os
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -39,6 +49,111 @@ class BranchConfig(BaseModel):
         if v is None and "default" in info.data:
             return info.data["default"]
         return v
+
+
+class DependencyType(str, Enum):
+    """Type of repository dependency relationship."""
+
+    RUNTIME = "runtime"
+    """Required for the application to run."""
+
+    DEVELOPMENT = "development"
+    """Required only for development and testing."""
+
+    PEER = "peer"
+    """Optional but should be compatible with the source repository."""
+
+    OPTIONAL = "optional"
+    """Completely optional dependency."""
+
+
+class RepositoryDependency(BaseModel):
+    """
+    Represents a dependency relationship between repositories.
+
+    This model tracks cross-repository dependencies including version
+    constraints, branch requirements, and dependency types. It enables
+    proper ordering of operations and validation of repository setups.
+
+    Attributes:
+        source_repo_id: ID of the repository that has this dependency
+        target_repo_id: ID of the repository being depended on
+        dependency_type: Type of dependency relationship
+        branch_constraint: Required branch for the target repository
+        version_constraint: Optional version constraint
+        required: Whether this dependency must be satisfied
+        created_at: When this dependency was created
+        metadata: Additional metadata about the dependency
+    """
+
+    source_repo_id: str
+    """ID of the repository that has this dependency."""
+
+    target_repo_id: str
+    """ID of the repository being depended on."""
+
+    dependency_type: DependencyType = DependencyType.RUNTIME
+    """Type of dependency relationship."""
+
+    branch_constraint: Optional[str] = None
+    """Required branch or tag for the target repository."""
+
+    version_constraint: Optional[str] = None
+    """Optional version constraint (if using versioned releases)."""
+
+    required: bool = True
+    """Whether this dependency must be satisfied for operations."""
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    """Timestamp when this dependency was created."""
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    """Additional metadata about the dependency."""
+
+    def is_satisfied_by(
+        self,
+        target_repo: Repository,
+        target_branch: Optional[str] = None
+    ) -> bool:
+        """
+        Check if a target repository and branch satisfies this dependency.
+
+        Args:
+            target_repo: The target repository to check
+            target_branch: The branch of the target repository (uses current if None)
+
+        Returns:
+            True if the dependency is satisfied, False otherwise
+        """
+        # Check repository ID matches
+        if target_repo.id != self.target_repo_id:
+            return False
+
+        # Check branch constraint if specified
+        if self.branch_constraint is not None:
+            branch_to_check = target_branch or target_repo.branch.current
+            if branch_to_check != self.branch_constraint:
+                return False
+
+        return True
+
+    def __str__(self) -> str:
+        """String representation of the dependency."""
+        constraint = f"@{self.branch_constraint}" if self.branch_constraint else ""
+        required = " (required)" if self.required else " (optional)"
+        return (
+            f"{self.source_repo_id} -> {self.target_repo_id}{constraint}"
+            f" [{self.dependency_type}]{required}"
+        )
+
+    def __repr__(self) -> str:
+        """Detailed string representation of the dependency."""
+        return (
+            f"RepositoryDependency(source={self.source_repo_id!r}, "
+            f"target={self.target_repo_id!r}, "
+            f"type={self.dependency_type.value!r}, "
+            f"branch={self.branch_constraint!r})"
+        )
 
 
 class Repository(BaseModel):
