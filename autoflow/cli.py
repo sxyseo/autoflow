@@ -1109,6 +1109,56 @@ def spec() -> None:
     pass
 
 
+@spec.command("list")
+@click.option(
+    "--archived",
+    "-a",
+    is_flag=True,
+    help="Include archived specifications.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of specs to show.",
+)
+@click.pass_context
+def spec_list(
+    ctx: click.Context,
+    archived: bool,
+    limit: int,
+) -> None:
+    """
+    List specifications.
+
+    Shows specifications, optionally including archived ones.
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    specs = state_manager.list_specs(include_archived=archived)[:limit]
+
+    if ctx.obj["output_json"]:
+        _print_json({"specs": specs, "count": len(specs)})
+        return
+
+    click.echo("Specifications")
+    click.echo("=" * 60)
+
+    if not specs:
+        click.echo("No specifications found.")
+        return
+
+    for spec_data in specs:
+        spec_id = spec_data.get("id", "unknown")
+        spec_title = spec_data.get("title", "N/A")
+        click.echo(f"\n[{spec_id}] {spec_title}")
+        if spec_data.get("tags"):
+            tags = ", ".join(spec_data["tags"])
+            click.echo(f"  Tags: {tags}")
+
+
 @spec.command("archive")
 @click.argument("spec_id", type=str)
 @click.option(
