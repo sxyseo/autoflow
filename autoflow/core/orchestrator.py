@@ -657,8 +657,8 @@ class AutoflowOrchestrator:
         )
 
         # Save initial state
-        self.state.save_task(task_id, task_record.model_dump())
-        self.state.save_run(run_id, run_record.model_dump())
+        self.state.save_task(task_id, task_record.model_dump(mode='json'))
+        self.state.save_run(run_id, run_record.model_dump(mode='json'))
 
         self._current_task = task_record
         self._stats.total_tasks += 1
@@ -715,8 +715,8 @@ class AutoflowOrchestrator:
                 self._stats.failed_tasks += 1
 
             # Update state
-            self.state.save_task(task_id, task_record.model_dump())
-            self.state.save_run(run_id, run_record.model_dump())
+            self.state.save_task(task_id, task_record.model_dump(mode='json'))
+            self.state.save_run(run_id, run_record.model_dump(mode='json'))
 
             return result
 
@@ -726,8 +726,8 @@ class AutoflowOrchestrator:
                 status=RunStatus.FAILED,
                 error=str(e),
             )
-            self.state.save_task(task_id, task_record.model_dump())
-            self.state.save_run(run_id, run_record.model_dump())
+            self.state.save_task(task_id, task_record.model_dump(mode='json'))
+            self.state.save_run(run_id, run_record.model_dump(mode='json'))
             self._stats.failed_tasks += 1
             raise OrchestratorError(f"Symphony workflow execution failed: {e}") from e
 
