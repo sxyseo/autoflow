@@ -68,6 +68,7 @@ class OrchestratorStatus(str, Enum):
     IDLE = "idle"
     INITIALIZING = "initializing"
     RUNNING = "running"
+    SYMPHONY_WORKFLOW = "symphony_workflow"
     PAUSED = "paused"
     STOPPING = "stopping"
     STOPPED = "stopped"
