@@ -17,6 +17,7 @@ from autoflow.healing.actions import (
     RollbackManager,
     get_global_registry,
 )
+from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
 from autoflow.healing.config import HealingConfig, HealingThreshold
 from autoflow.healing.diagnostic import (
     ConfidenceLevel,
@@ -70,6 +71,7 @@ __all__ = [
     "ActionRegistry",
     "RollbackManager",
     "get_global_registry",
+    "AdaptiveRetryExecutor",
     "HealingOrchestrator",
     "OrchestratorState",
     "HealingOutcome",
