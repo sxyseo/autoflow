@@ -23,6 +23,8 @@ LOGS_DIR = STATE_DIR / "logs"
 WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
 MEMORY_DIR = STATE_DIR / "memory"
 STRATEGY_MEMORY_DIR = MEMORY_DIR / "strategy"
+REPOSITORIES_DIR = STATE_DIR / "repositories"
+DEPENDENCIES_DIR = STATE_DIR / "dependencies"
 DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
 SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
 SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
@@ -74,7 +76,7 @@ def read_json(path: Path) -> Any:
 
 
 def ensure_state() -> None:
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR, REPOSITORIES_DIR, DEPENDENCIES_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -1868,6 +1870,34 @@ def show_status(_: argparse.Namespace) -> None:
     print(json.dumps(status, indent=2, ensure_ascii=True))
 
 
+def repo_add_cmd(args: argparse.Namespace) -> None:
+    """Add a repository to the registry."""
+    ensure_state()
+    repo_id = args.id
+    repo_file = REPOSITORIES_DIR / f"{repo_id}.json"
+
+    if repo_file.exists():
+        raise SystemExit(f"repository already exists: {repo_id}")
+
+    # Build repository data
+    repo_data = {
+        "id": repo_id,
+        "name": args.name,
+        "path": args.path,
+        "url": args.url if args.url else None,
+        "description": args.description if args.description else None,
+        "enabled": True,
+        "branch": {
+            "default": args.branch if args.branch else "main",
+            "current": None,
+            "protected": ["main", "master"]
+        }
+    }
+
+    write_json(repo_file, repo_data)
+    print(f"Repository '{repo_id}' added successfully")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1947,6 +1977,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
+
+    repo_add_cmd_parser = sub.add_parser("repo-add", help="register a repository with autoflow")
+    repo_add_cmd_parser.add_argument("--id", required=True, help="unique repository identifier")
+    repo_add_cmd_parser.add_argument("--name", required=True, help="human-readable repository name")
+    repo_add_cmd_parser.add_argument("--path", required=True, help="filesystem path to the repository")
+    repo_add_cmd_parser.add_argument("--url", default="", help="git remote URL (optional)")
+    repo_add_cmd_parser.add_argument("--description", default="", help="repository description (optional)")
+    repo_add_cmd_parser.add_argument("--branch", default="", help="default branch name (default: main)")
+    repo_add_cmd_parser.set_defaults(func=repo_add_cmd)
 
     init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
     init_system_cmd.set_defaults(func=init_system_config)
