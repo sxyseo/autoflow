@@ -569,7 +569,104 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     return read_json(path)
 
 
-def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
+def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
+    """
+    Parse a dependency reference into (repository_id, task_id).
+
+    Args:
+        dep_ref: Dependency reference, either "task-id" or "repo-id/task-id"
+
+    Returns:
+        Tuple of (repository_id, task_id). repository_id is None for same-repo deps.
+
+    Examples:
+        >>> parse_dependency_ref("T1")
+        (None, 'T1')
+        >>> parse_dependency_ref("backend/T1")
+        ('backend', 'T1')
+    """
+    if "/" in dep_ref:
+        parts = dep_ref.split("/", 1)
+        return parts[0], parts[1]
+    return None, dep_ref
+
+
+def load_tasks_from_repository(repository_id: str, spec_slug: str) -> dict[str, Any]:
+    """
+    Load tasks from a spec in another repository.
+
+    Args:
+        repository_id: Repository ID containing the spec
+        spec_slug: Spec slug to load tasks from
+
+    Returns:
+        Tasks data dictionary
+
+    Raises:
+        SystemExit: If repository or task file doesn't exist
+    """
+    # Validate repository exists
+    repo_manager = RepositoryManager(STATE_DIR)
+    if not repo_manager.repository_exists(repository_id):
+        raise SystemExit(
+            f"cannot load dependency: repository '{repository_id}' not found"
+        )
+
+    # Load repository configuration
+    repo_data = repo_manager.load_repository(repository_id)
+    if not repo_data:
+        raise SystemExit(f"cannot load dependency: repository '{repository_id}' not found")
+
+    # Resolve repository path
+    from autoflow.core.repository import Repository
+    repo = Repository(**repo_data)
+    repo_path = repo.get_resolved_path()
+
+    # Construct path to task file in other repository
+    other_tasks_file = repo_path / ".autoflow" / "tasks" / f"{spec_slug}.json"
+
+    if not other_tasks_file.exists():
+        raise SystemExit(
+            f"cannot load dependency: task file not found for spec '{spec_slug}' "
+            f"in repository '{repository_id}' at {other_tasks_file}"
+        )
+
+    return read_json(other_tasks_file)
+
+
+def task_lookup(data: dict[str, Any], task_id: str, spec_slug: str | None = None) -> dict[str, Any]:
+    """
+    Look up a task by ID, supporting cross-repository references.
+
+    Args:
+        data: Current spec's tasks data
+        task_id: Task ID, either "T1" or "repo-id/spec-slug/T1"
+        spec_slug: Current spec slug (required for cross-repo lookups)
+
+    Returns:
+        Task dictionary
+
+    Raises:
+        SystemExit: If task is not found
+    """
+    # Check if this is a cross-repo reference (format: repo-id/spec-slug/task-id)
+    if task_id.count("/") >= 2:
+        parts = task_id.split("/")
+        repo_id = parts[0]
+        other_spec_slug = parts[1]
+        other_task_id = "/".join(parts[2:])  # Handle case where task ID contains /
+
+        # Load tasks from other repository
+        other_tasks = load_tasks_from_repository(repo_id, other_spec_slug)
+        for task in other_tasks.get("tasks", []):
+            if task["id"] == other_task_id:
+                return task
+        raise SystemExit(
+            f"unknown task: {task_id} (in spec '{other_spec_slug}' "
+            f"in repository '{repo_id}')"
+        )
+
+    # Same-repo lookup
     for task in data.get("tasks", []):
         if task["id"] == task_id:
             return task
@@ -1245,7 +1342,8 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
                 continue
         blocked = False
         for dep in task.get("depends_on", []):
-            dep_task = task_lookup(tasks, dep)
+            # task_lookup now handles both same-repo and cross-repo dependencies
+            dep_task = task_lookup(tasks, dep, spec_slug=spec_slug)
             if dep_task["status"] != "done":
                 blocked = True
                 break
@@ -1353,7 +1451,7 @@ def build_prompt(
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
-    selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
+    selected_task = task_lookup(tasks, task_id, spec_slug=spec_slug) if task_id else next_task_data(spec_slug, role)
     review_summary = review_status_summary(spec_slug)
     fix_request = load_fix_request(spec_slug)
     fix_request_data = load_fix_request_data(spec_slug)
@@ -1520,7 +1618,7 @@ def create_run(args: argparse.Namespace) -> None:
             raise SystemExit("no ready task for this role")
         chosen_task = next_candidate["id"]
     tasks = load_tasks(args.spec)
-    task = task_lookup(tasks, chosen_task)
+    task = task_lookup(tasks, chosen_task, spec_slug=args.spec)
     expected_role = "reviewer" if task["status"] == "in_review" and args.role == "reviewer" else task["owner_role"]
     if expected_role != args.role:
         raise SystemExit(f"task {chosen_task} belongs to role {task['owner_role']}, not {args.role}")
@@ -1554,7 +1652,7 @@ def resume_run(args: argparse.Namespace) -> None:
             "spec review approval is not valid; approve the current planning contract before resuming implementation"
         )
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
+    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     task["status"] = "in_progress"
     task.setdefault("notes", []).append({"at": now_stamp(), "note": f"retry created from {args.run}"})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
@@ -1588,7 +1686,7 @@ def complete_run(args: argparse.Namespace) -> None:
     (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
 
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
+    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     if metadata["role"] == "reviewer":
         next_status = "done" if args.result == "success" else args.result
     elif args.result == "success":
@@ -1858,7 +1956,7 @@ def workflow_state(args: argparse.Namespace) -> None:
     ready = []
     blocked = []
     for task in data.get("tasks", []):
-        deps_done = all(task_lookup(data, dep)["status"] == "done" for dep in task.get("depends_on", []))
+        deps_done = all(task_lookup(data, dep, spec_slug=args.spec)["status"] == "done" for dep in task.get("depends_on", []))
         entry = {
             "id": task["id"],
             "title": task["title"],
