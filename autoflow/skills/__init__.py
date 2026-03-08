@@ -4,6 +4,7 @@ Autoflow Skills - Skill Loading and Execution
 This module provides the skills system for Autoflow:
 - SkillRegistry: Load and validate skill definitions
 - SkillExecutor: Execute skills with appropriate agents
+- SymphonyBridge: Integrate Symphony workflows with Autoflow skills
 
 Skills are OpenClaw-compatible definitions that specify:
 - Role and workflow
@@ -27,6 +28,14 @@ from autoflow.skills.executor import (
     SkillExecutionStatus,
     create_executor,
 )
+from autoflow.skills.symphony_bridge import (
+    SymphonyBridge,
+    SymphonyBridgeError,
+    SymphonyBridgeResult,
+    SymphonyBridgeStatus,
+    SymphonyWorkflowContext,
+    create_symphony_bridge,
+)
 
 __all__ = [
     # Registry
@@ -43,4 +52,11 @@ __all__ = [
     "SkillExecutionResult",
     "SkillExecutionStatus",
     "create_executor",
+    # Symphony Bridge
+    "SymphonyBridge",
+    "SymphonyBridgeError",
+    "SymphonyBridgeResult",
+    "SymphonyBridgeStatus",
+    "SymphonyWorkflowContext",
+    "create_symphony_bridge",
 ]
