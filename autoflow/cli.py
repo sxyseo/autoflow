@@ -1101,6 +1101,14 @@ def memory_delete(ctx: click.Context, key: str) -> None:
         ctx.exit(1)
 
 
+# === Spec Commands ===
+
+@main.group()
+def spec() -> None:
+    """Manage specifications."""
+    pass
+
+
 # Register config command group
 main.add_command(config_cmd, name="config")
 
