@@ -6,7 +6,7 @@ These models integrate with the database layer while providing clean
 API interfaces for authorization operations.
 
 Usage:
-    from autoflow.auth.rbac import Role, Permission, Policy, PolicyEffect
+    from autoflow.auth.rbac import Role, Permission, Policy, PolicyEffect, PermissionChecker
 
     # Create a permission model
     permission = Permission(
@@ -33,6 +33,11 @@ Usage:
         actions=["specs:write"],
         conditions={"role": "developer"}
     )
+
+    # Check permissions
+    checker = PermissionChecker(roles=[role], policies=[policy])
+    if checker.can_access("specs", "write"):
+        print("Access granted")
 """
 
 from __future__ import annotations
@@ -587,3 +592,338 @@ class Policy(BaseModel):
     def __repr__(self) -> str:
         """String representation of Policy."""
         return f"<Policy(id={self.id}, name={self.name}, effect={self.effect.value})>"
+
+
+class PermissionChecker:
+    """
+    Permission checking and authorization logic.
+
+    Provides methods to check if users have permissions to perform actions
+    on resources, evaluating both role-based permissions and policies.
+
+    Attributes:
+        roles: List of roles assigned to the user
+        policies: List of policies to evaluate
+        user_id: Optional user ID for context
+
+    Example:
+        >>> checker = PermissionChecker(roles=[role], policies=[policy])
+        >>> checker.can_access("specs", "write")
+        True
+        >>> checker.check_permission("specs:write")
+        True
+    """
+
+    def __init__(
+        self,
+        roles: list[Role],
+        policies: Optional[list[Policy]] = None,
+        user_id: Optional[str] = None,
+    ):
+        """
+        Initialize the permission checker.
+
+        Args:
+            roles: List of roles assigned to the user
+            policies: Optional list of policies for fine-grained control
+            user_id: Optional user ID for context in policy evaluation
+
+        Example:
+            >>> checker = PermissionChecker(roles=[developer_role], user_id="user-123")
+        """
+        self.roles = roles
+        self.policies = policies or []
+        self.user_id = user_id
+
+    def get_all_permissions(self) -> set[str]:
+        """
+        Get all permissions granted by the user's roles.
+
+        Returns:
+            Set of permission names
+
+        Example:
+            >>> perms = checker.get_all_permissions()
+            >>> "specs:write" in perms
+            True
+        """
+        permissions: set[str] = set()
+        for role in self.roles:
+            permissions.update(role.permission_names)
+        return permissions
+
+    def has_permission(self, permission_name: str) -> bool:
+        """
+        Check if user has a specific permission.
+
+        Args:
+            permission_name: Permission name to check (e.g., "specs:write")
+
+        Returns:
+            True if user has the permission through any role
+
+        Example:
+            >>> checker.has_permission("specs:write")
+            True
+        """
+        return permission_name in self.get_all_permissions()
+
+    def has_any_permission(self, permission_names: list[str]) -> bool:
+        """
+        Check if user has any of the specified permissions.
+
+        Args:
+            permission_names: List of permission names to check
+
+        Returns:
+            True if user has at least one of the permissions
+
+        Example:
+            >>> checker.has_any_permission(["specs:read", "specs:write"])
+            True
+        """
+        all_permissions = self.get_all_permissions()
+        return any(perm in all_permissions for perm in permission_names)
+
+    def has_all_permissions(self, permission_names: list[str]) -> bool:
+        """
+        Check if user has all of the specified permissions.
+
+        Args:
+            permission_names: List of permission names to check
+
+        Returns:
+            True if user has all of the permissions
+
+        Example:
+            >>> checker.has_all_permissions(["specs:read", "tasks:read"])
+            True
+        """
+        all_permissions = self.get_all_permissions()
+        return all(perm in all_permissions for perm in permission_names)
+
+    def check_permission(self, permission_name: str) -> bool:
+        """
+        Check if user has a specific permission (alias for has_permission).
+
+        This method provides a consistent interface for permission checking.
+
+        Args:
+            permission_name: Permission name to check
+
+        Returns:
+            True if user has the permission
+
+        Example:
+            >>> checker.check_permission("specs:write")
+            True
+        """
+        return self.has_permission(permission_name)
+
+    def can_access(
+        self,
+        resource: str,
+        action: str,
+        context: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Check if user can access a resource with a specific action.
+
+        Evaluates both role-based permissions and policies.
+        Policies are evaluated in priority order, with DENY taking precedence.
+
+        Args:
+            resource: Resource being accessed (e.g., "specs", "specs/my-spec")
+            action: Action being performed (e.g., "read", "write", "delete")
+            context: Optional context for policy evaluation
+
+        Returns:
+            True if access is allowed
+
+        Example:
+            >>> checker.can_access("specs", "write")
+            True
+            >>> checker.can_access("specs/my-spec", "delete", {"owner": "user-123"})
+            False
+        """
+        # Build permission name
+        permission_name = f"{resource}:{action}"
+
+        # Check role-based permissions
+        if self.has_permission(permission_name):
+            # Check if any policies explicitly deny
+            if self._check_policies(resource, action, context):
+                return True
+            # If no policies apply, allow based on role
+            return not self._policies_apply(resource, action, context)
+
+        # No role-based permission, check if policies allow
+        return self._check_policies(resource, action, context)
+
+    def _policies_apply(
+        self,
+        resource: str,
+        action: str,
+        context: Optional[dict[str, Any]],
+    ) -> bool:
+        """
+        Check if any policies apply to the request.
+
+        Args:
+            resource: Resource being accessed
+            action: Action being performed
+            context: Request context
+
+        Returns:
+            True if at least one policy applies
+        """
+        ctx = context or {}
+        if self.user_id:
+            ctx["user_id"] = self.user_id
+
+        for policy in self.policies:
+            if policy.applies_to(resource, action, ctx):
+                return True
+        return False
+
+    def _check_policies(
+        self,
+        resource: str,
+        action: str,
+        context: Optional[dict[str, Any]],
+    ) -> bool:
+        """
+        Evaluate all applicable policies.
+
+        DENY policies take precedence over ALLOW policies.
+        Policies are evaluated in priority order (highest first).
+
+        Args:
+            resource: Resource being accessed
+            action: Action being performed
+            context: Request context
+
+        Returns:
+            True if access is allowed, False if denied
+
+        Example:
+            >>> checker._check_policies("specs", "write", {"role": "developer"})
+            True
+        """
+        # Build context
+        ctx = context or {}
+        if self.user_id:
+            ctx["user_id"] = self.user_id
+
+        # Add role names to context
+        ctx["roles"] = [role.name for role in self.roles]
+
+        # Sort policies by priority (highest first)
+        sorted_policies = sorted(self.policies, key=lambda p: p.priority, reverse=True)
+
+        # Find applicable policies
+        applicable_policies = [
+            policy for policy in sorted_policies
+            if policy.applies_to(resource, action, ctx)
+        ]
+
+        if not applicable_policies:
+            # No policies apply, default to deny
+            return False
+
+        # Check for explicit DENY (takes precedence)
+        for policy in applicable_policies:
+            if policy.effect == PolicyEffect.DENY:
+                return False
+
+        # If no DENY, check for ALLOW
+        for policy in applicable_policies:
+            if policy.effect == PolicyEffect.ALLOW:
+                return True
+
+        # Default to deny if no explicit ALLOW
+        return False
+
+    def get_accessible_resources(
+        self,
+        resource_type: str,
+        action: str,
+        available_resources: list[str],
+        context: Optional[dict[str, Any]] = None,
+    ) -> list[str]:
+        """
+        Filter list of resources to only those user can access.
+
+        Args:
+            resource_type: Base resource type (e.g., "specs")
+            action: Action to check
+            available_resources: List of resource identifiers
+            context: Optional context for policy evaluation
+
+        Returns:
+            List of accessible resource identifiers
+
+        Example:
+            >>> resources = ["specs/proj1", "specs/proj2", "specs/proj3"]
+            >>> accessible = checker.get_accessible_resources("specs", "write", resources)
+            >>> accessible
+            ["specs/proj1", "specs/proj3"]
+        """
+        accessible: list[str] = []
+        for resource in available_resources:
+            if self.can_access(resource, action, context):
+                accessible.append(resource)
+        return accessible
+
+    def get_role_names(self) -> list[str]:
+        """
+        Get list of role names assigned to the user.
+
+        Returns:
+            List of role names
+
+        Example:
+            >>> checker.get_role_names()
+            ["developer", "team-lead"]
+        """
+        return [role.name for role in self.roles]
+
+    def has_role(self, role_name: str) -> bool:
+        """
+        Check if user has a specific role.
+
+        Args:
+            role_name: Role name to check
+
+        Returns:
+            True if user has the role
+
+        Example:
+            >>> checker.has_role("admin")
+            False
+        """
+        return role_name in self.get_role_names()
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Convert permission checker to dictionary representation.
+
+        Returns:
+            Dictionary with checker state
+
+        Example:
+            >>> checker_dict = checker.to_dict()
+            >>> checker_dict["role_count"]
+            2
+        """
+        return {
+            "user_id": self.user_id,
+            "roles": [role.to_dict(include_permissions=False) for role in self.roles],
+            "role_names": self.get_role_names(),
+            "permission_count": len(self.get_all_permissions()),
+            "policy_count": len(self.policies),
+        }
+
+    def __repr__(self) -> str:
+        """String representation of PermissionChecker."""
+        return f"<PermissionChecker(user_id={self.user_id}, roles={len(self.roles)}, policies={len(self.policies)})>"
