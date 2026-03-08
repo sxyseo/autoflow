@@ -1,0 +1,40 @@
+{
+  "handoff_id": "b865cef3",
+  "role": "writer",
+  "next_role": "reviewer",
+  "status": "pending",
+  "checkpoint": {
+    "from_role": "writer",
+    "to_role": "reviewer",
+    "artifacts": [
+      {
+        "name": "code",
+        "type": "file",
+        "path": "README.md",
+        "required": true,
+        "description": "",
+        "content_check": null,
+        "metadata": {}
+      }
+    ],
+    "description": "Writer must complete code",
+    "required": true,
+    "metadata": {}
+  },
+  "context": {
+    "task_description": "Test handoff",
+    "artifacts": {
+      "name": "",
+      "artifacts": [],
+      "metadata": {}
+    },
+    "metadata": {},
+    "notes": ""
+  },
+  "created_at": "2026-03-08T02:32:22.484919",
+  "started_at": null,
+  "completed_at": null,
+  "duration_seconds": null,
+  "validation_errors": [],
+  "metadata": {}
+}

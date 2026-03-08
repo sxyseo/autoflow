@@ -91,6 +91,125 @@ class BMADManager:
         self.handoffs_dir = self.root / ".autoflow" / "bmad" / "handoffs"
         self.handoffs_dir.mkdir(parents=True, exist_ok=True)
 
+    def load_checkpoints_from_config(
+        self, config_path: Path | str
+    ) -> list[Any]:
+        """Load checkpoints from a JSON configuration file.
+
+        Reads a JSON config file containing checkpoint definitions and
+        registers each checkpoint. This enables bulk checkpoint configuration
+        from a single file rather than registering each checkpoint individually.
+
+        The config file should follow the schema defined in templates/bmad/schema.json.
+        Example structure:
+            {
+              "checkpoints": [
+                {
+                  "from_role": "writer",
+                  "to_role": "reviewer",
+                  "description": "Writer must complete code and tests",
+                  "required": true,
+                  "artifacts": [
+                    {
+                      "name": "code",
+                      "type": "file",
+                      "path": "src/module.py",
+                      "required": true
+                    }
+                  ]
+                }
+              ]
+            }
+
+        Args:
+            config_path: Path to the JSON configuration file.
+
+        Returns:
+            List of registered BMADCheckpoint objects.
+
+        Raises:
+            OSError: If unable to read the config file.
+            ValueError: If config file is invalid or contains invalid checkpoint data.
+            json.JSONDecodeError: If config file is not valid JSON.
+        """
+        from autoflow.bmad.checkpoint import BMADCheckpoint
+        from autoflow.bmad.artifacts import ArtifactSpec, ArtifactType
+
+        # Convert to Path if needed
+        if isinstance(config_path, str):
+            config_path = Path(config_path)
+
+        # Read config file
+        try:
+            with config_path.open("r") as f:
+                config_data = json.load(f)
+        except OSError as e:
+            raise OSError(f"Failed to read config file: {e}") from e
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in config file: {e.msg}", e.doc, e.pos
+            ) from e
+
+        # Validate config structure
+        if not isinstance(config_data, dict):
+            raise ValueError("Config must be a JSON object")
+        if "checkpoints" not in config_data:
+            raise ValueError("Config must contain 'checkpoints' key")
+        if not isinstance(config_data["checkpoints"], list):
+            raise ValueError("'checkpoints' must be a list")
+
+        checkpoints = []
+
+        # Register each checkpoint
+        for checkpoint_data in config_data["checkpoints"]:
+            # Validate checkpoint structure
+            if not isinstance(checkpoint_data, dict):
+                raise ValueError("Each checkpoint must be a JSON object")
+            if "from_role" not in checkpoint_data:
+                raise ValueError("Checkpoint missing 'from_role' field")
+            if "to_role" not in checkpoint_data:
+                raise ValueError("Checkpoint missing 'to_role' field")
+
+            # Convert artifact dicts to ArtifactSpec objects
+            artifacts = []
+            for artifact_data in checkpoint_data.get("artifacts", []):
+                if not isinstance(artifact_data, dict):
+                    raise ValueError("Artifact must be a JSON object")
+                if "name" not in artifact_data:
+                    raise ValueError("Artifact missing 'name' field")
+                if "type" not in artifact_data:
+                    raise ValueError("Artifact missing 'type' field")
+                if "path" not in artifact_data:
+                    raise ValueError("Artifact missing 'path' field")
+
+                # Convert type string to ArtifactType enum
+                artifact_type = ArtifactType(artifact_data["type"])
+
+                artifact = ArtifactSpec(
+                    name=artifact_data["name"],
+                    type=artifact_type,
+                    path=artifact_data["path"],
+                    required=artifact_data.get("required", True),
+                    description=artifact_data.get("description", ""),
+                    content_check=artifact_data.get("content_check"),
+                    metadata=artifact_data.get("metadata", {}),
+                )
+                artifacts.append(artifact)
+
+            # Create and register checkpoint
+            checkpoint = self.register_checkpoint(
+                from_role=checkpoint_data["from_role"],
+                to_role=checkpoint_data["to_role"],
+                artifacts=artifacts,
+                description=checkpoint_data.get("description", ""),
+                required=checkpoint_data.get("required", True),
+                metadata=checkpoint_data.get("metadata", {}),
+            )
+
+            checkpoints.append(checkpoint)
+
+        return checkpoints
+
     def _get_checkpoint_path(self, from_role: str, to_role: str) -> Path:
         """Get the file path for a checkpoint.
 

@@ -1,0 +1,18 @@
+{
+  "from_role": "writer",
+  "to_role": "reviewer",
+  "artifacts": [
+    {
+      "name": "code",
+      "type": "file",
+      "path": "README.md",
+      "required": true,
+      "description": "",
+      "content_check": null,
+      "metadata": {}
+    }
+  ],
+  "description": "Writer must complete code",
+  "required": true,
+  "metadata": {}
+}
