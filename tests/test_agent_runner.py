@@ -31,11 +31,11 @@ class AgentRunnerTests(unittest.TestCase):
 
     def test_regular_command_uses_prompt_text(self) -> None:
         command = self.module.build_command(
-            {"command": "echo", "args": ["agent"]},
+            {"command": "claude", "args": ["--print"]},
             str(self.prompt_file),
             run_metadata=None,
         )
-        self.assertEqual(command, ["echo", "agent", "Implement the selected task."])
+        self.assertEqual(command, ["claude", "--print", "Implement the selected task."])
 
     def test_codex_resume_uses_subcommand(self) -> None:
         command = self.module.build_command(
@@ -52,17 +52,17 @@ class AgentRunnerTests(unittest.TestCase):
             ["codex", "--full-auto", "resume", "--last", "Implement the selected task."],
         )
 
-    def test_claude_resume_uses_continue_flag(self) -> None:
+    def test_claude_resume_uses_resume_flag(self) -> None:
         command = self.module.build_command(
             {
                 "command": "claude",
                 "args": [],
-                "resume": {"mode": "args", "args": ["--continue"]},
+                "resume": {"mode": "args", "args": ["--resume"]},
             },
             str(self.prompt_file),
             run_metadata={"resume_from": "run-2"},
         )
-        self.assertEqual(command, ["claude", "--continue", "Implement the selected task."])
+        self.assertEqual(command, ["claude", "--resume", "Implement the selected task."])
 
     def test_model_and_tools_are_applied(self) -> None:
         command = self.module.build_command(
@@ -70,7 +70,7 @@ class AgentRunnerTests(unittest.TestCase):
                 "command": "claude",
                 "args": [],
                 "model": "claude-sonnet-4-6",
-                "tools": ["Read", "Bash(git:*)"],
+                "tools": ["Read", "Bash", "Write"],
             },
             str(self.prompt_file),
             run_metadata=None,
@@ -82,7 +82,7 @@ class AgentRunnerTests(unittest.TestCase):
                 "--model",
                 "claude-sonnet-4-6",
                 "--allowedTools",
-                "Read,Bash(git:*)",
+                "Read,Bash,Write",
                 "Implement the selected task.",
             ],
         )
@@ -90,7 +90,7 @@ class AgentRunnerTests(unittest.TestCase):
     def test_acp_stdio_agent_uses_transport_command(self) -> None:
         command = self.module.build_command(
             {
-                "command": "placeholder",
+                "command": "claude",
                 "protocol": "acp",
                 "transport": {
                     "type": "stdio",
@@ -120,7 +120,7 @@ class AgentRunnerTests(unittest.TestCase):
                         "args": [],
                         "model": "claude-sonnet-4-6",
                         "tools": ["Read"],
-                        "resume": {"mode": "args", "args": ["--continue"]},
+                        "resume": {"mode": "args", "args": ["--resume"]},
                     },
                 }
             )
@@ -147,7 +147,7 @@ class AgentRunnerTests(unittest.TestCase):
                 "claude-sonnet-4-6",
                 "--allowedTools",
                 "Read",
-                "--continue",
+                "--resume",
                 "Implement the selected task.",
             ],
         )
