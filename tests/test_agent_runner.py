@@ -337,6 +337,66 @@ class AgentRunnerTests(unittest.TestCase):
             )
         self.assertIn("Invalid agent specification", str(cm.exception))
 
+    def test_path_traversal_prevented(self) -> None:
+        """Test that path traversal attacks are prevented."""
+        from scripts.agent_validation import validate_path, ValidationError
+        import tempfile
+
+        # Test various path traversal attempts (all should be rejected)
+        path_traversal_attempts = [
+            ("../../../etc/passwd", "/workspace"),
+            ("../../sensitive_file.txt", "/workspace"),
+            ("../../../../../../../../etc/passwd", "/workspace"),
+            ("./../../etc/passwd", "/workspace"),
+            ("../sibling_dir/file.txt", "/workspace/allowed"),
+            ("/etc/passwd", "/workspace"),  # Absolute path
+            ("/tmp/test", "/workspace"),  # Another absolute path
+            ("~/../../etc/passwd", "/workspace"),  # With home expansion
+            ("./file/../../../etc/passwd", "/workspace"),  # Mixed
+            ("/workspace/../etc/passwd", "/workspace"),  # Starts in base but escapes
+        ]
+
+        for path, base_dir in path_traversal_attempts:
+            with self.subTest(path=path, base_dir=base_dir):
+                with self.assertRaises(ValidationError) as cm:
+                    validate_path(path, base_dir=base_dir, allow_absolute=False)
+                # Verify the error message indicates the security issue
+                self.assertTrue(
+                    "outside base directory" in str(cm.exception) or
+                    "Absolute paths are not allowed" in str(cm.exception) or
+                    "directory traversal" in str(cm.exception).lower()
+                )
+
+        # Test that valid paths within a temporary directory are accepted
+        with tempfile.TemporaryDirectory() as temp_base:
+            # Create actual files for testing
+            test_file = Path(temp_base) / "file.txt"
+            test_file.write_text("test content")
+
+            subdir = Path(temp_base) / "subdir"
+            subdir.mkdir()
+            test_subdir_file = subdir / "file.txt"
+            test_subdir_file.write_text("test content")
+
+            # Test valid paths using actual file paths
+            valid_paths = [
+                str(test_file),
+                str(test_subdir_file),
+            ]
+
+            for path in valid_paths:
+                with self.subTest(path=path):
+                    try:
+                        result = validate_path(path, base_dir=temp_base, allow_absolute=True)
+                        # Verify the resolved path is within base directory
+                        base_path = Path(temp_base).resolve()
+                        self.assertTrue(
+                            str(result).startswith(str(base_path)),
+                            f"Resolved path {result} should start with base {base_path}"
+                        )
+                    except ValidationError:
+                        self.fail(f"Valid path {path} should not raise ValidationError")
+
     def test_command_chaining_rejected(self) -> None:
         """Test that command chaining attempts are comprehensively rejected."""
         # Test command chaining in command field
