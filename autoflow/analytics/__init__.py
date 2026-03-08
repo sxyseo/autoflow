@@ -9,10 +9,10 @@ Core Components:
     VelocityTracker: Task completion rates and cycle times
     QualityTrends: Test pass rates and review outcomes
     AgentPerformance: Backend effectiveness comparison
-    (ROICalculator): Time saved vs manual effort (future)
+    ROICalculator: Time saved vs manual effort
 
 Usage:
-    from autoflow.analytics import MetricsCollector, QualityTrends, AgentPerformance
+    from autoflow.analytics import MetricsCollector, QualityTrends, AgentPerformance, ROICalculator
 
     collector = MetricsCollector()
     collector.record_metric("task_duration", 45.2, metadata={"task_id": "build-123"})
@@ -27,6 +27,11 @@ Usage:
     perf.record_execution("claude_code", "success", 45.2)
     summary = perf.get_agent_summary("claude_code")
     print(f"Success rate: {summary.success_rate:.1f}%")
+
+    roi = ROICalculator()
+    roi.record_task_completion("build-123", 1800, 7200, TaskComplexity.MEDIUM)
+    metrics = roi.get_roi_summary()
+    print(f"Time saved: {metrics.total_time_saved_hours:.1f}h")
 """
 
 from autoflow.analytics.agent_performance import (
@@ -52,6 +57,13 @@ from autoflow.analytics.quality import (
     TestResult,
     TestStatus,
 )
+from autoflow.analytics.roi import (
+    ROICalculator,
+    ROIMetrics,
+    ROIRecord,
+    ROITrend,
+    TaskComplexity,
+)
 
 __all__ = [
     "MetricsCollector",
@@ -71,4 +83,9 @@ __all__ = [
     "AgentPerformanceSummary",
     "AgentComparison",
     "AgentExecutionStatus",
+    "ROICalculator",
+    "ROIMetrics",
+    "ROIRecord",
+    "ROITrend",
+    "TaskComplexity",
 ]
