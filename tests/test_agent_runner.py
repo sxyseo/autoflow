@@ -162,7 +162,7 @@ class AgentRunnerTests(unittest.TestCase):
             )
         self.assertIn("Invalid agent specification", str(cm.exception))
 
-    def test_shell_metacharacters_in_args_rejected(self) -> None:
+    def test_shell_metacharacters_rejected(self) -> None:
         """Test that shell metacharacters in arguments are rejected."""
         malicious_args = [
             ["evil", "|", "rm", "-rf", "/"],
