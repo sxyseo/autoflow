@@ -626,3 +626,448 @@ class NotificationManager:
                     deleted_count += 1
 
         return deleted_count
+
+    def notify_review_request(
+        self,
+        user_id: str,
+        reviewer_id: str,
+        task_id: str,
+        task_title: str,
+        workspace_id: str,
+        team_id: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a review request notification.
+
+        Args:
+            user_id: User ID requesting the review
+            reviewer_id: User ID to notify (the reviewer)
+            task_id: Task ID requiring review
+            task_title: Title of the task
+            workspace_id: Workspace ID
+            team_id: Optional team ID
+            message: Optional custom message
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_review_request(
+            ...     user_id="user-001",
+            ...     reviewer_id="user-002",
+            ...     task_id="task-001",
+            ...     task_title="Fix authentication bug",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Review Requested
+        """
+        if message is None:
+            message = f"Please review task: {task_title}"
+
+        notification = self.create_notification(
+            user_id=reviewer_id,
+            notification_type=NotificationType.REVIEW_REQUEST,
+            title="Review Requested",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "requester_id": user_id,
+                "task_id": task_id,
+                "task_title": task_title,
+            },
+        )
+
+        # Automatically send the notification
+        self.send_notification(notification.id, reviewer_id)
+
+        return notification
+
+    def notify_review_approved(
+        self,
+        user_id: str,
+        reviewer_id: str,
+        task_id: str,
+        task_title: str,
+        workspace_id: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a review approved notification.
+
+        Args:
+            user_id: User ID whose task was approved
+            reviewer_id: User ID who approved the review
+            task_id: Task ID that was approved
+            task_title: Title of the task
+            workspace_id: Workspace ID
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_review_approved(
+            ...     user_id="user-001",
+            ...     reviewer_id="user-002",
+            ...     task_id="task-001",
+            ...     task_title="Fix authentication bug",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Review Approved
+        """
+        message = f"Your task '{task_title}' has been approved by {reviewer_id}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.REVIEW_APPROVED,
+            title="Review Approved",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "reviewer_id": reviewer_id,
+                "task_id": task_id,
+                "task_title": task_title,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_review_rejected(
+        self,
+        user_id: str,
+        reviewer_id: str,
+        task_id: str,
+        task_title: str,
+        reason: Optional[str],
+        workspace_id: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a review rejected notification.
+
+        Args:
+            user_id: User ID whose task was rejected
+            reviewer_id: User ID who rejected the review
+            task_id: Task ID that was rejected
+            task_title: Title of the task
+            reason: Optional reason for rejection
+            workspace_id: Workspace ID
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_review_rejected(
+            ...     user_id="user-001",
+            ...     reviewer_id="user-002",
+            ...     task_id="task-001",
+            ...     task_title="Fix authentication bug",
+            ...     reason="Tests failing",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Review Rejected
+        """
+        message = f"Your task '{task_title}' has been rejected"
+        if reason:
+            message += f". Reason: {reason}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.REVIEW_REJECTED,
+            title="Review Rejected",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "reviewer_id": reviewer_id,
+                "task_id": task_id,
+                "task_title": task_title,
+                "reason": reason,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_mention(
+        self,
+        user_id: str,
+        mentioned_by: str,
+        content: str,
+        workspace_id: str,
+        entity_type: str,
+        entity_id: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a mention notification.
+
+        Args:
+            user_id: User ID who was mentioned
+            mentioned_by: User ID who mentioned them
+            content: Content where the mention occurred (truncated in message)
+            workspace_id: Workspace ID
+            entity_type: Type of entity (task, spec, comment, etc.)
+            entity_id: ID of the entity
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_mention(
+            ...     user_id="user-001",
+            ...     mentioned_by="user-002",
+            ...     content="Can you review this @user-001?",
+            ...     workspace_id="workspace-001",
+            ...     entity_type="comment",
+            ...     entity_id="comment-001"
+            ... )
+            >>> print(notification.title)
+            You were mentioned
+        """
+        # Truncate content if too long
+        content_preview = content[:100] + "..." if len(content) > 100 else content
+
+        message = f"You were mentioned by {mentioned_by}: {content_preview}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.MENTION,
+            title="You were mentioned",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "mentioned_by": mentioned_by,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "content": content,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_workspace_update(
+        self,
+        user_id: str,
+        workspace_id: str,
+        workspace_name: str,
+        update_type: str,
+        description: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a workspace update notification.
+
+        Args:
+            user_id: User ID to notify
+            workspace_id: Workspace ID that was updated
+            workspace_name: Name of the workspace
+            update_type: Type of update (settings_changed, member_added, etc.)
+            description: Human-readable description of the update
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_workspace_update(
+            ...     user_id="user-001",
+            ...     workspace_id="workspace-001",
+            ...     workspace_name="Project X",
+            ...     update_type="settings_changed",
+            ...     description="Workspace settings have been updated"
+            ... )
+            >>> print(notification.title)
+            Workspace Update
+        """
+        message = f"Workspace '{workspace_name}': {description}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.WORKSPACE_UPDATE,
+            title="Workspace Update",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "workspace_name": workspace_name,
+                "update_type": update_type,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_role_changed(
+        self,
+        user_id: str,
+        changed_by: str,
+        new_role: str,
+        workspace_id: Optional[str],
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a role changed notification.
+
+        Args:
+            user_id: User ID whose role was changed
+            changed_by: User ID who changed the role
+            new_role: New role assignment
+            workspace_id: Optional workspace ID
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_role_changed(
+            ...     user_id="user-001",
+            ...     changed_by="user-002",
+            ...     new_role="admin",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Role Changed
+        """
+        context = f"workspace {workspace_id}" if workspace_id else f"team {team_id}"
+        message = f"Your role in {context} has been changed to '{new_role}' by {changed_by}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.ROLE_CHANGED,
+            title="Role Changed",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "changed_by": changed_by,
+                "new_role": new_role,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_task_assigned(
+        self,
+        user_id: str,
+        assigned_by: str,
+        task_id: str,
+        task_title: str,
+        workspace_id: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a task assigned notification.
+
+        Args:
+            user_id: User ID who was assigned the task
+            assigned_by: User ID who assigned the task
+            task_id: Task ID that was assigned
+            task_title: Title of the task
+            workspace_id: Workspace ID
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_task_assigned(
+            ...     user_id="user-001",
+            ...     assigned_by="user-002",
+            ...     task_id="task-001",
+            ...     task_title="Fix authentication bug",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Task Assigned
+        """
+        message = f"You have been assigned task '{task_title}' by {assigned_by}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.TASK_ASSIGNED,
+            title="Task Assigned",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "assigned_by": assigned_by,
+                "task_id": task_id,
+                "task_title": task_title,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
+
+    def notify_task_completed(
+        self,
+        user_id: str,
+        completed_by: str,
+        task_id: str,
+        task_title: str,
+        workspace_id: str,
+        team_id: Optional[str] = None,
+    ) -> Notification:
+        """
+        Create and send a task completed notification.
+
+        Args:
+            user_id: User ID to notify (e.g., task creator)
+            completed_by: User ID who completed the task
+            task_id: Task ID that was completed
+            task_title: Title of the task
+            workspace_id: Workspace ID
+            team_id: Optional team ID
+
+        Returns:
+            Created notification
+
+        Example:
+            >>> notification = manager.notify_task_completed(
+            ...     user_id="user-001",
+            ...     completed_by="user-002",
+            ...     task_id="task-001",
+            ...     task_title="Fix authentication bug",
+            ...     workspace_id="workspace-001"
+            ... )
+            >>> print(notification.title)
+            Task Completed
+        """
+        message = f"Task '{task_title}' has been completed by {completed_by}"
+
+        notification = self.create_notification(
+            user_id=user_id,
+            notification_type=NotificationType.TASK_COMPLETED,
+            title="Task Completed",
+            message=message,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            metadata={
+                "completed_by": completed_by,
+                "task_id": task_id,
+                "task_title": task_title,
+            },
+        )
+
+        self.send_notification(notification.id, user_id)
+
+        return notification
