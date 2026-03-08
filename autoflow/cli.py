@@ -997,6 +997,190 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  codex: {config.agents.codex.command}")
 
 
+# === Search Tasks Commands ===
+
+@main.group()
+def search_tasks() -> None:
+    """Search and filter tasks."""
+    pass
+
+
+@search_tasks.command()
+@click.option(
+    "--status",
+    "-s",
+    "status_filter",
+    type=click.Choice([s.value for s in TaskStatus]),
+    default=None,
+    help="Filter by task status.",
+)
+@click.option(
+    "--agent",
+    "-a",
+    type=str,
+    default=None,
+    help="Filter by assigned agent.",
+)
+@click.option(
+    "--title",
+    "-t",
+    type=str,
+    default=None,
+    help="Filter by title (substring match).",
+)
+@click.option(
+    "--created-after",
+    type=str,
+    default=None,
+    help="Filter by creation date (ISO format, e.g., 2024-01-01).",
+)
+@click.option(
+    "--created-before",
+    type=str,
+    default=None,
+    help="Filter by creation date (ISO format, e.g., 2024-12-31).",
+)
+@click.option(
+    "--priority",
+    "-p",
+    type=click.Choice(["low", "medium", "high", "critical"]),
+    default=None,
+    help="Filter by priority level.",
+)
+@click.option(
+    "--tag",
+    "-g",
+    type=str,
+    multiple=True,
+    help="Filter by tag (can be used multiple times).",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of tasks to show.",
+)
+@click.option(
+    "--offset",
+    "-o",
+    type=int,
+    default=0,
+    help="Number of tasks to skip for pagination.",
+)
+@click.pass_context
+def search_tasks_default(
+    ctx: click.Context,
+    status_filter: Optional[str],
+    agent: Optional[str],
+    title: Optional[str],
+    created_after: Optional[str],
+    created_before: Optional[str],
+    priority: Optional[str],
+    tag: tuple[str, ...],
+    limit: int,
+    offset: int,
+) -> None:
+    """
+    Search and filter tasks with multiple criteria.
+
+    Supports filtering by status, agent, title, date range, priority, and tags.
+    Filters are combined with AND logic (all must match).
+    Multiple tags are combined with OR logic (any can match).
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    # Get all tasks
+    status_enum = TaskStatus(status_filter) if status_filter else None
+    all_tasks = state_manager.list_tasks(status=status_enum, agent=agent)
+
+    # Apply filters
+    filtered_tasks = []
+    for task in all_tasks:
+        # Title filter (substring match, case-insensitive)
+        if title:
+            task_title = task.get("title", "").lower()
+            if title.lower() not in task_title:
+                continue
+
+        # Date range filters
+        task_created = task.get("created_at")
+        if task_created:
+            if created_after:
+                try:
+                    after_date = datetime.fromisoformat(created_after)
+                    task_date = datetime.fromisoformat(task_created) if isinstance(task_created, str) else task_created
+                    if task_date < after_date:
+                        continue
+                except ValueError:
+                    click.echo(f"Error: Invalid date format for --created-after: {created_after}", err=True)
+                    ctx.exit(1)
+
+            if created_before:
+                try:
+                    before_date = datetime.fromisoformat(created_before)
+                    task_date = datetime.fromisoformat(task_created) if isinstance(task_created, str) else task_created
+                    if task_date > before_date:
+                        continue
+                except ValueError:
+                    click.echo(f"Error: Invalid date format for --created-before: {created_before}", err=True)
+                    ctx.exit(1)
+
+        # Priority filter
+        if priority:
+            task_priority = task.get("metadata", {}).get("priority")
+            if task_priority != priority:
+                continue
+
+        # Tag filter (OR logic - any tag matches)
+        if tag:
+            task_tags = task.get("metadata", {}).get("tags", [])
+            if not any(t in task_tags for t in tag):
+                continue
+
+        filtered_tasks.append(task)
+
+    # Apply pagination
+    paginated_tasks = filtered_tasks[offset:offset + limit]
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "tasks": paginated_tasks,
+            "count": len(paginated_tasks),
+            "total_matching": len(filtered_tasks),
+            "offset": offset,
+            "limit": limit,
+        })
+        return
+
+    click.echo("Search Results")
+    click.echo("=" * 60)
+    click.echo(f"Found {len(filtered_tasks)} matching task(s)")
+    if len(filtered_tasks) > limit:
+        click.echo(f"Showing {len(paginated_tasks)} (use --offset to see more)")
+    click.echo("")
+
+    if not paginated_tasks:
+        click.echo("No tasks found matching the criteria.")
+        return
+
+    for task_data in paginated_tasks:
+        status_val = task_data.get("status", "unknown")
+        priority_val = task_data.get("metadata", {}).get("priority", "N/A")
+        tags_val = task_data.get("metadata", {}).get("tags", [])
+
+        click.echo(f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}")
+        click.echo(f"  Status: {status_val}")
+        if priority_val != "N/A":
+            click.echo(f"  Priority: {priority_val}")
+        if tags_val:
+            click.echo(f"  Tags: {', '.join(tags_val)}")
+        if task_data.get("assigned_agent"):
+            click.echo(f"  Agent: {task_data['assigned_agent']}")
+        click.echo(f"  Created: {_format_datetime(task_data.get('created_at'))}")
+
+
 # === Memory Commands ===
 
 @main.group()
