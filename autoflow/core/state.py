@@ -174,6 +174,8 @@ class StateManager:
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
+    REPOSITORIES_DIR = "repositories"
+    DEPENDENCIES_DIR = "dependencies"
     BACKUP_DIR = "backups"
 
     def __init__(self, state_dir: Union[str, Path]):
@@ -207,6 +209,16 @@ class StateManager:
         """Path to memory directory."""
         return self.state_dir / self.MEMORY_DIR
 
+    @property
+    def repositories_dir(self) -> Path:
+        """Path to repositories directory."""
+        return self.state_dir / self.REPOSITORIES_DIR
+
+    @property
+    def dependencies_dir(self) -> Path:
+        """Path to dependencies directory."""
+        return self.state_dir / self.DEPENDENCIES_DIR
+
     def initialize(self) -> None:
         """
         Initialize the state directory structure.
@@ -225,6 +237,8 @@ class StateManager:
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
+        self.repositories_dir.mkdir(exist_ok=True)
+        self.dependencies_dir.mkdir(exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
     def _get_backup_path(self, file_path: Path) -> Path:

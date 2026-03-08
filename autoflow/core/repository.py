@@ -32,17 +32,16 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
 import subprocess
-import tempfile
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
+
+from autoflow.core.state import StateManager
 
 
 class BranchConfig(BaseModel):
@@ -268,9 +267,8 @@ class RepositoryManager:
     """
     Manages repository configurations and dependencies.
 
-    Provides atomic file operations with crash safety using the
-    write-to-temporary-and-rename pattern. Repository configurations
-    are organized into:
+    Integrates with StateManager for atomic file operations with crash safety.
+    Repository configurations are organized into:
     - repositories/: Repository definitions
     - dependencies/: Cross-repository dependency relationships
 
@@ -278,8 +276,7 @@ class RepositoryManager:
     or leave the existing state unchanged.
 
     Attributes:
-        state_dir: Root directory for state storage
-        backup_dir: Directory for backup files
+        state: StateManager instance for state operations
 
     Example:
         >>> manager = RepositoryManager(".autoflow")
@@ -292,31 +289,38 @@ class RepositoryManager:
         >>> repo = manager.load_repository("frontend")
     """
 
-    # Subdirectories within state directory
-    REPOS_DIR = "repositories"
-    DEPS_DIR = "dependencies"
-    BACKUP_DIR = "backups"
-
-    def __init__(self, state_dir: Union[str, Path]):
+    def __init__(self, state_dir: Union[str, Path, StateManager]):
         """
         Initialize the RepositoryManager.
 
         Args:
-            state_dir: Root directory for state storage.
+            state_dir: Root directory for state storage, or a StateManager instance.
                        Will be created if it doesn't exist.
         """
-        self.state_dir = Path(state_dir).resolve()
-        self.backup_dir = self.state_dir / self.BACKUP_DIR
+        if isinstance(state_dir, StateManager):
+            self.state = state_dir
+        else:
+            self.state = StateManager(state_dir)
+
+    @property
+    def state_dir(self) -> Path:
+        """Path to state directory."""
+        return self.state.state_dir
 
     @property
     def repositories_dir(self) -> Path:
         """Path to repositories directory."""
-        return self.state_dir / self.REPOS_DIR
+        return self.state.repositories_dir
 
     @property
     def dependencies_dir(self) -> Path:
         """Path to dependencies directory."""
-        return self.state_dir / self.DEPS_DIR
+        return self.state.dependencies_dir
+
+    @property
+    def backup_dir(self) -> Path:
+        """Path to backup directory."""
+        return self.state.backup_dir
 
     def initialize(self) -> None:
         """
@@ -330,146 +334,7 @@ class RepositoryManager:
             >>> manager.initialize()
             >>> assert manager.state_dir.exists()
         """
-        # Create main directories
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        self.repositories_dir.mkdir(exist_ok=True)
-        self.dependencies_dir.mkdir(exist_ok=True)
-        self.backup_dir.mkdir(exist_ok=True)
-
-    def _get_backup_path(self, file_path: Path) -> Path:
-        """
-        Get the backup path for a file.
-
-        Args:
-            file_path: Original file path
-
-        Returns:
-            Path to the backup file
-        """
-        relative = file_path.relative_to(self.state_dir)
-        return self.backup_dir / f"{relative}.bak"
-
-    def _create_backup(self, file_path: Path) -> Optional[Path]:
-        """
-        Create a backup of an existing file.
-
-        Args:
-            file_path: Path to the file to backup
-
-        Returns:
-            Path to the backup file, or None if file doesn't exist
-        """
-        if not file_path.exists():
-            return None
-
-        backup_path = self._get_backup_path(file_path)
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(file_path, backup_path)
-        return backup_path
-
-    def _restore_backup(self, file_path: Path) -> bool:
-        """
-        Restore a file from its backup.
-
-        Args:
-            file_path: Path to the file to restore
-
-        Returns:
-            True if restored, False if no backup exists
-        """
-        backup_path = self._get_backup_path(file_path)
-        if backup_path.exists():
-            shutil.copy2(backup_path, file_path)
-            return True
-        return False
-
-    def _read_json(
-        self,
-        file_path: Union[str, Path],
-        default: Optional[Any] = None,
-    ) -> Any:
-        """
-        Read JSON data from a file.
-
-        Args:
-            file_path: Path to the JSON file
-            default: Default value if file doesn't exist or is invalid
-
-        Returns:
-            Parsed JSON data or default value
-
-        Raises:
-            ValueError: If file contains invalid JSON and no default provided
-        """
-        path = Path(file_path)
-        if not path.exists():
-            if default is not None:
-                return default
-            raise FileNotFoundError(f"File not found: {path}")
-
-        try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            # Try to restore from backup
-            if self._restore_backup(path):
-                with open(path, encoding="utf-8") as f:
-                    return json.load(f)
-            if default is not None:
-                return default
-            raise ValueError(f"Invalid JSON in {path}: {e}") from e
-
-    def _write_json(
-        self,
-        file_path: Union[str, Path],
-        data: Any,
-        indent: int = 2,
-    ) -> Path:
-        """
-        Write JSON data to a file atomically.
-
-        Uses write-to-temporary-and-rename pattern for crash safety.
-        Creates parent directories if needed.
-
-        Args:
-            file_path: Destination path
-            data: JSON-serializable data
-            indent: Indentation level for pretty printing
-
-        Returns:
-            Path to the written file
-
-        Raises:
-            OSError: If write operation fails
-        """
-        path = Path(file_path).resolve()
-
-        # Create parent directories
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create backup of existing file
-        self._create_backup(path)
-
-        # Write to temporary file in same directory (ensures same filesystem)
-        temp_fd, temp_path = tempfile.mkstemp(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        )
-
-        try:
-            # Write data to temp file
-            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=indent, ensure_ascii=False)
-
-            # Atomic rename
-            os.replace(temp_path, path)
-            return path
-        except Exception:
-            # Clean up temp file on failure
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
+        self.state.initialize()
 
     # === Repository Operations ===
 
@@ -497,7 +362,7 @@ class RepositoryManager:
             repo_data["id"] = repo_id
 
         file_path = self.repositories_dir / f"{repo_id}.json"
-        return self._write_json(file_path, repo_data)
+        return self.state.write_json(file_path, repo_data)
 
     def load_repository(self, repo_id: str) -> Optional[dict[str, Any]]:
         """
@@ -516,7 +381,7 @@ class RepositoryManager:
         """
         file_path = self.repositories_dir / f"{repo_id}.json"
         try:
-            return self._read_json(file_path)
+            return self.state.read_json(file_path)
         except FileNotFoundError:
             return None
 
@@ -536,13 +401,15 @@ class RepositoryManager:
         Example:
             >>> active_repos = manager.list_repositories(enabled=True)
         """
+        import json
+
         repositories = []
         if not self.repositories_dir.exists():
             return repositories
 
         for repo_file in self.repositories_dir.glob("*.json"):
             try:
-                repo = self._read_json(repo_file)
+                repo = self.state.read_json(repo_file)
                 if enabled is not None and repo.get("enabled", True) != enabled:
                     continue
                 repositories.append(repo)
@@ -565,7 +432,7 @@ class RepositoryManager:
         """
         file_path = self.repositories_dir / f"{repo_id}.json"
         if file_path.exists():
-            self._create_backup(file_path)
+            self.state._create_backup(file_path)
             file_path.unlink()
             return True
         return False
@@ -757,7 +624,7 @@ class RepositoryManager:
             dep_data["created_at"] = datetime.utcnow().isoformat()
 
         file_path = self.dependencies_dir / f"{dep_id}.json"
-        return self._write_json(file_path, dep_data)
+        return self.state.write_json(file_path, dep_data)
 
     def load_dependency(self, dep_id: str) -> Optional[dict[str, Any]]:
         """
@@ -771,7 +638,7 @@ class RepositoryManager:
         """
         file_path = self.dependencies_dir / f"{dep_id}.json"
         try:
-            return self._read_json(file_path)
+            return self.state.read_json(file_path)
         except FileNotFoundError:
             return None
 
@@ -797,13 +664,15 @@ class RepositoryManager:
             ...     dependency_type=DependencyType.RUNTIME
             ... )
         """
+        import json
+
         dependencies = []
         if not self.dependencies_dir.exists():
             return dependencies
 
         for dep_file in self.dependencies_dir.glob("*.json"):
             try:
-                dep = self._read_json(dep_file)
+                dep = self.state.read_json(dep_file)
                 if source_repo_id and dep.get("source_repo_id") != source_repo_id:
                     continue
                 if target_repo_id and dep.get("target_repo_id") != target_repo_id:
@@ -832,7 +701,7 @@ class RepositoryManager:
         """
         file_path = self.dependencies_dir / f"{dep_id}.json"
         if file_path.exists():
-            self._create_backup(file_path)
+            self.state._create_backup(file_path)
             file_path.unlink()
             return True
         return False
@@ -859,7 +728,7 @@ class RepositoryManager:
                 else 0,
                 "enabled": len([
                     f for f in self.repositories_dir.glob("*.json")
-                    if self._read_json(f, default={}).get("enabled", True)
+                    if self.state.read_json(f, default={}).get("enabled", True)
                 ])
                 if self.repositories_dir.exists()
                 else 0,
@@ -874,13 +743,15 @@ class RepositoryManager:
 
     def _count_dependencies_by_type(self) -> dict[str, int]:
         """Count dependencies by type."""
+        import json
+
         counts: dict[str, int] = {}
         if not self.dependencies_dir.exists():
             return counts
 
         for file_path in self.dependencies_dir.glob("*.json"):
             try:
-                dep = self._read_json(file_path)
+                dep = self.state.read_json(file_path)
                 dep_type = dep.get("dependency_type", "unknown")
                 counts[dep_type] = counts.get(dep_type, 0) + 1
             except (json.JSONDecodeError, KeyError):
@@ -908,13 +779,15 @@ class RepositoryManager:
         Example:
             >>> deps = manager.get_repository_dependencies("frontend")
         """
+        import json
+
         dependencies = []
         if not self.dependencies_dir.exists():
             return dependencies
 
         for dep_file in self.dependencies_dir.glob("*.json"):
             try:
-                dep = self._read_json(dep_file)
+                dep = self.state.read_json(dep_file)
                 if as_source and dep.get("source_repo_id") == repo_id:
                     dependencies.append(dep)
                 if as_target and dep.get("target_repo_id") == repo_id:
@@ -942,6 +815,8 @@ class RepositoryManager:
             ...     for error in errors:
             ...         print(f"Error: {error}")
         """
+        import json
+
         errors: list[str] = []
         if not self.dependencies_dir.exists():
             return errors
@@ -950,7 +825,7 @@ class RepositoryManager:
         repo_ids = set()
         for repo_file in self.repositories_dir.glob("*.json"):
             try:
-                repo = self._read_json(repo_file)
+                repo = self.state.read_json(repo_file)
                 repo_ids.add(repo.get("id"))
             except (json.JSONDecodeError, KeyError):
                 continue
@@ -958,7 +833,7 @@ class RepositoryManager:
         # Validate dependencies
         for dep_file in self.dependencies_dir.glob("*.json"):
             try:
-                dep = self._read_json(dep_file)
+                dep = self.state.read_json(dep_file)
                 source_id = dep.get("source_repo_id")
                 target_id = dep.get("target_repo_id")
 
