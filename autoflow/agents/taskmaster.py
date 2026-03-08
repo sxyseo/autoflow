@@ -598,3 +598,95 @@ class TaskmasterAdapter:
             dependencies=list(taskmaster_task.dependencies),
             metadata=metadata,
         )
+
+    def _map_autoflow_to_taskmaster(
+        self,
+        autoflow_task: Task,
+    ) -> TaskmasterTask:
+        """
+        Map an Autoflow Task to a TaskmasterTask.
+
+        Converts task data from Autoflow's internal Task model to Taskmaster AI's
+        TaskmasterTask format, handling field mappings and status enum conversions.
+
+        Field mappings:
+        - assigned_agent → assigned_to
+        - status: TaskStatus → TaskmasterTaskStatus
+        - metadata → project_id, parent_task_id, taskmaster_id, completed_at
+
+        Status mapping:
+        - pending → todo
+        - in_progress → in_progress
+        - completed → done
+        - failed → blocked
+        - cancelled → cancelled
+
+        Args:
+            autoflow_task: Autoflow Task instance to convert
+
+        Returns:
+            TaskmasterTask instance with mapped data
+
+        Example:
+            >>> af_task = Task(
+            ...     id="af-123",
+            ...     title="Fix bug",
+            ...     status=TaskStatus.PENDING
+            ... )
+            >>> tm_task = adapter._map_autoflow_to_taskmaster(af_task)
+            >>> assert tm_task.status == TaskmasterTaskStatus.TODO
+        """
+        # Map status from TaskStatus to TaskmasterTaskStatus
+        status_mapping = {
+            TaskStatus.PENDING: TaskmasterTaskStatus.TODO,
+            TaskStatus.IN_PROGRESS: TaskmasterTaskStatus.IN_PROGRESS,
+            TaskStatus.COMPLETED: TaskmasterTaskStatus.DONE,
+            TaskStatus.FAILED: TaskmasterTaskStatus.BLOCKED,
+            TaskStatus.CANCELLED: TaskmasterTaskStatus.CANCELLED,
+        }
+
+        taskmaster_status = status_mapping.get(
+            autoflow_task.status,
+            TaskmasterTaskStatus.TODO,
+        )
+
+        # Extract Taskmaster-specific fields from metadata
+        taskmaster_id = autoflow_task.metadata.get("taskmaster_id")
+        project_id = autoflow_task.metadata.get("project_id")
+        parent_task_id = autoflow_task.metadata.get("parent_task_id")
+
+        # Handle completed_at from metadata if present
+        completed_at: Optional[datetime] = None
+        completed_at_str = autoflow_task.metadata.get("completed_at")
+        if completed_at_str:
+            try:
+                completed_at = datetime.fromisoformat(completed_at_str)
+            except (ValueError, TypeError):
+                # Invalid date format, skip
+                pass
+
+        # Build clean metadata without Taskmaster-specific fields
+        metadata = {
+            k: v
+            for k, v in autoflow_task.metadata.items()
+            if k not in ("taskmaster_id", "project_id", "parent_task_id", "completed_at")
+        }
+
+        # Create the TaskmasterTask
+        return TaskmasterTask(
+            id=autoflow_task.id,
+            title=autoflow_task.title,
+            description=autoflow_task.description,
+            status=taskmaster_status,
+            priority=autoflow_task.priority,
+            created_at=autoflow_task.created_at,
+            updated_at=autoflow_task.updated_at,
+            completed_at=completed_at,
+            assigned_to=autoflow_task.assigned_agent,
+            project_id=project_id,
+            parent_task_id=parent_task_id,
+            labels=list(autoflow_task.labels),
+            dependencies=list(autoflow_task.dependencies),
+            metadata=metadata,
+            taskmaster_id=taskmaster_id,
+        )
