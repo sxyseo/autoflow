@@ -163,7 +163,10 @@ class PatternStore:
         Returns:
             RecoveryPattern if found, None otherwise.
         """
-        return self.patterns.get(error_signature)
+        for pattern in self.patterns.values():
+            if pattern.error_signature == error_signature:
+                return pattern
+        return None
 
     def get_strategies_for_error(self, error_signature: str) -> list[LearnedStrategy]:
         """Get all learned strategies for a specific error pattern.
