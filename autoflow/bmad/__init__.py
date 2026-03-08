@@ -25,6 +25,7 @@ from autoflow.bmad.handoff import (
     HandoffStatus,
     create_handoff,
 )
+from autoflow.bmad.manager import BMADManager
 
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "HandoffContext",
     "HandoffStatus",
     "create_handoff",
+    "BMADManager",
 ]
