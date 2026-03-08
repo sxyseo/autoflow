@@ -1785,14 +1785,18 @@ def create_worktree(args: argparse.Namespace) -> None:
 
 
 def remove_worktree(args: argparse.Namespace) -> None:
-    path = worktree_path(args.spec)
+    repository = getattr(args, "repository", None)
+    path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     if path.exists():
         run_cmd(["git", "worktree", "remove", "--force", str(path)])
     if args.delete_branch:
         run_cmd(["git", "branch", "-D", branch], check=False)
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
-    metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    if repository:
+        worktree_metadata["repository"] = repository
+    metadata["worktree"] = worktree_metadata
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
     print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
@@ -1938,6 +1942,7 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
     worktree_remove_cmd.add_argument("--spec", required=True)
     worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
+    worktree_remove_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
     worktree_remove_cmd.set_defaults(func=remove_worktree)
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
