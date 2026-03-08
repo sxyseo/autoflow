@@ -52,6 +52,28 @@ def _get_state_manager(config: Optional[Config] = None) -> StateManager:
     return StateManager(state_dir)
 
 
+def _get_state_manager_from_ctx(ctx: click.Context) -> StateManager:
+    """Get a StateManager instance from click context.
+
+    This function respects the --state-dir CLI option if provided,
+    otherwise falls back to the config's state_dir setting.
+
+    Args:
+        ctx: Click context object
+
+    Returns:
+        StateManager instance with appropriate state directory
+    """
+    # Check if state_dir was explicitly provided via CLI option
+    state_dir_option = ctx.obj.get("state_dir")
+    if state_dir_option:
+        return StateManager(Path(state_dir_option))
+
+    # Otherwise use config's state_dir
+    config: Config = ctx.obj["config"]
+    return _get_state_manager(config)
+
+
 def _print_json(data: Any, indent: int = 2) -> None:
     """Print data as formatted JSON."""
     click.echo(json.dumps(data, indent=indent, default=str))
@@ -200,8 +222,7 @@ def init(ctx: click.Context, force: bool) -> None:
         .autoflow/runs/     Execution runs
         .autoflow/memory/   Persistent memory
     """
-    config: Config = ctx.obj["config"]
-    state_manager = _get_state_manager(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     if state_manager.state_dir.exists() and not force:
         if not ctx.obj["output_json"]:
@@ -1152,11 +1173,10 @@ def workspace_create(
         autoflow workspace create workspace-002 "Main Project" team-001 --description "Primary workspace"
         autoflow workspace create workspace-003 "Dev Team" team-002 --settings '{"private": true}'
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Parse settings if provided
@@ -1231,11 +1251,10 @@ def workspace_list(
         autoflow workspace list --team team-001
         autoflow workspace list --limit 50
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         workspaces = manager.list_workspaces(team_id=team_id, limit=limit)
@@ -1279,11 +1298,10 @@ def workspace_show(ctx: click.Context, workspace_id: str) -> None:
     Examples:
         autoflow workspace show workspace-001
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         workspace = manager.get_workspace(workspace_id)
@@ -1339,11 +1357,10 @@ def workspace_delete(ctx: click.Context, workspace_id: str, force: bool) -> None
         autoflow workspace delete workspace-001
         autoflow workspace delete workspace-001 --force
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Check if workspace exists
@@ -1404,11 +1421,10 @@ def workspace_members(
         autoflow workspace members workspace-001
         autoflow workspace members workspace-001 --role admin
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Check if workspace exists
@@ -1488,11 +1504,10 @@ def workspace_add_member(
         autoflow workspace add-member workspace-001 user-002 --role admin
         autoflow workspace add-member workspace-001 user-003 --role reviewer --granted-by user-001
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Check if workspace exists
@@ -1547,11 +1562,10 @@ def workspace_remove_member(
     Examples:
         autoflow workspace remove-member workspace-001 user-001
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Check if workspace exists
@@ -1617,11 +1631,10 @@ def workspace_update_member(
         autoflow workspace update-member workspace-001 user-001 --role admin
         autoflow workspace update-member workspace-001 user-002 --role reviewer --granted-by user-001
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = WorkspaceManager(state_dir)
+        manager = WorkspaceManager(state_manager.state_dir)
         manager.initialize()
 
         # Check if workspace exists
@@ -1700,11 +1713,10 @@ def team_create(
         autoflow team create team-001 "Engineering"
         autoflow team create team-002 "DevOps" --description "Operations team"
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         # Create team
@@ -1764,11 +1776,10 @@ def team_list(
         autoflow team list
         autoflow team list --limit 50
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         teams = manager.list_teams(limit=limit)
@@ -1834,11 +1845,10 @@ def team_add_member(
         autoflow team add-member team-001 user-002 --role admin
         autoflow team add-member team-001 user-003 --role reviewer
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         # Convert role string to RoleType enum
@@ -1901,11 +1911,10 @@ def team_set_role(
         autoflow team set-role team-001 user-002 member
         autoflow team set-role team-001 user-003 reviewer
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         # Convert role string to RoleType enum
@@ -1977,11 +1986,10 @@ def team_members(
         autoflow team members team-001 --role admin
         autoflow team members team-001 --role reviewer
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         # Convert role string to RoleType enum if provided
@@ -2055,11 +2063,10 @@ def team_remove_member(
     Examples:
         autoflow team remove-member team-001 user-001
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = TeamManager(state_dir)
+        manager = TeamManager(state_manager.state_dir)
         manager.initialize()
 
         # Remove member
@@ -2104,13 +2111,6 @@ def activity() -> None:
     help="Maximum number of activities to return.",
 )
 @click.option(
-    "--offset",
-    "-o",
-    type=int,
-    default=0,
-    help="Offset for pagination.",
-)
-@click.option(
     "--user",
     "-u",
     "user_id",
@@ -2152,7 +2152,6 @@ def activity() -> None:
 def activity_list(
     ctx: click.Context,
     limit: int,
-    offset: int,
     user_id: Optional[str],
     workspace_id: Optional[str],
     activity_type: Optional[str],
@@ -2171,11 +2170,10 @@ def activity_list(
         autoflow activity list --user user-001
         autoflow activity list --workspace workspace-001 --type task_created
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        tracker = ActivityTracker(state_dir)
+        tracker = ActivityTracker(state_manager.state_dir)
         tracker.initialize()
 
         # Query activities based on filters
@@ -2183,30 +2181,25 @@ def activity_list(
             activities = tracker.get_activities_by_user(
                 user_id=user_id,
                 limit=limit,
-                offset=offset,
             )
         elif workspace_id:
             activities = tracker.get_activities_by_workspace(
                 workspace_id=workspace_id,
                 limit=limit,
-                offset=offset,
             )
         elif activity_type:
             activities = tracker.get_activities_by_type(
                 activity_type=activity_type,
                 limit=limit,
-                offset=offset,
             )
         elif entity_id:
             activities = tracker.get_activities_for_entity(
                 entity_id=entity_id,
                 limit=limit,
-                offset=offset,
             )
         else:
             activities = tracker.get_recent_activities(
                 limit=limit,
-                offset=offset,
             )
 
         if output_json or ctx.obj["output_json"]:
@@ -2291,11 +2284,10 @@ def notifications_list(
         autoflow activity notifications list user-001 --unread
         autoflow activity notifications list user-001 --limit 20
     """
-    config: Config = ctx.obj["config"]
-    state_dir = get_state_dir(config)
+    state_manager = _get_state_manager_from_ctx(ctx)
 
     try:
-        manager = NotificationManager(state_dir)
+        manager = NotificationManager(state_manager.state_dir)
         manager.initialize()
 
         # Get notifications
