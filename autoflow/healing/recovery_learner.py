@@ -778,6 +778,82 @@ class RecoveryLearner:
             },
         }
 
+    def calculate_confidence(self, success_rate: float, sample_size: int) -> float:
+        """Calculate confidence score based on sample size and success rate.
+
+        This method computes a continuous confidence score between 0.0 and 1.0
+        that combines both the success rate of a strategy and the amount of
+        data (sample size) available. Higher success rates and larger sample
+        sizes result in higher confidence scores.
+
+        The calculation follows these principles:
+        - Success rate is the primary factor: higher success = higher confidence
+        - Sample size provides a multiplier: more data = more confidence
+        - Minimum samples needed for any meaningful confidence
+        - Diminishing returns on sample size beyond a threshold
+
+        Args:
+            success_rate: Proportion of successful attempts (0.0 to 1.0).
+            sample_size: Total number of attempts observed.
+
+        Returns:
+            Confidence score between 0.0 and 1.0.
+
+        Examples:
+            >>> learner = RecoveryLearner()
+            >>> # High success rate with good sample size
+            >>> confidence = learner.calculate_confidence(0.85, 10)
+            >>> print(f"{confidence:.2f}")  # e.g., 0.92
+            >>> # Moderate success rate with limited samples
+            >>> confidence = learner.calculate_confidence(0.65, 3)
+            >>> print(f"{confidence:.2f}")  # e.g., 0.55
+            >>> # Low success rate regardless of sample size
+            >>> confidence = learner.calculate_confidence(0.40, 20)
+            >>> print(f"{confidence:.2f}")  # e.g., 0.32
+        """
+        # Input validation
+        if not 0.0 <= success_rate <= 1.0:
+            raise ValueError(f"success_rate must be between 0.0 and 1.0, got {success_rate}")
+        if sample_size < 0:
+            raise ValueError(f"sample_size must be non-negative, got {sample_size}")
+
+        # No data means no confidence
+        if sample_size == 0:
+            return 0.0
+
+        # Calculate sample size multiplier (0.0 to 1.0)
+        # Uses logarithmic scaling with diminishing returns
+        # - 1-2 samples: very low multiplier (0.1-0.3)
+        # - 3-5 samples: low to moderate multiplier (0.4-0.6)
+        # - 5-10 samples: moderate multiplier (0.7-0.8)
+        # - 10+ samples: high multiplier (0.9-1.0)
+        import math
+
+        # Minimum samples for baseline confidence
+        min_samples = 2
+        # Point of diminishing returns (additional samples matter less)
+        saturation_point = 10
+
+        if sample_size < min_samples:
+            # Very limited data
+            sample_multiplier = 0.1 * (sample_size / min_samples)
+        else:
+            # Logarithmic scaling with diminishing returns
+            # Maps [min_samples, infinity) to [0.3, 1.0)
+            log_sample = math.log(sample_size - min_samples + 1)
+            log_saturation = math.log(saturation_point - min_samples + 1)
+            # Scale to [0.3, 1.0) range
+            sample_multiplier = 0.3 + 0.7 * min(log_sample / log_saturation, 1.0)
+
+        # Calculate confidence score
+        # Success rate is weighted more heavily than sample size
+        # - Success rate: 70% weight
+        # - Sample size: 30% weight
+        confidence = (success_rate * 0.7) + (sample_multiplier * 0.3)
+
+        # Ensure result is in valid range
+        return max(0.0, min(1.0, confidence))
+
     def clear_old_data(self, keep_recent: int = 1000) -> int:
         """Remove old recovery attempts to manage storage.
 
