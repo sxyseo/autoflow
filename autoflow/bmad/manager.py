@@ -452,6 +452,87 @@ class BMADManager:
 
         return handoffs
 
+    def get_handoff_history(
+        self,
+        from_role: Optional[str] = None,
+        to_role: Optional[str] = None,
+        limit: Optional[int] = None,
+        status: Optional[str] = None,
+        oldest_first: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Get handoff history with optional filters.
+
+        Provides a chronological history of handoffs, useful for debugging
+        role transitions and understanding the flow of work through the system.
+
+        Args:
+            from_role: Optional source role filter (e.g., 'writer').
+            to_role: Optional destination role filter (e.g., 'reviewer').
+            limit: Maximum number of handoffs to return. None for all.
+            status: Optional status filter (e.g., 'completed', 'failed').
+            oldest_first: If True, return oldest first. If False, newest first.
+
+        Returns:
+            List of dictionaries containing handoff history summaries.
+            Each dict includes: handoff_id, from_role, to_role, status,
+            created_at, completed_at, task_description, and artifact_count.
+
+        Example:
+            >>> manager = BMADManager()
+            >>> # Get last 10 completed handoffs, newest first
+            >>> history = manager.get_handoff_history(
+            ...     status='completed', limit=10, oldest_first=False
+            ... )
+            >>> for h in history:
+            ...     print(f"{h['from_role']} -> {h['to_role']}: {h['status']}")
+        """
+        from autoflow.bmad.handoff import Handoff
+
+        history = []
+
+        for handoff_file in self.handoffs_dir.glob("*.json"):
+            try:
+                with handoff_file.open("r") as f:
+                    data = json.load(f)
+                handoff = Handoff.from_dict(data)
+
+                # Apply filters
+                if from_role and handoff.role != from_role:
+                    continue
+                if to_role and handoff.next_role != to_role:
+                    continue
+                if status and handoff.status != status:
+                    continue
+
+                # Build history entry
+                entry = {
+                    "handoff_id": handoff.handoff_id,
+                    "from_role": handoff.role,
+                    "to_role": handoff.next_role,
+                    "status": handoff.status,
+                    "created_at": handoff.created_at,
+                    "completed_at": handoff.completed_at,
+                    "task_description": handoff.context.task_description,
+                    "artifact_count": len(handoff.context.artifacts.artifacts),
+                    "metadata": handoff.metadata,
+                }
+                history.append(entry)
+            except (OSError, json.JSONDecodeError):
+                # Skip invalid handoff files
+                continue
+
+        # Sort by created_at
+        if oldest_first:
+            history.sort(key=lambda h: h["created_at"] or datetime.min)
+        else:
+            history.sort(key=lambda h: h["created_at"] or datetime.max, reverse=True)
+
+        # Apply limit if specified
+        if limit is not None:
+            history = history[:limit]
+
+        return history
+
     def __repr__(self) -> str:
         """Return string representation of the manager."""
         checkpoint_count = len(self.list_checkpoints())
