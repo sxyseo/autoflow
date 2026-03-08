@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime
 from enum import Enum
@@ -222,13 +223,34 @@ class Repository(BaseModel):
         """
         Check if the repository reference is valid.
 
-        A valid repository has a .git directory at the specified path.
+        A valid repository has either:
+        - A .git directory (normal repository)
+        - A .git file with valid gitdir reference (git worktree)
 
         Returns:
             True if the repository exists and is a valid git repository
         """
-        git_dir = self.get_git_dir()
-        return git_dir.exists() and git_dir.is_dir()
+        repo_path = self.get_resolved_path()
+        git_path = repo_path / ".git"
+
+        if git_path.is_dir():
+            return True
+
+        if git_path.is_file():
+            # Git worktree - check gitdir reference
+            try:
+                content = git_path.read_text(encoding="utf-8").strip()
+                if content.startswith("gitdir: "):
+                    gitdir = content[8:].strip()
+                    gitdir_path = Path(gitdir)
+                    if gitdir_path.is_absolute():
+                        return gitdir_path.exists() and gitdir_path.is_dir()
+                    else:
+                        return (repo_path / gitdir_path).exists()
+            except Exception:
+                return False
+
+        return False
 
     def __str__(self) -> str:
         """String representation of the repository."""
@@ -560,6 +582,151 @@ class RepositoryManager:
         """
         file_path = self.repositories_dir / f"{repo_id}.json"
         return file_path.exists()
+
+    def validate(self, repo_id: str) -> list[str]:
+        """
+        Validate a repository configuration and filesystem.
+
+        Checks that:
+        - Repository configuration exists
+        - Repository path exists
+        - Repository is a valid git repository (including worktrees)
+        - Repository is accessible (can run git commands)
+
+        Args:
+            repo_id: Repository identifier
+
+        Returns:
+            List of error messages (empty if valid)
+
+        Example:
+            >>> errors = manager.validate("frontend")
+            >>> if errors:
+            ...     for error in errors:
+            ...         print(f"Error: {error}")
+        """
+        errors: list[str] = []
+
+        # Check if repository configuration exists
+        repo_data = self.load_repository(repo_id)
+        if repo_data is None:
+            errors.append(f"Repository '{repo_id}' configuration not found")
+            return errors
+
+        # Get repository path from data
+        repo_path_str = repo_data.get("path")
+        if not repo_path_str:
+            errors.append(f"Repository '{repo_id}' has no path specified")
+            return errors
+
+        # Expand path
+        repo_path = Path(repo_path_str).expanduser().resolve()
+
+        # Check if repository path exists
+        if not repo_path.exists():
+            errors.append(
+                f"Repository '{repo_id}' path does not exist: {repo_path}"
+            )
+            return errors
+
+        if not repo_path.is_dir():
+            errors.append(
+                f"Repository '{repo_id}' path is not a directory: {repo_path}"
+            )
+            return errors
+
+        # Check if it's a valid git repository
+        # Git repositories can have either:
+        # 1. A .git directory (normal repository)
+        # 2. A .git file (git worktree)
+        git_path = repo_path / ".git"
+        has_git = False
+
+        if git_path.is_dir():
+            # Normal git repository
+            has_git = True
+        elif git_path.is_file():
+            # Git worktree - check if it contains a valid gitdir reference
+            try:
+                content = git_path.read_text(encoding="utf-8").strip()
+                if content.startswith("gitdir: "):
+                    gitdir = content[8:].strip()  # Remove "gitdir: " prefix
+                    gitdir_path = Path(gitdir)
+                    if gitdir_path.is_absolute():
+                        has_git = gitdir_path.exists() and gitdir_path.is_dir()
+                    else:
+                        # Relative path - resolve from repo path
+                        has_git = (repo_path / gitdir_path).exists()
+            except Exception:
+                pass
+
+        if not has_git:
+            errors.append(
+                f"Repository '{repo_id}' is not a valid git repository "
+                f"(missing .git directory or invalid git worktree at {git_path})"
+            )
+            return errors
+
+        # Check if repository is accessible by running a git command
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            )
+            # Verify the output points to the expected .git directory
+            if not result.stdout.strip():
+                errors.append(
+                    f"Repository '{repo_id}' git command returned empty output"
+                )
+        except subprocess.CalledProcessError as e:
+            errors.append(
+                f"Repository '{repo_id}' is not accessible: "
+                f"git command failed with exit code {e.returncode}"
+            )
+        except subprocess.TimeoutExpired:
+            errors.append(
+                f"Repository '{repo_id}' is not accessible: "
+                f"git command timed out"
+            )
+        except PermissionError:
+            errors.append(
+                f"Repository '{repo_id}' is not accessible: "
+                f"permission denied"
+            )
+        except Exception as e:
+            errors.append(
+                f"Repository '{repo_id}' is not accessible: "
+                f"{type(e).__name__}: {e}"
+            )
+
+        return errors
+
+    def validate_all(self) -> dict[str, list[str]]:
+        """
+        Validate all repositories.
+
+        Returns:
+            Dictionary mapping repository IDs to lists of error messages
+
+        Example:
+            >>> results = manager.validate_all()
+            >>> for repo_id, errors in results.items():
+            ...     if errors:
+            ...         print(f"{repo_id}: {len(errors)} errors")
+        """
+        results: dict[str, list[str]] = {}
+        repositories = self.list_repositories()
+
+        for repo in repositories:
+            repo_id = repo.get("id")
+            if repo_id:
+                results[repo_id] = self.validate(repo_id)
+
+        return results
 
     # === Dependency Operations ===
 
