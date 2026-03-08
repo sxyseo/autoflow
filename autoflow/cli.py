@@ -1084,22 +1084,74 @@ def search_tasks_cmd(
     """
     Search and filter tasks across all specs.
 
-    This command searches through all spec task files and returns matching tasks.
-    Tasks can be filtered by status, owner role, and text content.
+    This command searches through all spec task files in .autoflow/tasks/ and
+    returns matching tasks. Tasks can be filtered by status, owner role, and
+    text content. Results are displayed in a human-readable format by default,
+    or JSON format with --json.
+
+    \b
+    Common Use Cases:
+        # Find all todo tasks
+        autoflow search-tasks --status todo
+
+        # Find tasks for a specific role
+        autoflow search-tasks --owner-role implementation-runner
+
+        # Search for tasks containing specific text
+        autoflow search-tasks --text "database"
+
+        # Combine multiple filters
+        autoflow search-tasks --status todo --owner-role frontend-dev
 
     \b
     Examples:
+        # Show first 5 todo tasks
         autoflow search-tasks --status todo --limit 5
-        autoflow search-tasks --owner-role implementation-runner
+
+        # Find in-progress tasks for reviewer
+        autoflow search-tasks --status in_progress --owner-role reviewer
+
+        # Search for API-related tasks
         autoflow search-tasks --text "api" --limit 10
-        autoflow search-tasks --status in_progress --owner-role reviewer --json
+
+        # Get JSON output for scripting
+        autoflow search-tasks --status done --json
+
+        # Complex search with multiple filters
+        autoflow search-tasks --status todo --text "auth" --owner-role backend-dev --limit 20
 
     \b
-    Filter behavior:
-        - --status: Exact match (e.g., "todo", "in_progress", "done")
-        - --owner-role: Exact match on owner_role field
-        - --text: Case-insensitive substring search in title and notes
-        - Multiple filters: Combined with AND logic (all must match)
+    Filter Behavior:
+        --status      Exact match on task status field
+                      Common values: todo, in_progress, done, blocked
+
+        --owner-role  Exact match on owner_role field
+                      Examples: implementation-runner, reviewer, frontend-dev, backend-dev
+
+        --text        Case-insensitive substring search
+                      Searches in: title, notes (both strings and dict values)
+
+        --limit       Maximum number of results to display
+                      Default: 20, Use 0 for unlimited
+
+        Multiple filters are combined with AND logic (all must match).
+        Results are sorted by spec name and task ID.
+
+    \b
+    Output Format (default):
+        [task-id] Task Title
+          Spec: spec-name
+          Status: status
+          Owner: owner-role
+
+    \b
+    Output Format (--json):
+        {
+          "tasks": [...],
+          "count": 10,
+          "total_matching": 42,
+          "filters": {...}
+        }
     """
     config: Config = ctx.obj["config"]
 
