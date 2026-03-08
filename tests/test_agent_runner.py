@@ -337,6 +337,179 @@ class AgentRunnerTests(unittest.TestCase):
             )
         self.assertIn("Invalid agent specification", str(cm.exception))
 
+    def test_command_chaining_rejected(self) -> None:
+        """Test that command chaining attempts are comprehensively rejected."""
+        # Test command chaining in command field
+        command_chaining_commands = [
+            {"command": "claude; rm -rf /", "args": []},
+            {"command": "claude && malware", "args": []},
+            {"command": "claude||evil", "args": []},
+            {"command": "claude|cat /etc/passwd", "args": []},
+            {"command": "claude\nmalicious", "args": []},
+        ]
+        for spec in command_chaining_commands:
+            with self.subTest(command=spec["command"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in arguments
+        command_chaining_args = [
+            {"command": "claude", "args": ["arg1", ";", "rm", "-rf", "/"]},
+            {"command": "claude", "args": ["arg1", "&&", "malware"]},
+            {"command": "claude", "args": ["arg1", "||", "evil"]},
+            {"command": "claude", "args": ["arg1", "|", "cat", "/etc/passwd"]},
+            {"command": "claude", "args": ["arg1\n", "malicious"]},
+            {"command": "claude", "args": ["arg1\r", "malware"]},
+        ]
+        for spec in command_chaining_args:
+            with self.subTest(args=spec["args"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in model field
+        command_chaining_models = [
+            {"command": "claude", "args": [], "model": "claude; rm -rf /"},
+            {"command": "claude", "args": [], "model": "claude && malware"},
+            {"command": "claude", "args": [], "model": "claude||evil"},
+            {"command": "claude", "args": [], "model": "claude|pwn"},
+        ]
+        for spec in command_chaining_models:
+            with self.subTest(model=spec["model"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in tools field
+        command_chaining_tools = [
+            {"command": "claude", "args": [], "tools": ["Read; rm -rf /"]},
+            {"command": "claude", "args": [], "tools": ["Read&&malware"]},
+            {"command": "claude", "args": [], "tools": ["Read||evil"]},
+            {"command": "claude", "args": [], "tools": ["Read|pwn"]},
+        ]
+        for spec in command_chaining_tools:
+            with self.subTest(tools=spec["tools"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in runtime_args
+        command_chaining_runtime = [
+            {"command": "claude", "args": [], "runtime_args": [";", "rm", "-rf"]},
+            {"command": "claude", "args": [], "runtime_args": ["&&", "malware"]},
+            {"command": "claude", "args": [], "runtime_args": ["||", "evil"]},
+            {"command": "claude", "args": [], "runtime_args": ["|", "pwn"]},
+        ]
+        for spec in command_chaining_runtime:
+            with self.subTest(runtime_args=spec["runtime_args"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in resume args
+        command_chaining_resume = [
+            {"command": "claude", "args": [], "resume": {"mode": "args", "args": [";", "rm"]}},
+            {"command": "claude", "args": [], "resume": {"mode": "args", "args": ["&&malware"]}},
+            {"command": "claude", "args": [], "resume": {"mode": "args", "args": ["||evil"]}},
+            {"command": "claude", "args": [], "resume": {"mode": "args", "args": ["|pwn"]}},
+        ]
+        for spec in command_chaining_resume:
+            with self.subTest(resume=spec["resume"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in ACP transport command
+        command_chaining_transport = [
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent; rm -rf /", "args": [], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent && malware", "args": [], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent||evil", "args": [], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent|pwn", "args": [], "prompt_mode": "argv"}
+            },
+        ]
+        for spec in command_chaining_transport:
+            with self.subTest(transport=spec["transport"]["command"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test command chaining in ACP transport args
+        command_chaining_transport_args = [
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent", "args": [";", "rm"], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent", "args": ["&&malware"], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent", "args": ["||evil"], "prompt_mode": "argv"}
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {"type": "stdio", "command": "agent", "args": ["|pwn"], "prompt_mode": "argv"}
+            },
+        ]
+        for spec in command_chaining_transport_args:
+            with self.subTest(transport_args=spec["transport"]["args"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
