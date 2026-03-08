@@ -20,10 +20,12 @@ Usage:
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from autoflow.analytics.agent_performance import AgentPerformance
 from autoflow.analytics.metrics import MetricsCollector
@@ -40,6 +42,14 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Get the directory containing this module
+_current_dir = Path(__file__).parent
+
+# Mount static files directory
+_static_dir = _current_dir / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 # Initialize analytics collectors
 _metrics_collector: MetricsCollector | None = None
@@ -111,12 +121,37 @@ def get_roi_calculator() -> ROICalculator:
     return _roi_calculator
 
 
-@app.get("/")
-async def root() -> dict[str, Any]:
-    """Root endpoint - API information.
+@app.get("/", response_class=HTMLResponse)
+async def dashboard() -> str:
+    """Serve the analytics dashboard HTML.
 
     Returns:
-        Dictionary with API metadata and available endpoints
+        HTML content for the dashboard
+    """
+    template_path = _current_dir / "templates" / "dashboard.html"
+    if template_path.exists():
+        return template_path.read_text(encoding="utf-8")
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Autoflow Analytics</title>
+    </head>
+    <body>
+        <h1>Analytics Dashboard</h1>
+        <p>Dashboard template not found. Please ensure the template file exists.</p>
+        <p><a href="/api/docs">View API Documentation</a></p>
+    </body>
+    </html>
+    """
+
+
+@app.get("/api")
+async def api_info() -> dict[str, Any]:
+    """API information endpoint.
+
+    Returns:
+        Dictionary with API details and available resources
     """
     return {
         "name": "Autoflow Analytics API",
@@ -126,6 +161,7 @@ async def root() -> dict[str, Any]:
             "api": "/api",
             "docs": "/api/docs",
             "health": "/health",
+            "dashboard": "/",
         },
     }
 
