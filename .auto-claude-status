@@ -3,13 +3,13 @@
   "spec": "010-taskmaster-ai-integration",
   "state": "building",
   "subtasks": {
-    "completed": 12,
+    "completed": 18,
     "total": 21,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Autoflow to Taskmaster Sync",
+    "current": "Integration and Registration",
     "id": null,
     "total": 3
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 14,
+    "number": 20,
     "started_at": "2026-03-08T10:13:55.454349"
   },
-  "last_update": "2026-03-08T10:35:15.700571"
+  "last_update": "2026-03-08T10:46:10.094949"
 }
