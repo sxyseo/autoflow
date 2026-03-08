@@ -1147,3 +1147,406 @@ class TestTaskMappingEdgeCases:
         assert "🚀" in tm_task.title
         assert "✨" in tm_task.description
         assert "标签" in tm_task.labels
+
+
+# ============================================================================
+# Taskmaster to Autoflow Sync Tests
+# ============================================================================
+
+
+class TestTaskmasterToAutoflowSync:
+    """Tests for syncing tasks from Taskmaster to Autoflow."""
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_basic(
+        self, adapter: TaskmasterAdapter, taskmaster_task: TaskmasterTask
+    ) -> None:
+        """Test basic sync from Taskmaster to Autoflow."""
+        # Mock the API client and fetch_tasks
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = [taskmaster_task]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Perform sync
+            tasks = await adapter.sync_from_taskmaster()
+
+            # Verify results
+            assert len(tasks) == 1
+            assert tasks[0].id == "tm-001"
+            assert tasks[0].title == "Test Task"
+            assert tasks[0].description == "A test task for unit testing"
+
+            # Verify API was called correctly
+            mock_client.fetch_tasks.assert_called_once_with(
+                status=None,
+                project_id=None,
+                parent_task_id=None,
+                limit=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_with_filters(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync with status and project filters."""
+        # Create multiple tasks with different statuses
+        todo_task = TaskmasterTask(
+            id="tm-101",
+            title="Todo Task",
+            status=TaskmasterTaskStatus.TODO,
+        )
+        in_progress_task = TaskmasterTask(
+            id="tm-102",
+            title="In Progress Task",
+            status=TaskmasterTaskStatus.IN_PROGRESS,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = [todo_task, in_progress_task]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Sync with filters
+            tasks = await adapter.sync_from_taskmaster(
+                status=TaskmasterTaskStatus.TODO,
+                project_id="proj-123",
+                limit=10,
+            )
+
+            # Verify results
+            assert len(tasks) == 2
+
+            # Verify API was called with filters
+            mock_client.fetch_tasks.assert_called_once_with(
+                status=TaskmasterTaskStatus.TODO,
+                project_id="proj-123",
+                parent_task_id=None,
+                limit=10,
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_empty_results(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync when no tasks are returned."""
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = []
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Perform sync
+            tasks = await adapter.sync_from_taskmaster()
+
+            # Verify empty results
+            assert len(tasks) == 0
+            mock_client.fetch_tasks.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_multiple_tasks(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync with multiple tasks."""
+        # Create multiple tasks
+        tasks_data = [
+            TaskmasterTask(
+                id=f"tm-{i:03d}",
+                title=f"Task {i}",
+                status=TaskmasterTaskStatus.TODO,
+                priority=i,
+            )
+            for i in range(1, 6)
+        ]
+
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = tasks_data
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Perform sync
+            tasks = await adapter.sync_from_taskmaster()
+
+            # Verify all tasks were synced
+            assert len(tasks) == 5
+            for i, task in enumerate(tasks, 1):
+                assert task.id == f"tm-{i:03d}"
+                assert task.title == f"Task {i}"
+                assert task.priority == i
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_all_statuses(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync correctly maps all Taskmaster statuses to Autoflow."""
+        status_pairs = [
+            (TaskmasterTaskStatus.TODO, TaskStatus.PENDING),
+            (TaskmasterTaskStatus.IN_PROGRESS, TaskStatus.IN_PROGRESS),
+            (TaskmasterTaskStatus.IN_REVIEW, TaskStatus.IN_PROGRESS),
+            (TaskmasterTaskStatus.DONE, TaskStatus.COMPLETED),
+            (TaskmasterTaskStatus.CANCELLED, TaskStatus.CANCELLED),
+            (TaskmasterTaskStatus.BLOCKED, TaskStatus.FAILED),
+        ]
+
+        for tm_status, af_status in status_pairs:
+            tm_task = TaskmasterTask(
+                id=f"tm-status-{tm_status}",
+                title="Status Test",
+                status=tm_status,
+            )
+
+            mock_client = AsyncMock()
+            mock_client.fetch_tasks.return_value = [tm_task]
+
+            with patch(
+                "autoflow.agents.taskmaster.TaskmasterAPIClient",
+                return_value=mock_client,
+            ) as mock_api_client:
+                mock_api_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mock_client
+                )
+                mock_api_client.return_value.__aexit__ = AsyncMock()
+
+                # Sync with status filter
+                tasks = await adapter.sync_from_taskmaster(status=tm_status)
+
+                # Verify status mapping
+                assert len(tasks) == 1
+                assert tasks[0].status == af_status
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_preserves_metadata(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync preserves task metadata correctly."""
+        tm_task = TaskmasterTask(
+            id="tm-meta-001",
+            title="Metadata Task",
+            description="Test metadata preservation",
+            status=TaskmasterTaskStatus.IN_PROGRESS,
+            priority=8,
+            assigned_to="agent-123",
+            project_id="proj-456",
+            parent_task_id="parent-789",
+            labels=["feature", "backend", "api"],
+            dependencies=["dep-001", "dep-002"],
+            metadata={"custom_field": "custom_value"},
+        )
+
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = [tm_task]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Perform sync
+            tasks = await adapter.sync_from_taskmaster()
+
+            # Verify metadata preservation
+            assert len(tasks) == 1
+            task = tasks[0]
+            assert task.priority == 8
+            assert task.assigned_agent == "agent-123"
+            assert task.labels == ["feature", "backend", "api"]
+            assert task.dependencies == ["dep-001", "dep-002"]
+            assert task.metadata["project_id"] == "proj-456"
+            assert task.metadata["parent_task_id"] == "parent-789"
+            assert task.metadata["custom_field"] == "custom_value"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_not_configured(
+        self, custom_config: TaskmasterConfig
+    ) -> None:
+        """Test sync fails when config is not properly configured."""
+        # Create config without api_key
+        bad_config = TaskmasterConfig(api_key=None)
+        adapter = TaskmasterAdapter(bad_config)
+
+        # Should raise ValueError
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.sync_from_taskmaster()
+
+        assert "api_key" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_disabled(
+        self, config: TaskmasterConfig
+    ) -> None:
+        """Test sync fails when integration is disabled."""
+        # Create config with enabled=False
+        bad_config = TaskmasterConfig(api_key="test-key", enabled=False)
+        adapter = TaskmasterAdapter(bad_config)
+
+        # Should raise ValueError
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.sync_from_taskmaster()
+
+        assert "enabled" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_api_error(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync handles API errors correctly."""
+        # Create a mock client that raises an error
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.side_effect = Exception("API Error: Connection failed")
+
+        # Patch the API client class
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+        ) as MockAPIClient:
+            # Set up the mock to return our mock client from __aenter__
+            mock_instance = MockAPIClient.return_value
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_instance.__aexit__ = AsyncMock(return_value=None)
+
+            # Should propagate the exception
+            with pytest.raises(Exception) as exc_info:
+                await adapter.sync_from_taskmaster()
+
+            assert "API Error" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_with_parent_filter(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync with parent_task_id filter."""
+        parent_task = TaskmasterTask(
+            id="tm-parent-001",
+            title="Parent Task",
+            status=TaskmasterTaskStatus.TODO,
+        )
+        child_task = TaskmasterTask(
+            id="tm-child-001",
+            title="Child Task",
+            status=TaskmasterTaskStatus.TODO,
+            parent_task_id="tm-parent-001",
+        )
+
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = [child_task]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Sync with parent filter
+            tasks = await adapter.sync_from_taskmaster(
+                parent_task_id="tm-parent-001"
+            )
+
+            # Verify results
+            assert len(tasks) == 1
+            assert tasks[0].id == "tm-child-001"
+            assert tasks[0].metadata["parent_task_id"] == "tm-parent-001"
+
+            # Verify API was called with parent filter
+            mock_client.fetch_tasks.assert_called_once_with(
+                status=None,
+                project_id=None,
+                parent_task_id="tm-parent-001",
+                limit=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_handles_conversion_errors(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync continues even if some tasks fail to convert."""
+        # Create a mix of valid and invalid tasks
+        valid_task = TaskmasterTask(
+            id="tm-valid-001",
+            title="Valid Task",
+            status=TaskmasterTaskStatus.TODO,
+        )
+
+        # Create a task that will fail conversion
+        # We'll simulate this by making the mock return a partial object
+        class InvalidTask:
+            id = "tm-invalid-001"
+            title = "Invalid Task"
+            # Missing required fields that will cause conversion to fail
+
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = [valid_task, InvalidTask()]  # type: ignore
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Sync should continue and return only valid tasks
+            tasks = await adapter.sync_from_taskmaster()
+
+            # Should have only the valid task
+            assert len(tasks) == 1
+            assert tasks[0].id == "tm-valid-001"
+
+    @pytest.mark.asyncio
+    async def test_sync_from_taskmaster_with_limit(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test sync respects limit parameter."""
+        # Create many tasks
+        tasks_data = [
+            TaskmasterTask(
+                id=f"tm-{i:03d}",
+                title=f"Task {i}",
+                status=TaskmasterTaskStatus.TODO,
+            )
+            for i in range(1, 21)  # 20 tasks
+        ]
+
+        # Return only 5 when limit is applied
+        mock_client = AsyncMock()
+        mock_client.fetch_tasks.return_value = tasks_data[:5]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api_client:
+            mock_api_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api_client.return_value.__aexit__ = AsyncMock()
+
+            # Sync with limit
+            tasks = await adapter.sync_from_taskmaster(limit=5)
+
+            # Verify limit was passed to API
+            mock_client.fetch_tasks.assert_called_once_with(
+                status=None,
+                project_id=None,
+                parent_task_id=None,
+                limit=5,
+            )
+
+            # Verify only 5 tasks returned
+            assert len(tasks) == 5

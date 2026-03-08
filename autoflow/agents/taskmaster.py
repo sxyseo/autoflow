@@ -830,7 +830,8 @@ class TaskmasterAdapter:
                 "TaskmasterConfig must have enabled=True to sync from Taskmaster"
             )
 
-        # Create API client
+        # Create API client and fetch tasks
+        autoflow_tasks = []
         async with TaskmasterAPIClient(self.config) as client:
             # Fetch tasks from Taskmaster
             taskmaster_tasks = await client.fetch_tasks(
@@ -840,15 +841,14 @@ class TaskmasterAdapter:
                 limit=limit,
             )
 
-        # Convert each TaskmasterTask to Autoflow Task
-        autoflow_tasks = []
-        for taskmaster_task in taskmaster_tasks:
-            try:
-                autoflow_task = self._map_taskmaster_to_autoflow(taskmaster_task)
-                autoflow_tasks.append(autoflow_task)
-            except Exception as e:
-                # Skip tasks that fail to convert but continue processing
-                # In production, you might want to log this error
-                continue
+            # Convert each TaskmasterTask to Autoflow Task
+            for taskmaster_task in taskmaster_tasks:
+                try:
+                    autoflow_task = self._map_taskmaster_to_autoflow(taskmaster_task)
+                    autoflow_tasks.append(autoflow_task)
+                except Exception as e:
+                    # Skip tasks that fail to convert but continue processing
+                    # In production, you might want to log this error
+                    continue
 
         return autoflow_tasks
