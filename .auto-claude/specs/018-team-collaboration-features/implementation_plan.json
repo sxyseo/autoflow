@@ -346,7 +346,9 @@
             "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('.autoflow'); print(hasattr(sm, 'activities_dir'))\"",
             "expected": "True"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Successfully integrated activity tracking into StateManager for persistent storage. Added: 1) ACTIVITIES_DIR = 'activities' constant following existing pattern (SPECS_DIR, TASKS_DIR, etc.), 2) activities_dir property that returns Path to activities directory, 3) activities directory creation in initialize() method alongside other state directories, 4) activities count in get_status() method for monitoring, 5) Updated class docstring to document activities/ directory in state organization. Implementation follows exact same patterns as existing directories (specs, tasks, runs, memory, workspaces). Activities directory will be used by ActivityTracker for persistent storage of activity events in date-organized subdirectories (YYYY-MM format). Verification passed: hasattr(StateManager('.autoflow'), 'activities_dir') returns True.",
+          "updated_at": "2026-03-08T22:50:00.000000+00:00"
         },
         {
           "id": "subtask-4-4",
@@ -791,7 +793,7 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-08T14:03:27.348Z",
+  "updated_at": "2026-03-08T14:07:07.167Z",
   "last_updated": "2026-03-08T14:03:02.916167+00:00",
   "recoveryNote": "Task recovered from stuck state at 2026-03-08T13:43:51.783Z"
 }
