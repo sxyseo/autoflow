@@ -186,7 +186,9 @@ def task_file(spec_slug: str) -> Path:
     return TASKS_DIR / f"{spec_slug}.json"
 
 
-def worktree_path(spec_slug: str) -> Path:
+def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
+    if repository:
+        return WORKTREES_DIR / repository / spec_slug
     return WORKTREES_DIR / spec_slug
 
 
