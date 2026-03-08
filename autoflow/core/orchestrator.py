@@ -317,6 +317,7 @@ class AutoflowOrchestrator:
             self._parallel_coordinator = ParallelCoordinator(
                 config=self._config,
                 state_dir=self._state_dir,
+                max_parallel=self.config.parallel.max_concurrent_tasks,
             )
         return self._parallel_coordinator
 
