@@ -612,3 +612,99 @@ class HealthMonitor:
         if node_id not in self.node_health:
             self.node_health[node_id] = NodeHealthInfo(node_id=node_id)
         return self.node_health[node_id]
+
+    async def detect_failures(
+        self,
+        force_check: bool = False,
+    ) -> dict[str, NodeHealthInfo]:
+        """
+        Detect node failures and update node status accordingly.
+
+        Scans all monitored nodes to detect failures based on health check
+        history and heartbeat timestamps. Nodes that have exceeded failure
+        thresholds or have not been seen recently are marked as failed.
+
+        This method can be called proactively to check for failures outside
+        the regular monitoring loop, or as part of the monitoring process.
+
+        Args:
+            force_check: If True, perform health checks on all nodes before
+                        detecting failures. If False, use existing health data.
+
+        Returns:
+            Dictionary mapping node IDs to their NodeHealthInfo for all
+            nodes detected as failed or unhealthy.
+
+        Example:
+            >>> failures = await monitor.detect_failures()
+            >>> for node_id, health_info in failures.items():
+            ...     print(f"Node {node_id}: {health_info.status}")
+        """
+        # Perform fresh health checks if requested
+        if force_check:
+            await self.check_all_nodes()
+
+        failed_nodes: dict[str, NodeHealthInfo] = {}
+
+        # Check all registered nodes
+        nodes = self.registry.list_nodes()
+        for node in nodes:
+            health_info = self._get_or_create_health_info(node.id)
+
+            # Update health status based on current state
+            old_status = health_info.status
+            new_status = health_info.update_status(self.config)
+
+            # Check if node has failed or is unhealthy
+            if new_status in (HealthStatus.UNHEALTHY, HealthStatus.DEGRADED):
+                failed_nodes[node.id] = health_info
+
+                # Update node status in registry if it changed
+                if old_status != new_status:
+                    await self._update_node_status(node.id, health_info)
+
+            # Also check nodes with no recent heartbeat
+            if health_info.last_heartbeat:
+                elapsed = (
+                    datetime.utcnow() - health_info.last_heartbeat
+                ).total_seconds()
+                if elapsed > self.config.timeout_threshold:
+                    health_info.status = HealthStatus.UNHEALTHY
+                    failed_nodes[node.id] = health_info
+                    await self._update_node_status(node.id, health_info)
+
+        return failed_nodes
+
+    async def get_failed_nodes(
+        self,
+        include_degraded: bool = False,
+    ) -> list[str]:
+        """
+        Get list of node IDs that have failed or are unhealthy.
+
+        A convenience method that returns just the node IDs without
+        the full health information.
+
+        Args:
+            include_degraded: If True, include degraded nodes in addition
+                            to unhealthy nodes. Defaults to False.
+
+        Returns:
+            List of node IDs that have failed or are unhealthy.
+
+        Example:
+            >>> failed = await monitor.get_failed_nodes()
+            >>> if failed:
+            ...     print(f"Failed nodes: {', '.join(failed)}")
+        """
+        failures = await self.detect_failures(force_check=False)
+
+        if include_degraded:
+            return list(failures.keys())
+
+        # Filter to only unhealthy nodes
+        return [
+            node_id
+            for node_id, health_info in failures.items()
+            if health_info.status == HealthStatus.UNHEALTHY
+        ]
