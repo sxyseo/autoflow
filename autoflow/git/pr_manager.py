@@ -103,6 +103,50 @@ class PRState(BaseModel):
     def mark_conflict(self) -> None:
         """Mark that a conflict was detected during refresh."""
         self.conflict_count += 1
+        self.status = PRRefreshStatus.CONFLICT_DETECTED
+        self.touch()
+
+    def mark_up_to_date(self) -> None:
+        """Mark PR as up to date (no refresh needed)."""
+        self.status = PRRefreshStatus.UP_TO_DATE
+        self.needs_refresh = False
+        self.touch()
+
+    def mark_needs_refresh(self) -> None:
+        """Mark PR as needing refresh."""
+        self.status = PRRefreshStatus.NEEDS_REFRESH
+        self.needs_refresh = True
+        self.touch()
+
+    def mark_refreshing(self) -> None:
+        """Mark PR as currently being refreshed."""
+        self.status = PRRefreshStatus.REFRESHING
+        self.touch()
+
+    def mark_refreshed(self, commit_sha: Optional[str] = None) -> None:
+        """Mark PR as successfully refreshed."""
+        self.status = PRRefreshStatus.REFRESHED
+        self.needs_refresh = False
+        self.refresh_count += 1
+        self.last_refresh_at = datetime.utcnow()
+        if commit_sha:
+            self.last_refresh_commit = commit_sha
+        self.touch()
+
+    def mark_resolving(self) -> None:
+        """Mark PR as having conflicts being resolved."""
+        self.status = PRRefreshStatus.RESOLVING
+        self.touch()
+
+    def mark_resolved(self) -> None:
+        """Mark PR conflicts as resolved."""
+        self.status = PRRefreshStatus.RESOLVED
+        self.touch()
+
+    def mark_failed(self, error_message: Optional[str] = None) -> None:
+        """Mark PR refresh as failed."""
+        self.status = PRRefreshStatus.FAILED
+        self.needs_refresh = True
         self.touch()
 
 
@@ -449,6 +493,231 @@ class PRManager:
         except Exception as e:
             logger.error("Failed to detect stale PRs: %s", e)
             return []
+
+    # === Real-time PR Status Update Methods ===
+
+    def mark_up_to_date(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR as up to date (no refresh needed).
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_up_to_date(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_up_to_date()
+        self.track_pr(pr_state)
+
+        logger.info("Marked PR #%d as up to date", pr_number)
+        return pr_state
+
+    def mark_needs_refresh(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR as needing refresh.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_needs_refresh(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_needs_refresh()
+        self.track_pr(pr_state)
+
+        logger.info("Marked PR #%d as needing refresh", pr_number)
+        return pr_state
+
+    def mark_refreshing(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR as currently being refreshed.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_refreshing(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_refreshing()
+        self.track_pr(pr_state)
+
+        logger.info("Marked PR #%d as refreshing", pr_number)
+        return pr_state
+
+    def mark_refreshed(
+        self, pr_number: int, commit_sha: Optional[str] = None
+    ) -> Optional[PRState]:
+        """
+        Mark PR as successfully refreshed.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+            commit_sha: Optional commit SHA after refresh
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_refreshed(123, commit_sha="abc123")
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_refreshed(commit_sha)
+        self.track_pr(pr_state)
+
+        logger.info(
+            "Marked PR #%d as refreshed (commit: %s)",
+            pr_number,
+            commit_sha or "unknown",
+        )
+        return pr_state
+
+    def mark_conflict_detected(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR as having conflict detected during refresh.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_conflict_detected(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_conflict()
+        self.track_pr(pr_state)
+
+        logger.warning("Marked PR #%d as having conflicts", pr_number)
+        return pr_state
+
+    def mark_resolving(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR as having conflicts being resolved.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_resolving(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_resolving()
+        self.track_pr(pr_state)
+
+        logger.info("Marked PR #%d as resolving conflicts", pr_number)
+        return pr_state
+
+    def mark_resolved(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR conflicts as resolved.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_resolved(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_resolved()
+        self.track_pr(pr_state)
+
+        logger.info("Marked PR #%d conflicts as resolved", pr_number)
+        return pr_state
+
+    def mark_failed(self, pr_number: int) -> Optional[PRState]:
+        """
+        Mark PR refresh as failed.
+
+        Real-time status update with immediate persistence.
+
+        Args:
+            pr_number: PR number to update
+
+        Returns:
+            Updated PR state or None if PR not found
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> pr_manager.mark_failed(123)
+        """
+        pr_state = self.load_pr_state(pr_number)
+        if not pr_state:
+            logger.warning("PR #%d not found for status update", pr_number)
+            return None
+
+        pr_state.mark_failed()
+        self.track_pr(pr_state)
+
+        logger.error("Marked PR #%d refresh as failed", pr_number)
+        return pr_state
 
     def get_status(self) -> dict[str, Any]:
         """
