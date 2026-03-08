@@ -19,9 +19,17 @@ Usage:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
+
+from autoflow.analytics.agent_performance import AgentPerformance
+from autoflow.analytics.metrics import MetricsCollector
+from autoflow.analytics.quality import QualityTrends
+from autoflow.analytics.roi import ROICalculator
+from autoflow.analytics.velocity import VelocityTracker
 
 # Create FastAPI application
 app = FastAPI(
@@ -32,6 +40,75 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Initialize analytics collectors
+_metrics_collector: MetricsCollector | None = None
+_velocity_tracker: VelocityTracker | None = None
+_quality_tracker: QualityTrends | None = None
+_agent_performance: AgentPerformance | None = None
+_roi_calculator: ROICalculator | None = None
+
+
+def get_metrics_collector() -> MetricsCollector:
+    """Get or create the metrics collector instance.
+
+    Returns:
+        MetricsCollector instance
+    """
+    global _metrics_collector
+    if _metrics_collector is None:
+        _metrics_collector = MetricsCollector()
+    return _metrics_collector
+
+
+def get_velocity_tracker() -> VelocityTracker:
+    """Get or create the velocity tracker instance.
+
+    Returns:
+        VelocityTracker instance
+    """
+    global _velocity_tracker
+    if _velocity_tracker is None:
+        _velocity_tracker = VelocityTracker(
+            metrics_collector=get_metrics_collector()
+        )
+    return _velocity_tracker
+
+
+def get_quality_tracker() -> QualityTrends:
+    """Get or create the quality trends tracker instance.
+
+    Returns:
+        QualityTrends instance
+    """
+    global _quality_tracker
+    if _quality_tracker is None:
+        _quality_tracker = QualityTrends()
+    return _quality_tracker
+
+
+def get_agent_performance() -> AgentPerformance:
+    """Get or create the agent performance tracker instance.
+
+    Returns:
+        AgentPerformance instance
+    """
+    global _agent_performance
+    if _agent_performance is None:
+        _agent_performance = AgentPerformance()
+    return _agent_performance
+
+
+def get_roi_calculator() -> ROICalculator:
+    """Get or create the ROI calculator instance.
+
+    Returns:
+        ROICalculator instance
+    """
+    global _roi_calculator
+    if _roi_calculator is None:
+        _roi_calculator = ROICalculator()
+    return _roi_calculator
 
 
 @app.get("/")
@@ -80,6 +157,408 @@ async def api_info() -> dict[str, Any]:
             "roi": "/api/roi",
         },
     }
+
+
+# Metrics endpoints
+@app.get("/api/metrics")
+async def get_metrics(
+    limit: int = Query(100, description="Maximum number of readings to return", ge=1, le=1000),
+    metric_name: str | None = Query(None, description="Filter by metric name"),
+) -> dict[str, Any]:
+    """Get metrics data.
+
+    Args:
+        limit: Maximum number of readings to return
+        metric_name: Optional metric name to filter by
+
+    Returns:
+        Dictionary with metrics data
+    """
+    try:
+        collector = get_metrics_collector()
+
+        # Get metric names
+        metric_names = collector.get_metric_names()
+
+        # Get readings
+        readings = collector.query_metrics(
+            metric_name=metric_name,
+            limit=limit,
+        )
+
+        return {
+            "metric_names": metric_names,
+            "total_metrics": len(metric_names),
+            "readings": [reading.to_dict() for reading in readings],
+            "readings_count": len(readings),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/metrics/{metric_name}")
+async def get_metric_details(
+    metric_name: str,
+    limit: int = Query(100, description="Maximum number of readings to return", ge=1, le=1000),
+) -> dict[str, Any]:
+    """Get details for a specific metric.
+
+    Args:
+        metric_name: Name of the metric
+        limit: Maximum number of readings to return
+
+    Returns:
+        Dictionary with metric details
+    """
+    try:
+        collector = get_metrics_collector()
+
+        # Check if metric exists
+        if metric_name not in collector.get_metric_names():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Metric not found: {metric_name}"
+            )
+
+        # Get readings
+        readings = collector.query_metrics(
+            metric_name=metric_name,
+            limit=limit,
+        )
+
+        return {
+            "metric_name": metric_name,
+            "readings": [reading.to_dict() for reading in readings],
+            "readings_count": len(readings),
+            "total_count": collector.get_metric_count(metric_name),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/metrics/{metric_name}/summary")
+async def get_metric_summary(
+    metric_name: str,
+) -> dict[str, Any]:
+    """Get summary statistics for a specific metric.
+
+    Args:
+        metric_name: Name of the metric
+
+    Returns:
+        Dictionary with metric summary
+    """
+    try:
+        collector = get_metrics_collector()
+
+        # Get summary
+        summary = collector.get_metric_summary(metric_name)
+
+        return {
+            "metric_name": summary.metric_name,
+            "count": summary.count,
+            "min": summary.min,
+            "max": summary.max,
+            "mean": summary.mean,
+            "sum": summary.sum,
+            "percentile_50": summary.percentile_50,
+            "percentile_95": summary.percentile_95,
+            "percentile_99": summary.percentile_99,
+            "start_time": summary.start_time,
+            "end_time": summary.end_time,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# Velocity endpoints
+@app.get("/api/velocity")
+async def get_velocity_metrics(
+    period_days: int = Query(7, description="Number of days to analyze", ge=1, le=365),
+) -> dict[str, Any]:
+    """Get velocity metrics.
+
+    Args:
+        period_days: Number of days to analyze
+
+    Returns:
+        Dictionary with velocity metrics
+    """
+    try:
+        tracker = get_velocity_tracker()
+        metrics = tracker.get_velocity_metrics(period_days=period_days)
+
+        return {
+            "period_start": metrics.period_start.isoformat(),
+            "period_end": metrics.period_end.isoformat(),
+            "tasks_completed": metrics.tasks_completed,
+            "tasks_started": metrics.tasks_started,
+            "completion_rate": metrics.completion_rate,
+            "avg_cycle_time_seconds": metrics.avg_cycle_time,
+            "avg_lead_time_seconds": metrics.avg_lead_time,
+            "throughput": metrics.throughput,
+            "trend": metrics.trend.value,
+            "forecasted_completion": metrics.forecasted_completion,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/velocity/cycle-time")
+async def get_cycle_time_distribution(
+    period_days: int = Query(7, description="Number of days to analyze", ge=1, le=365),
+    task_type: str | None = Query(None, description="Filter by task type"),
+) -> dict[str, Any]:
+    """Get cycle time distribution.
+
+    Args:
+        period_days: Number of days to analyze
+        task_type: Optional task type filter
+
+    Returns:
+        Dictionary with cycle time distribution
+    """
+    try:
+        tracker = get_velocity_tracker()
+        distribution = tracker.get_cycle_time_distribution(
+            task_type=task_type,
+            period_days=period_days,
+        )
+
+        if distribution is None:
+            return {
+                "message": "No completed tasks found for the given criteria",
+                "min": None,
+                "max": None,
+                "mean": None,
+                "median": None,
+                "percentile_85": None,
+                "percentile_95": None,
+                "std_dev": None,
+            }
+
+        return {
+            "min": distribution.min,
+            "max": distribution.max,
+            "mean": distribution.mean,
+            "median": distribution.median,
+            "percentile_85": distribution.percentile_85,
+            "percentile_95": distribution.percentile_95,
+            "std_dev": distribution.std_dev,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# Quality endpoints
+@app.get("/api/quality")
+async def get_quality_metrics(
+    period_days: int = Query(7, description="Number of days to analyze", ge=1, le=365),
+) -> dict[str, Any]:
+    """Get quality metrics.
+
+    Args:
+        period_days: Number of days to analyze
+
+    Returns:
+        Dictionary with quality metrics
+    """
+    try:
+        tracker = get_quality_tracker()
+        metrics = tracker.get_quality_metrics(period_days=period_days)
+
+        return metrics.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/quality/summary")
+async def get_quality_summary() -> dict[str, Any]:
+    """Get comprehensive quality summary.
+
+    Returns:
+        Dictionary with quality summary
+    """
+    try:
+        tracker = get_quality_tracker()
+        summary = tracker.get_summary()
+
+        return {
+            "total_tests": summary.total_tests,
+            "total_reviews": summary.total_reviews,
+            "avg_test_pass_rate": summary.avg_test_pass_rate,
+            "avg_review_approval_rate": summary.avg_review_approval_rate,
+            "avg_first_try_rate": summary.avg_first_try_rate,
+            "total_defects": summary.total_defects,
+            "trend": summary.trend.value,
+            "quality_score": summary.quality_score,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# Agent performance endpoints
+@app.get("/api/agents")
+async def get_agents(
+    limit: int = Query(10, description="Maximum number of executions to return", ge=1, le=100),
+) -> dict[str, Any]:
+    """Get agent performance data.
+
+    Args:
+        limit: Maximum number of recent executions to return
+
+    Returns:
+        Dictionary with agent performance data
+    """
+    try:
+        perf = get_agent_performance()
+
+        # Get all agent names
+        agent_names = perf.get_agent_names()
+
+        # Get recent executions
+        recent_executions = perf.get_recent_executions(limit=limit)
+
+        return {
+            "agent_names": agent_names,
+            "total_agents": len(agent_names),
+            "recent_executions": [
+                execution.to_dict() for execution in recent_executions
+            ],
+            "executions_count": len(recent_executions),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/agents/{agent_name}")
+async def get_agent_summary(
+    agent_name: str,
+) -> dict[str, Any]:
+    """Get performance summary for a specific agent.
+
+    Args:
+        agent_name: Name of the agent
+
+    Returns:
+        Dictionary with agent performance summary
+    """
+    try:
+        perf = get_agent_performance()
+        summary = perf.get_agent_summary(agent_name)
+
+        return summary.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/agents/compare")
+async def compare_agents(
+    agents: str = Query(..., description="Comma-separated list of agent names to compare"),
+) -> dict[str, Any]:
+    """Compare performance across multiple agents.
+
+    Args:
+        agents: Comma-separated list of agent names
+
+    Returns:
+        Dictionary with agent comparison
+    """
+    try:
+        perf = get_agent_performance()
+        agent_list = [a.strip() for a in agents.split(",")]
+
+        comparison = perf.compare_agents(agent_names=agent_list)
+
+        return comparison.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ROI endpoints
+@app.get("/api/roi")
+async def get_roi_metrics(
+    period_days: int = Query(30, description="Number of days to analyze", ge=1, le=365),
+    hourly_rate_usd: float | None = Query(None, description="Hourly rate for cost calculation", ge=0),
+) -> dict[str, Any]:
+    """Get ROI metrics.
+
+    Args:
+        period_days: Number of days to analyze
+        hourly_rate_usd: Optional hourly rate for cost savings calculation
+
+    Returns:
+        Dictionary with ROI metrics
+    """
+    try:
+        from datetime import timedelta
+
+        calculator = get_roi_calculator()
+
+        # Calculate time range
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=period_days)
+
+        # Get ROI summary
+        metrics = calculator.get_roi_summary(
+            start_time=start_time,
+            end_time=end_time,
+            hourly_rate_usd=hourly_rate_usd,
+        )
+
+        return metrics.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/roi/trend")
+async def get_roi_trend(
+    metric_name: str = Query("roi_percentage", description="Metric to analyze"),
+    period_hours: int = Query(168, description="Time period in hours", ge=1, le=8760),
+) -> dict[str, Any]:
+    """Get ROI trend analysis.
+
+    Args:
+        metric_name: Name of the metric to analyze
+        period_hours: Time period for comparison
+
+    Returns:
+        Dictionary with ROI trend
+    """
+    try:
+        calculator = get_roi_calculator()
+        trend = calculator.get_roi_trend(
+            metric_name=metric_name,
+            period_hours=period_hours,
+        )
+
+        if trend is None:
+            return {
+                "message": "Insufficient data for trend analysis",
+                "metric_name": metric_name,
+                "current_value": None,
+                "previous_value": None,
+                "change_rate": None,
+                "trend_direction": None,
+                "confidence": None,
+            }
+
+        return {
+            "metric_name": trend.metric_name,
+            "current_value": trend.current_value,
+            "previous_value": trend.previous_value,
+            "change_rate": trend.change_rate,
+            "trend_direction": trend.trend_direction,
+            "confidence": trend.confidence,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:
