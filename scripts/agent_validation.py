@@ -308,14 +308,21 @@ class AgentSpecValidator(BaseModel):
             # Check for dangerous flags
             self._check_dangerous_flags(arg, field_name)
 
-    def validate_args(self) -> None:
+    def validate_args(self) -> bool:
         """
         Validate command arguments.
+
+        Returns:
+            True if validation passes, False if validation fails
 
         Raises:
             ValidationError: If any argument contains shell metacharacters or dangerous flags
         """
-        self._validate_args_list(self.args, "args")
+        try:
+            self._validate_args_list(self.args, "args")
+            return True
+        except ValidationError:
+            return False
 
     def validate_runtime_args(self) -> None:
         """
