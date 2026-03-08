@@ -15,9 +15,13 @@ import pytest
 from pydantic import ValidationError
 
 from autoflow.agents.taskmaster import (
-    TaskmasterConfig,
-    TaskmasterAPIClient,
+    ConflictResolver,
+    ConflictResolutionStrategy,
+    ConflictType,
+    TaskConflict,
     TaskmasterAdapter,
+    TaskmasterAPIClient,
+    TaskmasterConfig,
     TaskmasterTask,
     TaskmasterTaskStatus,
 )
@@ -1984,3 +1988,578 @@ class TestAutoflowToTaskmasterSync:
             # Verify description was passed
             call_kwargs = mock_client.create_task.call_args.kwargs
             assert call_kwargs.get("description") == "This is a detailed description of the task"
+
+
+# ============================================================================
+# Conflict Resolution Tests
+# ============================================================================
+
+
+class TestConflictResolution:
+    """Tests for conflict detection and resolution functionality."""
+
+    # ------------------------------------------------------------------------
+    # Enum Tests
+    # ------------------------------------------------------------------------
+
+    def test_conflict_type_enum_values(self) -> None:
+        """Test ConflictType enum has correct values."""
+        assert ConflictType.STATUS.value == "status"
+        assert ConflictType.PRIORITY.value == "priority"
+        assert ConflictType.TITLE.value == "title"
+        assert ConflictType.DESCRIPTION.value == "description"
+        assert ConflictType.ASSIGNMENT.value == "assignment"
+        assert ConflictType.METADATA.value == "metadata"
+        assert ConflictType.DELETED.value == "deleted"
+
+    def test_conflict_resolution_strategy_enum_values(self) -> None:
+        """Test ConflictResolutionStrategy enum has correct values."""
+        assert ConflictResolutionStrategy.LAST_WRITE_WINS.value == "last_write_wins"
+        assert ConflictResolutionStrategy.TIMESTAMP_BASED.value == "timestamp_based"
+        assert ConflictResolutionStrategy.MANUAL.value == "manual"
+        assert ConflictResolutionStrategy.AUTOFLOW_WINS.value == "autoflow_wins"
+        assert ConflictResolutionStrategy.TASKMASTER_WINS.value == "taskmaster_wins"
+
+    # ------------------------------------------------------------------------
+    # TaskConflict Model Tests
+    # ------------------------------------------------------------------------
+
+    def test_task_conflict_creation(self) -> None:
+        """Test creating a TaskConflict instance."""
+        autoflow_updated = datetime(2026, 3, 8, 10, 0, 0)
+        taskmaster_updated = datetime(2026, 3, 8, 11, 0, 0)
+
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.IN_PROGRESS,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=autoflow_updated,
+            taskmaster_updated_at=taskmaster_updated,
+        )
+
+        assert conflict.task_id == "task-001"
+        assert conflict.conflict_type == ConflictType.STATUS
+        assert conflict.autoflow_value == TaskStatus.IN_PROGRESS
+        assert conflict.taskmaster_value == TaskmasterTaskStatus.DONE
+        assert conflict.autoflow_updated_at == autoflow_updated
+        assert conflict.taskmaster_updated_at == taskmaster_updated
+        assert conflict.resolved is False
+        assert conflict.resolution is None
+        assert conflict.resolved_value is None
+
+    def test_task_conflict_resolve_method(self) -> None:
+        """Test marking a conflict as resolved."""
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.IN_PROGRESS,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 11, 0, 0),
+        )
+
+        assert conflict.resolved is False
+
+        conflict.resolve(
+            ConflictResolutionStrategy.TASKMASTER_WINS,
+            TaskStatus.DONE,
+        )
+
+        assert conflict.resolved is True
+        assert conflict.resolution == ConflictResolutionStrategy.TASKMASTER_WINS
+        assert conflict.resolved_value == TaskStatus.DONE
+
+    def test_task_conflict_with_metadata(self) -> None:
+        """Test TaskConflict with custom metadata."""
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.PRIORITY,
+            autoflow_value=5,
+            taskmaster_value=8,
+            autoflow_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 11, 0, 0),
+            metadata={"reason": "concurrent_update", "user": "test-user"},
+        )
+
+        assert conflict.metadata == {"reason": "concurrent_update", "user": "test-user"}
+
+    # ------------------------------------------------------------------------
+    # ConflictResolver Tests
+    # ------------------------------------------------------------------------
+
+    def test_conflict_resolver_init_defaults(self) -> None:
+        """Test ConflictResolver initialization with defaults."""
+        resolver = ConflictResolver()
+
+        assert resolver.strategy == ConflictResolutionStrategy.LAST_WRITE_WINS
+        assert resolver.strict_mode is False
+
+    def test_conflict_resolver_init_custom(self) -> None:
+        """Test ConflictResolver initialization with custom values."""
+        resolver = ConflictResolver(
+            strategy=ConflictResolutionStrategy.AUTOFLOW_WINS,
+            strict_mode=True,
+        )
+
+        assert resolver.strategy == ConflictResolutionStrategy.AUTOFLOW_WINS
+        assert resolver.strict_mode is True
+
+    def test_detect_conflicts_no_conflicts(self) -> None:
+        """Test conflict detection with matching tasks."""
+        resolver = ConflictResolver()
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Same Title",
+            description="Same Description",
+            status=TaskStatus.PENDING,
+            priority=5,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Same Title",
+            description="Same Description",
+            status=TaskmasterTaskStatus.TODO,
+            priority=5,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflicts = resolver.detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) == 0
+
+    def test_detect_conflicts_status_mismatch(self) -> None:
+        """Test conflict detection detects status differences."""
+        resolver = ConflictResolver()
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Task",
+            status=TaskStatus.IN_PROGRESS,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Task",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflicts = resolver.detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) == 1
+        assert conflicts[0].conflict_type == ConflictType.STATUS
+        assert conflicts[0].autoflow_value == TaskStatus.IN_PROGRESS
+        assert conflicts[0].taskmaster_value == TaskmasterTaskStatus.DONE
+
+    def test_detect_conflicts_multiple_differences(self) -> None:
+        """Test conflict detection detects multiple field differences."""
+        resolver = ConflictResolver()
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            description="Autoflow Description",
+            status=TaskStatus.PENDING,
+            priority=3,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            description="Taskmaster Description",
+            status=TaskmasterTaskStatus.IN_PROGRESS,
+            priority=7,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflicts = resolver.detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) == 4
+        conflict_types = {c.conflict_type for c in conflicts}
+        assert ConflictType.TITLE in conflict_types
+        assert ConflictType.DESCRIPTION in conflict_types
+        assert ConflictType.STATUS in conflict_types
+        assert ConflictType.PRIORITY in conflict_types
+
+    def test_detect_conflicts_assignment_mismatch(self) -> None:
+        """Test conflict detection detects assignment differences."""
+        resolver = ConflictResolver()
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Task",
+            status=TaskStatus.PENDING,
+            assigned_agent="agent-001",
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Task",
+            status=TaskmasterTaskStatus.TODO,
+            assigned_to="agent-002",
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflicts = resolver.detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) == 1
+        assert conflicts[0].conflict_type == ConflictType.ASSIGNMENT
+        assert conflicts[0].autoflow_value == "agent-001"
+        assert conflicts[0].taskmaster_value == "agent-002"
+
+    def test_resolve_conflict_autoflow_wins(self) -> None:
+        """Test resolution with AUTOFLOW_WINS strategy."""
+        resolver = ConflictResolver(strategy=ConflictResolutionStrategy.AUTOFLOW_WINS)
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+        assert resolved.title == "Autoflow Title"
+        assert resolved.status == TaskStatus.PENDING
+
+    def test_resolve_conflict_taskmaster_wins(self) -> None:
+        """Test resolution with TASKMASTER_WINS strategy."""
+        resolver = ConflictResolver(strategy=ConflictResolutionStrategy.TASKMASTER_WINS)
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+        assert resolved.title == "Taskmaster Title"
+        assert resolved.status == TaskStatus.DONE
+
+    def test_resolve_conflict_last_write_wins_autoflow_newer(self) -> None:
+        """Test LAST_WRITE_WINS when Autoflow is newer."""
+        resolver = ConflictResolver(strategy=ConflictResolutionStrategy.LAST_WRITE_WINS)
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 9, 0, 0),
+        )
+
+        # Autoflow updated more recently
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+        )
+
+        resolved = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+        assert resolved.title == "Autoflow Title"
+        assert resolved.status == TaskStatus.PENDING
+
+    def test_resolve_conflict_last_write_wins_taskmaster_newer(self) -> None:
+        """Test LAST_WRITE_WINS when Taskmaster is newer."""
+        resolver = ConflictResolver(strategy=ConflictResolutionStrategy.LAST_WRITE_WINS)
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        # Taskmaster updated more recently
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+        assert resolved.title == "Taskmaster Title"
+        assert resolved.status == TaskStatus.DONE
+
+    def test_resolve_conflict_manual_raises_in_strict_mode(self) -> None:
+        """Test MANUAL strategy raises error in strict mode."""
+        resolver = ConflictResolver(
+            strategy=ConflictResolutionStrategy.MANUAL,
+            strict_mode=True,
+        )
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        with pytest.raises(ValueError, match="Manual resolution required"):
+            resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+    def test_resolve_conflict_manual_no_strict_mode(self) -> None:
+        """Test MANUAL strategy returns Autoflow version in non-strict mode."""
+        resolver = ConflictResolver(
+            strategy=ConflictResolutionStrategy.MANUAL,
+            strict_mode=False,
+        )
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflict = TaskConflict(
+            task_id="task-001",
+            conflict_type=ConflictType.STATUS,
+            autoflow_value=TaskStatus.PENDING,
+            taskmaster_value=TaskmasterTaskStatus.DONE,
+            autoflow_updated_at=datetime(2026, 3, 8, 9, 0, 0),
+            taskmaster_updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        # In non-strict mode, defaults to Autoflow version
+        resolved = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+
+        assert resolved.title == "Autoflow Title"
+
+    def test_resolve_all_conflicts_no_conflicts(self) -> None:
+        """Test resolving all conflicts when there are none."""
+        resolver = ConflictResolver()
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Same Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Same Title",
+            status=TaskmasterTaskStatus.TODO,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved_task, conflicts = resolver.resolve_all_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        assert len(conflicts) == 0
+        assert resolved_task.title == "Same Title"
+
+    def test_resolve_all_conflicts_with_conflicts(self) -> None:
+        """Test resolving all conflicts marks them as resolved."""
+        resolver = ConflictResolver(strategy=ConflictResolutionStrategy.TASKMASTER_WINS)
+
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+            priority=5,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            priority=8,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved_task, conflicts = resolver.resolve_all_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        assert len(conflicts) > 0
+        # All conflicts should be marked as resolved
+        for conflict in conflicts:
+            assert conflict.resolved is True
+            assert conflict.resolution == ConflictResolutionStrategy.TASKMASTER_WINS
+
+        # Resolved task should have Taskmaster values
+        assert resolved_task.title == "Taskmaster Title"
+        assert resolved_task.status == TaskStatus.DONE
+        assert resolved_task.priority == 8
+
+    # ------------------------------------------------------------------------
+    # Adapter Conflict Detection Tests
+    # ------------------------------------------------------------------------
+
+    def test_adapter_detect_conflicts(self, adapter: TaskmasterAdapter) -> None:
+        """Test adapter's _detect_conflicts method."""
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.IN_PROGRESS,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        conflicts = adapter._detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) == 2  # Title and Status
+
+    def test_adapter_resolve_conflicts_default_strategy(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test adapter's _resolve_conflicts with default strategy."""
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved_task, conflicts = adapter._resolve_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        assert len(conflicts) > 0
+        assert resolved_task.id == "task-001"
+
+    def test_adapter_resolve_conflicts_custom_strategy(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test adapter's _resolve_conflicts with custom strategy."""
+        autoflow_task = Task(
+            id="task-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.DONE,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        resolved_task, conflicts = adapter._resolve_conflicts(
+            autoflow_task,
+            taskmaster_task,
+            strategy=ConflictResolutionStrategy.AUTOFLOW_WINS,
+        )
+
+        assert len(conflicts) > 0
+        # Should use Autoflow values
+        assert resolved_task.title == "Autoflow Title"
+        assert resolved_task.status == TaskStatus.PENDING
+
+    def test_adapter_resolve_conflicts_preserves_resolver_strategy(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test that custom strategy doesn't permanently change resolver's strategy."""
+        autoflow_task = Task(
+            id="task-001",
+            title="Title",
+            status=TaskStatus.PENDING,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-001",
+            title="Title",
+            status=TaskmasterTaskStatus.TODO,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        original_strategy = adapter.conflict_resolver.strategy
+
+        # Resolve with custom strategy
+        adapter._resolve_conflicts(
+            autoflow_task,
+            taskmaster_task,
+            strategy=ConflictResolutionStrategy.AUTOFLOW_WINS,
+        )
+
+        # Resolver's strategy should be unchanged
+        assert adapter.conflict_resolver.strategy == original_strategy
