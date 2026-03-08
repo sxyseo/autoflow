@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from autoflow.core.dependency import DependencyTracker
 from autoflow.core.repository import (
     BranchConfig,
     DependencyType,
@@ -1139,3 +1140,583 @@ class TestEdgeCases:
 
         assert dep.branch_constraint == "main"
         assert dep.version_constraint == "^2.0.0"
+
+
+# ============================================================================
+# DependencyTracker Tests
+# ============================================================================
+
+
+class TestDependencyTracker:
+    """Tests for DependencyTracker class."""
+
+    # ------------------------------------------------------------------------
+    # Fixtures for DependencyTracker tests
+    # ------------------------------------------------------------------------
+
+    @pytest.fixture
+    def dependency_tracker(
+        self, temp_state_dir: Path
+    ) -> DependencyTracker:
+        """Create a DependencyTracker instance with temporary directory."""
+        tracker = DependencyTracker(temp_state_dir)
+        tracker.initialize()
+        return tracker
+
+    @pytest.fixture
+    def sample_repositories(
+        self, dependency_tracker: DependencyTracker, sample_repository_data: dict
+    ) -> None:
+        """Create sample repositories for testing."""
+        # Create multiple repositories
+        repos = [
+            {"id": "shared-utils", "name": "Shared Utils", "path": "~/dev/shared", "enabled": True},
+            {"id": "backend-api", "name": "Backend API", "path": "~/dev/backend", "enabled": True},
+            {"id": "frontend", "name": "Frontend", "path": "~/dev/frontend", "enabled": True},
+            {"id": "mobile", "name": "Mobile App", "path": "~/dev/mobile", "enabled": True},
+        ]
+        for repo in repos:
+            dependency_tracker.repo_manager.save_repository(repo["id"], repo)
+
+    @pytest.fixture
+    def sample_dependencies(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Create sample dependencies for testing."""
+        # frontend -> backend-api -> shared-utils
+        # mobile -> backend-api
+        deps = [
+            RepositoryDependency(
+                source_repo_id="frontend",
+                target_repo_id="backend-api",
+                dependency_type=DependencyType.RUNTIME,
+            ),
+            RepositoryDependency(
+                source_repo_id="backend-api",
+                target_repo_id="shared-utils",
+                dependency_type=DependencyType.RUNTIME,
+            ),
+            RepositoryDependency(
+                source_repo_id="mobile",
+                target_repo_id="backend-api",
+                dependency_type=DependencyType.RUNTIME,
+            ),
+        ]
+        for dep in deps:
+            dependency_tracker.add_dependency(dep)
+
+    # ------------------------------------------------------------------------
+    # Initialization Tests
+    # ------------------------------------------------------------------------
+
+    def test_dependency_tracker_init(self, temp_state_dir: Path) -> None:
+        """Test DependencyTracker initialization."""
+        tracker = DependencyTracker(temp_state_dir)
+
+        assert tracker.state_dir == temp_state_dir
+        assert tracker.repo_manager is not None
+        assert isinstance(tracker.repo_manager, RepositoryManager)
+
+    def test_dependency_tracker_init_with_state_manager(
+        self, temp_state_dir: Path
+    ) -> None:
+        """Test DependencyTracker initialization with StateManager."""
+        from autoflow.core.state import StateManager
+
+        state_manager = StateManager(temp_state_dir)
+        tracker = DependencyTracker(state_manager)
+
+        assert tracker.state is state_manager
+        assert tracker.repo_manager is not None
+
+    def test_dependency_tracker_init_with_repo_manager(
+        self, temp_state_dir: Path, repository_manager: RepositoryManager
+    ) -> None:
+        """Test DependencyTracker initialization with RepositoryManager."""
+        tracker = DependencyTracker(temp_state_dir, repo_manager=repository_manager)
+
+        assert tracker.repo_manager is repository_manager
+
+    def test_dependency_tracker_initialize(
+        self, temp_state_dir: Path
+    ) -> None:
+        """Test DependencyTracker initialize creates directories."""
+        tracker = DependencyTracker(temp_state_dir)
+        tracker.initialize()
+
+        assert tracker.state_dir.exists()
+        assert tracker.dependencies_dir.exists()
+
+    # ------------------------------------------------------------------------
+    # Add Dependency Tests
+    # ------------------------------------------------------------------------
+
+    def test_add_dependency_object(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test adding a dependency from RepositoryDependency object."""
+        dep = RepositoryDependency(
+            source_repo_id="frontend",
+            target_repo_id="backend-api",
+            dependency_type=DependencyType.RUNTIME,
+        )
+
+        dep_id = dependency_tracker.add_dependency(dep)
+
+        assert dep_id == "frontend-to-backend-api"
+        assert dependency_tracker.get_dependency(dep_id) is not None
+
+    def test_add_dependency_dict(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test adding a dependency from dictionary."""
+        dep_data = {
+            "source_repo_id": "frontend",
+            "target_repo_id": "backend-api",
+            "dependency_type": "runtime",
+        }
+
+        dep_id = dependency_tracker.add_dependency(dep_data)
+
+        assert dep_id == "frontend-to-backend-api"
+
+    def test_add_dependency_invalid_dict(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Test adding invalid dependency dict raises ValueError."""
+        invalid_dep = {"source_repo_id": "frontend"}  # Missing target_repo_id
+
+        with pytest.raises(ValueError, match="Invalid dependency data"):
+            dependency_tracker.add_dependency(invalid_dep)
+
+    def test_add_dependency_generates_id(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test that dependency ID is generated correctly."""
+        dep = RepositoryDependency(
+            source_repo_id="mobile",
+            target_repo_id="shared-utils",
+        )
+
+        dep_id = dependency_tracker.add_dependency(dep)
+
+        assert dep_id == "mobile-to-shared-utils"
+
+    def test_add_dependency_with_created_at(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test that created_at is set when adding dependency."""
+        dep = RepositoryDependency(
+            source_repo_id="frontend",
+            target_repo_id="backend-api",
+        )
+
+        dep_id = dependency_tracker.add_dependency(dep)
+        loaded_dep = dependency_tracker.get_dependency(dep_id)
+
+        assert loaded_dep is not None
+        assert loaded_dep.created_at is not None
+
+    # ------------------------------------------------------------------------
+    # Remove Dependency Tests
+    # ------------------------------------------------------------------------
+
+    def test_remove_dependency(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test removing a dependency."""
+        dep_id = "frontend-to-backend-api"
+
+        removed = dependency_tracker.remove_dependency(dep_id)
+
+        assert removed is True
+        assert dependency_tracker.get_dependency(dep_id) is None
+
+    def test_remove_dependency_not_found(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Test removing non-existent dependency returns False."""
+        removed = dependency_tracker.remove_dependency("non-existent")
+
+        assert removed is False
+
+    def test_remove_dependency_creates_backup(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test that removing a dependency calls the state's backup method."""
+        dep_id = "frontend-to-backend-api"
+
+        # Remove the dependency
+        removed = dependency_tracker.remove_dependency(dep_id)
+
+        # Verify it was removed
+        assert removed is True
+        assert dependency_tracker.get_dependency(dep_id) is None
+        # Verify the dependency file no longer exists
+        assert not (dependency_tracker.dependencies_dir / f"{dep_id}.json").exists()
+
+    # ------------------------------------------------------------------------
+    # Get Dependency Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_dependency(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test getting a dependency by ID."""
+        dep = dependency_tracker.get_dependency("frontend-to-backend-api")
+
+        assert dep is not None
+        assert dep.source_repo_id == "frontend"
+        assert dep.target_repo_id == "backend-api"
+
+    def test_get_dependency_not_found(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Test getting non-existent dependency returns None."""
+        dep = dependency_tracker.get_dependency("non-existent")
+
+        assert dep is None
+
+    # ------------------------------------------------------------------------
+    # List Dependencies Tests
+    # ------------------------------------------------------------------------
+
+    def test_list_dependencies_all(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test listing all dependencies."""
+        deps = dependency_tracker.list_dependencies()
+
+        assert len(deps) == 3
+
+    def test_list_dependencies_filter_by_source(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test listing dependencies filtered by source."""
+        deps = dependency_tracker.list_dependencies(source_repo_id="frontend")
+
+        assert len(deps) == 1
+        assert deps[0].source_repo_id == "frontend"
+
+    def test_list_dependencies_filter_by_target(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test listing dependencies filtered by target."""
+        deps = dependency_tracker.list_dependencies(target_repo_id="backend-api")
+
+        assert len(deps) == 2  # frontend and mobile depend on backend-api
+
+    def test_list_dependencies_filter_by_type(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test listing dependencies filtered by type."""
+        deps = dependency_tracker.list_dependencies(dependency_type="runtime")
+
+        assert len(deps) == 3  # All are runtime
+
+    def test_list_dependencies_empty(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Test listing dependencies when none exist."""
+        deps = dependency_tracker.list_dependencies()
+
+        assert len(deps) == 0
+
+    # ------------------------------------------------------------------------
+    # Get Dependencies For Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_dependencies_for_as_source(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test getting dependencies where repo is source."""
+        deps = dependency_tracker.get_dependencies_for("backend-api", as_source=True)
+
+        assert len(deps) == 1
+        assert deps[0].source_repo_id == "backend-api"
+        assert deps[0].target_repo_id == "shared-utils"
+
+    def test_get_dependencies_for_as_target(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test getting dependencies where repo is target."""
+        deps = dependency_tracker.get_dependencies_for("backend-api", as_target=True, as_source=False)
+
+        # frontend and mobile depend on backend-api (2 dependencies)
+        # Note: backend-api also depends on shared-utils, but that's as_source, not as_target
+        assert len(deps) == 2
+        # Verify both have backend-api as target
+        assert all(dep.target_repo_id == "backend-api" for dep in deps)
+        # Verify the specific dependencies
+        dep_ids = {f"{dep.source_repo_id}->{dep.target_repo_id}" for dep in deps}
+        assert dep_ids == {"frontend->backend-api", "mobile->backend-api"}
+
+    def test_get_dependencies_for_both(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test getting dependencies where repo is both source and target."""
+        deps = dependency_tracker.get_dependencies_for(
+            "backend-api", as_source=True, as_target=True
+        )
+
+        assert len(deps) == 3  # 1 as source, 2 as target
+
+    # ------------------------------------------------------------------------
+    # Dependency Graph Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_dependency_graph(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test building dependency graph."""
+        graph = dependency_tracker.get_dependency_graph()
+
+        assert graph["frontend"] == {"backend-api"}
+        assert graph["backend-api"] == {"shared-utils"}
+        assert graph["mobile"] == {"backend-api"}
+
+    def test_get_dependency_graph_empty(
+        self, dependency_tracker: DependencyTracker
+    ) -> None:
+        """Test dependency graph with no dependencies."""
+        graph = dependency_tracker.get_dependency_graph()
+
+        assert len(graph) == 0
+
+    def test_get_reverse_dependency_graph(
+        self, dependency_tracker: DependencyTracker, sample_dependencies: None
+    ) -> None:
+        """Test building reverse dependency graph."""
+        graph = dependency_tracker.get_reverse_dependency_graph()
+
+        assert graph["backend-api"] == {"frontend", "mobile"}
+        assert graph["shared-utils"] == {"backend-api"}
+
+    # ------------------------------------------------------------------------
+    # Validation Tests
+    # ------------------------------------------------------------------------
+
+    def test_validate_with_all_repos(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test validation with all repositories present."""
+        errors = dependency_tracker.validate()
+
+        assert len(errors) == 0
+
+    def test_validate_missing_source_repo(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test validation detects missing source repository."""
+        # Add dependency for non-existent source
+        dep = RepositoryDependency(
+            source_repo_id="non-existent",
+            target_repo_id="backend-api",
+        )
+        dependency_tracker.add_dependency(dep)
+
+        errors = dependency_tracker.validate()
+
+        assert len(errors) > 0
+        assert any("source repository 'non-existent' does not exist" in e for e in errors)
+
+    def test_validate_missing_target_repo(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test validation detects missing target repository."""
+        # Add dependency for non-existent target
+        dep = RepositoryDependency(
+            source_repo_id="frontend",
+            target_repo_id="non-existent",
+        )
+        dependency_tracker.add_dependency(dep)
+
+        errors = dependency_tracker.validate()
+
+        assert len(errors) > 0
+        assert any("target repository 'non-existent' does not exist" in e for e in errors)
+
+    def test_validate_circular_dependencies(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test validation detects circular dependencies."""
+        # Create circular dependency: A -> B -> C -> A
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="frontend", target_repo_id="backend-api")
+        )
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="backend-api", target_repo_id="mobile")
+        )
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="mobile", target_repo_id="frontend")
+        )
+
+        errors = dependency_tracker.validate()
+
+        assert len(errors) > 0
+        assert any("Circular dependency detected" in e for e in errors)
+
+    # ------------------------------------------------------------------------
+    # Execution Order Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_execution_order(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting execution order (topological sort)."""
+        order = dependency_tracker.get_execution_order()
+
+        # shared-utils should come first (no dependencies)
+        # backend-api should come before frontend and mobile
+        # frontend and mobile have no order constraint between them
+        assert order.index("shared-utils") < order.index("backend-api")
+        assert order.index("backend-api") < order.index("frontend")
+        assert order.index("backend-api") < order.index("mobile")
+
+    def test_get_execution_order_with_circular_raises(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test execution order raises ValueError for circular dependencies."""
+        # Create circular dependency
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="frontend", target_repo_id="backend-api")
+        )
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="backend-api", target_repo_id="frontend")
+        )
+
+        with pytest.raises(ValueError, match="circular dependencies"):
+            dependency_tracker.get_execution_order()
+
+    def test_get_execution_order_no_dependencies(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test execution order with no dependencies."""
+        order = dependency_tracker.get_execution_order()
+
+        # All repos should be in the result
+        assert len(order) == 4
+        assert "shared-utils" in order
+        assert "backend-api" in order
+        assert "frontend" in order
+        assert "mobile" in order
+
+    # ------------------------------------------------------------------------
+    # Get Dependents Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_dependents_non_recursive(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting direct dependents."""
+        dependents = dependency_tracker.get_dependents("backend-api", recursive=False)
+
+        assert dependents == {"frontend", "mobile"}
+
+    def test_get_dependents_recursive(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting transitive dependents."""
+        # shared-utils is depended on by backend-api,
+        # which is depended on by frontend and mobile
+        dependents = dependency_tracker.get_dependents("shared-utils", recursive=True)
+
+        assert "backend-api" in dependents
+        assert "frontend" in dependents
+        assert "mobile" in dependents
+
+    def test_get_dependents_no_dependents(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting dependents for repo with none."""
+        dependents = dependency_tracker.get_dependents("frontend", recursive=False)
+
+        assert len(dependents) == 0
+
+    # ------------------------------------------------------------------------
+    # Get Prerequisites Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_prerequisites_non_recursive(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting direct prerequisites."""
+        prereqs = dependency_tracker.get_prerequisites("frontend", recursive=False)
+
+        assert prereqs == {"backend-api"}
+
+    def test_get_prerequisites_recursive(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting transitive prerequisites."""
+        # frontend depends on backend-api, which depends on shared-utils
+        prereqs = dependency_tracker.get_prerequisites("frontend", recursive=True)
+
+        assert "backend-api" in prereqs
+        assert "shared-utils" in prereqs
+
+    def test_get_prerequisites_none(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting prerequisites for repo with none."""
+        prereqs = dependency_tracker.get_prerequisites("shared-utils", recursive=False)
+
+        assert len(prereqs) == 0
+
+    # ------------------------------------------------------------------------
+    # Status Tests
+    # ------------------------------------------------------------------------
+
+    def test_get_status(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None,
+        sample_dependencies: None
+    ) -> None:
+        """Test getting status summary."""
+        status = dependency_tracker.get_status()
+
+        assert status["total"] == 3
+        assert status["repositories"] == 4
+        assert status["by_type"]["runtime"] == 3
+        assert status["has_errors"] is False
+
+    def test_get_status_with_errors(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test status reflects validation errors."""
+        # Add invalid dependency
+        dependency_tracker.add_dependency(
+            RepositoryDependency(source_repo_id="bad", target_repo_id="repo")
+        )
+
+        status = dependency_tracker.get_status()
+
+        assert status["has_errors"] is True
+
+    def test_get_status_empty(
+        self, dependency_tracker: DependencyTracker, sample_repositories: None
+    ) -> None:
+        """Test status with no dependencies."""
+        status = dependency_tracker.get_status()
+
+        assert status["total"] == 0
+        assert status["repositories"] == 4
+        assert status["has_errors"] is False
+
+    # ------------------------------------------------------------------------
+    # Repr Tests
+    # ------------------------------------------------------------------------
+
+    def test_repr(self, dependency_tracker: DependencyTracker) -> None:
+        """Test string representation of DependencyTracker."""
+        repr_str = repr(dependency_tracker)
+
+        assert "DependencyTracker" in repr_str
+        assert "state_dir" in repr_str
