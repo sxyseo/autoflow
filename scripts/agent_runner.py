@@ -81,6 +81,13 @@ def main() -> None:
     if run_metadata and run_metadata.get("agent_config"):
         resolved_spec.update(run_metadata["agent_config"])
     command = build_command(resolved_spec, prompt_file, run_metadata=run_metadata)
+
+    # Security: Final validation before executing command
+    try:
+        validate_agent_spec(resolved_spec, validate_all_fields=True)
+    except (ValidationError, ValueError) as e:
+        raise SystemExit(f"Invalid agent configuration: {e}") from e
+
     os.execvp(command[0], command)
 
 
