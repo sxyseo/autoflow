@@ -493,23 +493,27 @@ class DependencyTracker:
                     f"Cannot determine execution order: circular dependencies exist: {errors}"
                 )
 
-        # Build dependency graph
-        graph = self.get_dependency_graph()
+        # Build reverse dependency graph (targets depend on sources)
+        # This maps each repo to the repos that depend on it
+        reverse_graph = self.get_reverse_dependency_graph()
 
         # Get all repositories
         all_repos = self._get_all_repository_ids()
 
         # Perform topological sort using Kahn's algorithm
+        # Calculate in-degrees (number of dependencies each repo has)
+        dependency_graph = self.get_dependency_graph()
         in_degree: dict[str, int] = {repo: 0 for repo in all_repos}
 
-        # Calculate in-degrees
-        for source in graph:
-            for target in graph[source]:
+        # Calculate in-degrees based on dependencies
+        for source, targets in dependency_graph.items():
+            for target in targets:
+                # source depends on target, so target's in-degree increases
                 if target in in_degree:
-                    in_degree[target] += 1
+                    in_degree[source] += 1
 
-        # Start with nodes that have no incoming edges
-        queue = [repo for repo in in_degree if in_degree[repo] == 0]
+        # Start with nodes that have no dependencies (no outgoing edges in dep graph)
+        queue = [repo for repo in all_repos if in_degree[repo] == 0]
         result: list[str] = []
 
         while queue:
@@ -518,12 +522,12 @@ class DependencyTracker:
             node = queue.pop(0)
             result.append(node)
 
-            # Reduce in-degree for neighbors
-            for neighbor in graph.get(node, set()):
-                if neighbor in in_degree:
-                    in_degree[neighbor] -= 1
-                    if in_degree[neighbor] == 0:
-                        queue.append(neighbor)
+            # Reduce in-degree for repos that depend on this node
+            for dependent in reverse_graph.get(node, set()):
+                if dependent in in_degree:
+                    in_degree[dependent] -= 1
+                    if in_degree[dependent] == 0:
+                        queue.append(dependent)
 
         # Check if all nodes were processed (should not happen due to validation)
         if len(result) != len(all_repos):
