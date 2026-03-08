@@ -15,6 +15,14 @@ Usage:
 
     # Create a team
     team = Team(id="team-001", name="Engineering", description="Core engineering team")
+
+    # Create a workspace
+    manager = WorkspaceManager()
+    workspace = manager.create_workspace(
+        workspace_id="workspace-001",
+        name="Project X",
+        team_id="team-001"
+    )
 """
 
 from autoflow.collaboration.models import (
@@ -28,6 +36,7 @@ from autoflow.collaboration.models import (
     User,
     Workspace,
 )
+from autoflow.collaboration.workspace import WorkspaceManager
 
 __all__ = [
     "User",
@@ -39,4 +48,5 @@ __all__ = [
     "ActivityEvent",
     "Notification",
     "NotificationStatus",
+    "WorkspaceManager",
 ]
