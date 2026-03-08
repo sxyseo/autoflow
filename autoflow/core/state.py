@@ -156,6 +156,7 @@ class StateManager:
     - memory/: Persistent memory/context
     - workspaces/: Shared collaboration workspaces
     - activities/: Activity feed and event tracking
+    - notifications/: User notifications and alerts
 
     All write operations are atomic - either they complete fully
     or leave the existing state unchanged.
@@ -178,6 +179,7 @@ class StateManager:
     MEMORY_DIR = "memory"
     WORKSPACES_DIR = "workspaces"
     ACTIVITIES_DIR = "activities"
+    NOTIFICATIONS_DIR = "notifications"
     BACKUP_DIR = "backups"
 
     def __init__(self, state_dir: Union[str, Path]):
@@ -221,6 +223,11 @@ class StateManager:
         """Path to activities directory."""
         return self.state_dir / self.ACTIVITIES_DIR
 
+    @property
+    def notifications_dir(self) -> Path:
+        """Path to notifications directory."""
+        return self.state_dir / self.NOTIFICATIONS_DIR
+
     def initialize(self) -> None:
         """
         Initialize the state directory structure.
@@ -241,6 +248,7 @@ class StateManager:
         self.memory_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         self.activities_dir.mkdir(exist_ok=True)
+        self.notifications_dir.mkdir(exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
     def _get_backup_path(self, file_path: Path) -> Path:
@@ -795,6 +803,11 @@ class StateManager:
             "activities": {
                 "total": len(list(self.activities_dir.glob("*.json")))
                 if self.activities_dir.exists()
+                else 0,
+            },
+            "notifications": {
+                "total": len(list(self.notifications_dir.glob("*.json")))
+                if self.notifications_dir.exists()
                 else 0,
             },
         }
