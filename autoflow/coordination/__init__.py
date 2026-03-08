@@ -17,6 +17,7 @@ from autoflow.coordination.cluster import (
 from autoflow.coordination.client import NodeClient, NodeClientError
 from autoflow.coordination.node import Node, NodeStatus
 from autoflow.coordination.registry import NodeRegistry, RegistryStats
+from autoflow.coordination.server import NodeServer, create_node_server
 
 __all__ = [
     "Node",
@@ -29,4 +30,6 @@ __all__ = [
     "RegistryStats",
     "NodeClient",
     "NodeClientError",
+    "NodeServer",
+    "create_node_server",
 ]
