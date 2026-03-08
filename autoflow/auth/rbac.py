@@ -746,19 +746,22 @@ class PermissionChecker:
             >>> checker.can_access("specs/my-spec", "delete", {"owner": "user-123"})
             False
         """
-        # Build permission name
-        permission_name = f"{resource}:{action}"
+        # Extract resource type from resource path (e.g., "specs/my-spec" -> "specs")
+        resource_type = resource.split("/")[0] if "/" in resource else resource
+
+        # Build permission name using resource type (not full path)
+        permission_name = f"{resource_type}:{action}"
 
         # Check role-based permissions
         if self.has_permission(permission_name):
             # Check if any policies explicitly deny
-            if self._check_policies(resource, action, context):
+            if self._check_policies(resource, permission_name, context):
                 return True
             # If no policies apply, allow based on role
-            return not self._policies_apply(resource, action, context)
+            return not self._policies_apply(resource, permission_name, context)
 
         # No role-based permission, check if policies allow
-        return self._check_policies(resource, action, context)
+        return self._check_policies(resource, permission_name, context)
 
     def _policies_apply(
         self,
@@ -771,7 +774,7 @@ class PermissionChecker:
 
         Args:
             resource: Resource being accessed
-            action: Action being performed
+            action: Action being performed (in "resource:action" format)
             context: Request context
 
         Returns:
@@ -800,14 +803,14 @@ class PermissionChecker:
 
         Args:
             resource: Resource being accessed
-            action: Action being performed
+            action: Action being performed (in "resource:action" format, e.g., "specs:write")
             context: Request context
 
         Returns:
             True if access is allowed, False if denied
 
         Example:
-            >>> checker._check_policies("specs", "write", {"role": "developer"})
+            >>> checker._check_policies("specs", "specs:write", {"role": "developer"})
             True
         """
         # Build context
@@ -815,8 +818,11 @@ class PermissionChecker:
         if self.user_id:
             ctx["user_id"] = self.user_id
 
-        # Add role names to context
-        ctx["roles"] = [role.name for role in self.roles]
+        # Add role names to context (both singular and plural for flexibility)
+        role_names = [role.name for role in self.roles]
+        ctx["roles"] = role_names
+        if role_names:
+            ctx["role"] = role_names[0]  # Primary role
 
         # Sort policies by priority (highest first)
         sorted_policies = sorted(self.policies, key=lambda p: p.priority, reverse=True)
