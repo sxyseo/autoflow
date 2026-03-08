@@ -223,3 +223,221 @@ class RecoveryPattern:
             self.confidence = PatternConfidence.MEDIUM
         else:
             self.confidence = PatternConfidence.LOW
+
+
+@dataclass
+class LearnedStrategy:
+    """Represents a learned successful strategy for recovering from error patterns.
+
+    A LearnedStrategy captures knowledge about which recovery approaches have
+    been successful for specific error patterns. It aggregates data from multiple
+    recovery attempts to identify the most effective strategies, including optimal
+    parameters, timing, and execution patterns. This enables the system to
+    automatically select and apply proven recovery techniques.
+
+    Attributes:
+        strategy_id: Unique identifier for this learned strategy.
+        pattern_id: Reference to the error pattern this strategy addresses.
+        strategy_name: Human-readable name for this strategy.
+        strategy_type: Type of healing strategy (e.g., RETRY, RECONFIGURE).
+        description: Detailed description of what this strategy does.
+        success_rate: Proportion of successful recoveries (0.0 to 1.0).
+        total_attempts: Total number of times this strategy has been tried.
+        successful_attempts: Number of times this strategy succeeded.
+        failed_attempts: Number of times this strategy failed.
+        avg_execution_time: Average execution time in seconds.
+        optimal_parameters: Parameters that have shown best success.
+        confidence: Confidence level in this learned strategy.
+        first_learned: Timestamp when this strategy was first learned.
+        last_successful_use: Timestamp when this strategy last succeeded.
+        last_attempt: Timestamp when this strategy was last attempted.
+        effectiveness_score: Combined score of success rate and efficiency.
+        metadata: Additional context and diagnostic information.
+    """
+
+    strategy_id: str
+    pattern_id: str
+    strategy_name: str
+    strategy_type: str
+    description: str
+    success_rate: float
+    total_attempts: int
+    successful_attempts: int
+    failed_attempts: int
+    avg_execution_time: float
+    optimal_parameters: dict[str, Any]
+    confidence: PatternConfidence
+    first_learned: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_successful_use: datetime | None = None
+    last_attempt: datetime | None = None
+    effectiveness_score: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Calculate effectiveness score after initialization."""
+        if self.effectiveness_score == 0.0:
+            self.effectiveness_score = self._calculate_effectiveness_score()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert learned strategy to dictionary for serialization.
+
+        Returns:
+            Dictionary representation of the learned strategy.
+        """
+        return {
+            "strategy_id": self.strategy_id,
+            "pattern_id": self.pattern_id,
+            "strategy_name": self.strategy_name,
+            "strategy_type": self.strategy_type,
+            "description": self.description,
+            "success_rate": self.success_rate,
+            "total_attempts": self.total_attempts,
+            "successful_attempts": self.successful_attempts,
+            "failed_attempts": self.failed_attempts,
+            "avg_execution_time": self.avg_execution_time,
+            "optimal_parameters": self.optimal_parameters,
+            "confidence": self.confidence.value,
+            "first_learned": self.first_learned.isoformat(),
+            "last_successful_use": (
+                self.last_successful_use.isoformat() if self.last_successful_use else None
+            ),
+            "last_attempt": self.last_attempt.isoformat() if self.last_attempt else None,
+            "effectiveness_score": self.effectiveness_score,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "LearnedStrategy":
+        """Create learned strategy from dictionary for deserialization.
+
+        Args:
+            data: Dictionary containing learned strategy data.
+
+        Returns:
+            LearnedStrategy instance.
+        """
+        return cls(
+            strategy_id=data["strategy_id"],
+            pattern_id=data["pattern_id"],
+            strategy_name=data["strategy_name"],
+            strategy_type=data["strategy_type"],
+            description=data["description"],
+            success_rate=data["success_rate"],
+            total_attempts=data["total_attempts"],
+            successful_attempts=data["successful_attempts"],
+            failed_attempts=data["failed_attempts"],
+            avg_execution_time=data["avg_execution_time"],
+            optimal_parameters=data["optimal_parameters"],
+            confidence=PatternConfidence(data["confidence"]),
+            first_learned=datetime.fromisoformat(data["first_learned"]),
+            last_successful_use=datetime.fromisoformat(data["last_successful_use"])
+            if data.get("last_successful_use")
+            else None,
+            last_attempt=datetime.fromisoformat(data["last_attempt"])
+            if data.get("last_attempt")
+            else None,
+            effectiveness_score=data.get("effectiveness_score", 0.0),
+            metadata=data.get("metadata", {}),
+        )
+
+    def _calculate_effectiveness_score(self) -> float:
+        """Calculate combined effectiveness score.
+
+        Effectiveness combines success rate (70% weight) and execution efficiency (30% weight).
+        Faster executions with high success rates score higher.
+
+        Returns:
+            Effectiveness score between 0.0 and 1.0.
+        """
+        # Success rate is primary factor (70% weight)
+        success_weight = 0.7
+        # Execution efficiency is secondary factor (30% weight)
+        # Normalize execution time: assume 5 seconds is "fast", 60+ seconds is "slow"
+        efficiency_weight = 0.3
+
+        # Calculate efficiency score (inverse of execution time, normalized)
+        if self.avg_execution_time > 0:
+            # Using exponential decay: faster = much better
+            efficiency_score = 1.0 / (1.0 + self.avg_execution_time / 10.0)
+        else:
+            efficiency_score = 1.0
+
+        effectiveness = (self.success_rate * success_weight) + (
+            efficiency_score * efficiency_weight
+        )
+
+        return round(effectiveness, 3)
+
+    def update_statistics(
+        self,
+        success: bool,
+        execution_time: float,
+        parameters: dict[str, Any] | None = None,
+    ) -> None:
+        """Update strategy statistics with a new recovery attempt result.
+
+        Args:
+            success: Whether the recovery attempt was successful.
+            execution_time: Time taken for the recovery attempt in seconds.
+            parameters: Parameters used in this attempt (if they should become optimal).
+        """
+        self.total_attempts += 1
+        self.last_attempt = datetime.now(UTC)
+
+        if success:
+            self.successful_attempts += 1
+            self.last_successful_use = datetime.now(UTC)
+            # Update optimal parameters if provided
+            if parameters is not None:
+                self.optimal_parameters = parameters
+        else:
+            self.failed_attempts += 1
+
+        # Recalculate success rate
+        self.success_rate = self.successful_attempts / self.total_attempts
+
+        # Update average execution time using moving average
+        if self.avg_execution_time > 0:
+            self.avg_execution_time = (
+                (self.avg_execution_time * (self.total_attempts - 1) + execution_time)
+                / self.total_attempts
+            )
+        else:
+            self.avg_execution_time = execution_time
+
+        # Recalculate effectiveness score
+        self.effectiveness_score = self._calculate_effectiveness_score()
+
+        # Update confidence level
+        self._update_confidence()
+
+    def _update_confidence(self) -> None:
+        """Update confidence level based on success rate and sample size."""
+        success_rate = self.success_rate
+        total_attempts = self.total_attempts
+
+        # High confidence: >80% success rate with at least 5 attempts
+        if success_rate > 0.8 and total_attempts >= 5:
+            self.confidence = PatternConfidence.HIGH
+        # Medium confidence: either good success with some data, or moderate success with more data
+        elif (success_rate > 0.6 and total_attempts >= 3) or (
+            success_rate > 0.5 and total_attempts >= 5
+        ):
+            self.confidence = PatternConfidence.MEDIUM
+        # Low confidence: insufficient data or poor success rate
+        else:
+            self.confidence = PatternConfidence.LOW
+
+    def is_recommended(self) -> bool:
+        """Determine if this strategy is recommended for use.
+
+        A strategy is recommended if it has at least medium confidence
+        and a success rate above 50%.
+
+        Returns:
+            True if the strategy is recommended for use.
+        """
+        return (
+            self.confidence in (PatternConfidence.MEDIUM, PatternConfidence.HIGH)
+            and self.success_rate > 0.5
+        )
