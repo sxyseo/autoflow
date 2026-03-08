@@ -515,6 +515,97 @@ class TaskmasterAPIClient:
 
         return tasks
 
+    async def create_task(
+        self,
+        title: str,
+        description: Optional[str] = None,
+        status: Optional[TaskmasterTaskStatus] = None,
+        priority: Optional[int] = None,
+        assigned_to: Optional[str] = None,
+        project_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        labels: Optional[list[str]] = None,
+        dependencies: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> TaskmasterTask:
+        """
+        Create a new task in the Taskmaster API.
+
+        Creates a new task with the provided fields. All fields are optional
+        except for title, which must be provided.
+
+        Args:
+            title: Title for the task
+            description: Description for the task
+            status: Initial status for the task
+            priority: Priority level (1-10)
+            assigned_to: ID of the agent/user to assign the task to
+            project_id: Project ID for the task
+            parent_task_id: Parent task ID (for subtasks)
+            labels: List of labels/tags
+            dependencies: List of task IDs this task depends on
+            metadata: Metadata dictionary
+
+        Returns:
+            Created TaskmasterTask object with all field values
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+            httpx.TimeoutException: If the request times out
+            httpx.HTTPError: For other HTTP-related errors
+            ValueError: If the response data is invalid
+
+        Example:
+            >>> # Create a new task
+            >>> task = await client.create_task(
+            ...     title="New feature",
+            ...     description="Implement user authentication"
+            ... )
+        """
+        # Build the endpoint path
+        if self.config.workspace_id:
+            endpoint = f"/workspaces/{self.config.workspace_id}/tasks"
+        else:
+            endpoint = "/tasks"
+
+        # Build create payload
+        payload: dict[str, Any] = {"title": title}
+
+        if description is not None:
+            payload["description"] = description
+        if status is not None:
+            payload["status"] = status.value
+        if priority is not None:
+            payload["priority"] = priority
+        if assigned_to is not None:
+            payload["assigned_to"] = assigned_to
+        if project_id is not None:
+            payload["project_id"] = project_id
+        if parent_task_id is not None:
+            payload["parent_task_id"] = parent_task_id
+        if labels is not None:
+            payload["labels"] = labels
+        if dependencies is not None:
+            payload["dependencies"] = dependencies
+        if metadata is not None:
+            payload["metadata"] = metadata
+
+        # Make the request
+        response_data = await self.post(endpoint, json=payload)
+
+        # Parse the response
+        # The API might return {"task": {...}} or just {...} at the top level
+        if isinstance(response_data, dict):
+            task_data = response_data.get("task", response_data)
+        else:
+            raise ValueError(f"Unexpected response format: {type(response_data)}")
+
+        # Convert to TaskmasterTask object
+        try:
+            return TaskmasterTask(**task_data)
+        except Exception as e:
+            raise ValueError(f"Failed to parse task data: {e}")
+
     async def update_task(
         self,
         task_id: str,
@@ -956,3 +1047,103 @@ class TaskmasterAdapter:
                     continue
 
         return autoflow_tasks
+
+    async def sync_to_taskmaster(
+        self,
+        autoflow_tasks: list[Task],
+    ) -> list[TaskmasterTask]:
+        """
+        Export Autoflow tasks to Taskmaster AI.
+
+        Takes a list of Autoflow Tasks, converts them to TaskmasterTasks,
+        and creates them in the Taskmaster API. This is useful for:
+        - Exporting tasks created locally in Autoflow to Taskmaster
+        - Syncing task state changes back to Taskmaster
+        - Initial bulk export of tasks to Taskmaster
+
+        Note: This method creates new tasks in Taskmaster. If a task
+        already exists in Taskmaster (has a taskmaster_id in metadata),
+        use update_task instead.
+
+        Args:
+            autoflow_tasks: List of Autoflow Task objects to export
+
+        Returns:
+            List of created TaskmasterTask objects
+
+        Raises:
+            ValueError: If config is not properly configured
+            httpx.HTTPStatusError: If the API request fails
+            httpx.TimeoutException: If the request times out
+            httpx.HTTPError: For other HTTP-related errors
+
+        Example:
+            >>> # Export a list of Autoflow tasks
+            >>> tasks = [
+            ...     Task(id="af-001", title="Fix bug", status=TaskStatus.PENDING),
+            ...     Task(id="af-002", title="Add feature", status=TaskStatus.IN_PROGRESS)
+            ... ]
+            >>> taskmaster_tasks = await adapter.sync_to_taskmaster(tasks)
+            >>>
+            >>> # Export tasks from StateManager
+            >>> state = StateManager(".autoflow")
+            >>> all_tasks = [Task(**t) for t in state.list_tasks()]
+            >>> exported = await adapter.sync_to_taskmaster(all_tasks)
+        """
+        # Validate configuration
+        if not self.config.is_configured:
+            raise ValueError(
+                "TaskmasterConfig must have an api_key to sync to Taskmaster"
+            )
+        if not self.config.enabled:
+            raise ValueError(
+                "TaskmasterConfig must have enabled=True to sync to Taskmaster"
+            )
+
+        # Create API client and export tasks
+        taskmaster_tasks = []
+        async with TaskmasterAPIClient(self.config) as client:
+            # Convert each Autoflow Task to TaskmasterTask and create it
+            for autoflow_task in autoflow_tasks:
+                try:
+                    # Convert Autoflow Task to TaskmasterTask
+                    taskmaster_task_data = self._map_autoflow_to_taskmaster(
+                        autoflow_task
+                    )
+
+                    # Create the task in Taskmaster
+                    # We need to convert the TaskmasterTask to a dict for the API
+                    task_dict = taskmaster_task_data.model_dump(exclude_none=True)
+
+                    # Handle status enum conversion
+                    if isinstance(task_dict.get("status"), TaskmasterTaskStatus):
+                        task_dict["status"] = task_dict["status"].value
+
+                    # Create the task via API
+                    created_task = await client.create_task(
+                        title=taskmaster_task_data.title,
+                        description=taskmaster_task_data.description
+                        or None,
+                        status=taskmaster_task_data.status,
+                        priority=taskmaster_task_data.priority,
+                        assigned_to=taskmaster_task_data.assigned_to,
+                        project_id=taskmaster_task_data.project_id,
+                        parent_task_id=taskmaster_task_data.parent_task_id,
+                        labels=taskmaster_task_data.labels
+                        if taskmaster_task_data.labels
+                        else None,
+                        dependencies=taskmaster_task_data.dependencies
+                        if taskmaster_task_data.dependencies
+                        else None,
+                        metadata=taskmaster_task_data.metadata
+                        if taskmaster_task_data.metadata
+                        else None,
+                    )
+
+                    taskmaster_tasks.append(created_task)
+                except Exception as e:
+                    # Skip tasks that fail to export but continue processing
+                    # In production, you might want to log this error
+                    continue
+
+        return taskmaster_tasks
