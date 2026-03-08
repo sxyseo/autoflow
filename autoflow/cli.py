@@ -1109,6 +1109,87 @@ def spec() -> None:
     pass
 
 
+@spec.command("archive")
+@click.argument("spec_id", type=str)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force archiving without confirmation.",
+)
+@click.pass_context
+def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
+    """
+    Archive a completed specification.
+
+    Moves a specification to the archive directory.
+    Requires the specification to be in a completed state.
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Check if spec exists
+        spec_data = state_manager.load_spec(spec_id)
+
+        if spec_data is None:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": f"Specification '{spec_id}' not found.",
+                })
+            else:
+                click.echo(f"Error: Specification '{spec_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Check if spec is completed
+        status = spec_data.get("status", "unknown")
+        if status != "completed" and not force:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "current_status": status,
+                    "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
+                })
+            else:
+                click.echo(f"Error: Specification is not completed (status: {status}).", err=True)
+                click.echo("Use --force to archive anyway.")
+            ctx.exit(1)
+
+        # Archive the spec
+        if state_manager.archive_spec(spec_id):
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "archived",
+                    "spec_id": spec_id,
+                })
+            else:
+                click.echo(f"Archived: {spec_id}")
+        else:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": "Failed to archive specification.",
+                })
+            else:
+                click.echo(f"Error: Failed to archive specification '{spec_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "spec_id": spec_id,
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+
+
 # Register config command group
 main.add_command(config_cmd, name="config")
 
