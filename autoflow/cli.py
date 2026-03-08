@@ -73,6 +73,50 @@ def _format_datetime(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _load_all_tasks_from_specs(config: Optional[Config] = None) -> list[dict[str, Any]]:
+    """
+    Load all tasks from all spec task files.
+
+    Scans .autoflow/tasks/ directory and loads tasks from each spec's task file.
+    Each spec's tasks are stored in .autoflow/tasks/{spec_slug}.json
+
+    Args:
+        config: Optional config object
+
+    Returns:
+        List of all tasks with added 'spec' field indicating source spec
+    """
+    state_dir = get_state_dir(config)
+    tasks_dir = state_dir / "tasks"
+
+    all_tasks = []
+
+    if not tasks_dir.exists():
+        return all_tasks
+
+    for task_file in tasks_dir.glob("*.json"):
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Extract spec slug from filename
+            spec_slug = task_file.stem
+
+            # Add tasks with spec information
+            for task in data.get("tasks", []):
+                task_with_spec = task.copy()
+                task_with_spec["spec"] = spec_slug
+                all_tasks.append(task_with_spec)
+
+        except (json.JSONDecodeError, IOError):
+            # Skip invalid files
+            continue
+
+    # Sort by spec and then by task order
+    all_tasks.sort(key=lambda t: (t.get("spec", ""), t.get("id", "")))
+    return all_tasks
+
+
 @click.group(
     context_settings=CONTEXT_SETTINGS,
     invoke_without_command=True,
@@ -997,62 +1041,30 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  codex: {config.agents.codex.command}")
 
 
-# === Search Tasks Commands ===
+# === Search Tasks Command ===
 
-@main.group()
-def search_tasks() -> None:
-    """Search and filter tasks."""
-    pass
-
-
-@search_tasks.command()
+@main.command("search-tasks")
 @click.option(
     "--status",
     "-s",
     "status_filter",
-    type=click.Choice([s.value for s in TaskStatus]),
-    default=None,
-    help="Filter by task status.",
-)
-@click.option(
-    "--agent",
-    "-a",
     type=str,
     default=None,
-    help="Filter by assigned agent.",
+    help="Filter by task status (e.g., todo, in_progress, done, blocked).",
 )
 @click.option(
-    "--title",
+    "--owner-role",
+    "-o",
+    type=str,
+    default=None,
+    help="Filter by owner role (e.g., implementation-runner, reviewer).",
+)
+@click.option(
+    "--text",
     "-t",
     type=str,
     default=None,
-    help="Filter by title (substring match).",
-)
-@click.option(
-    "--created-after",
-    type=str,
-    default=None,
-    help="Filter by creation date (ISO format, e.g., 2024-01-01).",
-)
-@click.option(
-    "--created-before",
-    type=str,
-    default=None,
-    help="Filter by creation date (ISO format, e.g., 2024-12-31).",
-)
-@click.option(
-    "--priority",
-    "-p",
-    type=click.Choice(["low", "medium", "high", "critical"]),
-    default=None,
-    help="Filter by priority level.",
-)
-@click.option(
-    "--tag",
-    "-g",
-    type=str,
-    multiple=True,
-    help="Filter by tag (can be used multiple times).",
+    help="Text search in title and notes (case-insensitive substring).",
 )
 @click.option(
     "--limit",
@@ -1061,124 +1073,117 @@ def search_tasks() -> None:
     default=20,
     help="Maximum number of tasks to show.",
 )
-@click.option(
-    "--offset",
-    "-o",
-    type=int,
-    default=0,
-    help="Number of tasks to skip for pagination.",
-)
 @click.pass_context
-def search_tasks_default(
+def search_tasks_cmd(
     ctx: click.Context,
     status_filter: Optional[str],
-    agent: Optional[str],
-    title: Optional[str],
-    created_after: Optional[str],
-    created_before: Optional[str],
-    priority: Optional[str],
-    tag: tuple[str, ...],
+    owner_role: Optional[str],
+    text: Optional[str],
     limit: int,
-    offset: int,
 ) -> None:
     """
-    Search and filter tasks with multiple criteria.
+    Search and filter tasks across all specs.
 
-    Supports filtering by status, agent, title, date range, priority, and tags.
-    Filters are combined with AND logic (all must match).
-    Multiple tags are combined with OR logic (any can match).
+    This command searches through all spec task files and returns matching tasks.
+    Tasks can be filtered by status, owner role, and text content.
+
+    \b
+    Examples:
+        autoflow search-tasks --status todo --limit 5
+        autoflow search-tasks --owner-role implementation-runner
+        autoflow search-tasks --text "api" --limit 10
+        autoflow search-tasks --status in_progress --owner-role reviewer --json
+
+    \b
+    Filter behavior:
+        - --status: Exact match (e.g., "todo", "in_progress", "done")
+        - --owner-role: Exact match on owner_role field
+        - --text: Case-insensitive substring search in title and notes
+        - Multiple filters: Combined with AND logic (all must match)
     """
     config: Config = ctx.obj["config"]
-    state_manager = _get_state_manager(config)
 
-    # Get all tasks
-    status_enum = TaskStatus(status_filter) if status_filter else None
-    all_tasks = state_manager.list_tasks(status=status_enum, agent=agent)
+    # Load all tasks from all specs
+    all_tasks = _load_all_tasks_from_specs(config)
 
     # Apply filters
     filtered_tasks = []
     for task in all_tasks:
-        # Title filter (substring match, case-insensitive)
-        if title:
-            task_title = task.get("title", "").lower()
-            if title.lower() not in task_title:
-                continue
+        # Status filter (exact match)
+        if status_filter and task.get("status") != status_filter:
+            continue
 
-        # Date range filters
-        task_created = task.get("created_at")
-        if task_created:
-            if created_after:
-                try:
-                    after_date = datetime.fromisoformat(created_after)
-                    task_date = datetime.fromisoformat(task_created) if isinstance(task_created, str) else task_created
-                    if task_date < after_date:
-                        continue
-                except ValueError:
-                    click.echo(f"Error: Invalid date format for --created-after: {created_after}", err=True)
-                    ctx.exit(1)
+        # Owner role filter (exact match)
+        if owner_role and task.get("owner_role") != owner_role:
+            continue
 
-            if created_before:
-                try:
-                    before_date = datetime.fromisoformat(created_before)
-                    task_date = datetime.fromisoformat(task_created) if isinstance(task_created, str) else task_created
-                    if task_date > before_date:
-                        continue
-                except ValueError:
-                    click.echo(f"Error: Invalid date format for --created-before: {created_before}", err=True)
-                    ctx.exit(1)
+        # Text filter (case-insensitive substring in title and notes)
+        if text:
+            text_lower = text.lower()
+            title_match = text_lower in task.get("title", "").lower()
 
-        # Priority filter
-        if priority:
-            task_priority = task.get("metadata", {}).get("priority")
-            if task_priority != priority:
-                continue
+            # Check in notes (if present)
+            notes_match = False
+            notes = task.get("notes", [])
+            if notes:
+                # Notes can be a list of strings or dict objects
+                for note in notes:
+                    if isinstance(note, str):
+                        if text_lower in note.lower():
+                            notes_match = True
+                            break
+                    elif isinstance(note, dict):
+                        # Check string values in note dict
+                        note_text = " ".join(str(v) for v in note.values())
+                        if text_lower in note_text.lower():
+                            notes_match = True
+                            break
 
-        # Tag filter (OR logic - any tag matches)
-        if tag:
-            task_tags = task.get("metadata", {}).get("tags", [])
-            if not any(t in task_tags for t in tag):
+            if not title_match and not notes_match:
                 continue
 
         filtered_tasks.append(task)
 
-    # Apply pagination
-    paginated_tasks = filtered_tasks[offset:offset + limit]
+    # Apply limit
+    limited_tasks = filtered_tasks[:limit]
 
     if ctx.obj["output_json"]:
         _print_json({
-            "tasks": paginated_tasks,
-            "count": len(paginated_tasks),
+            "tasks": limited_tasks,
+            "count": len(limited_tasks),
             "total_matching": len(filtered_tasks),
-            "offset": offset,
-            "limit": limit,
+            "filters": {
+                "status": status_filter,
+                "owner_role": owner_role,
+                "text": text,
+            },
         })
         return
 
+    # Human-readable output
     click.echo("Search Results")
     click.echo("=" * 60)
     click.echo(f"Found {len(filtered_tasks)} matching task(s)")
     if len(filtered_tasks) > limit:
-        click.echo(f"Showing {len(paginated_tasks)} (use --offset to see more)")
+        click.echo(f"Showing {len(limited_tasks)} (use --limit to see more)")
     click.echo("")
 
-    if not paginated_tasks:
+    if not limited_tasks:
         click.echo("No tasks found matching the criteria.")
         return
 
-    for task_data in paginated_tasks:
-        status_val = task_data.get("status", "unknown")
-        priority_val = task_data.get("metadata", {}).get("priority", "N/A")
-        tags_val = task_data.get("metadata", {}).get("tags", [])
+    for task in limited_tasks:
+        task_id = task.get("id", "unknown")
+        title = task.get("title", "N/A")
+        status = task.get("status", "unknown")
+        owner = task.get("owner_role", "N/A")
+        spec = task.get("spec", "N/A")
 
-        click.echo(f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}")
-        click.echo(f"  Status: {status_val}")
-        if priority_val != "N/A":
-            click.echo(f"  Priority: {priority_val}")
-        if tags_val:
-            click.echo(f"  Tags: {', '.join(tags_val)}")
-        if task_data.get("assigned_agent"):
-            click.echo(f"  Agent: {task_data['assigned_agent']}")
-        click.echo(f"  Created: {_format_datetime(task_data.get('created_at'))}")
+        click.echo(f"\n[{task_id}] {title}")
+        click.echo(f"  Spec: {spec}")
+        click.echo(f"  Status: {status}")
+        if owner != "N/A":
+            click.echo(f"  Owner: {owner}")
 
 
 # === Memory Commands ===
