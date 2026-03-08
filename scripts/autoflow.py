@@ -1615,6 +1615,49 @@ def complete_run(args: argparse.Namespace) -> None:
     )
 
 
+def cancel_run(args: argparse.Namespace) -> None:
+    run_dir = RUNS_DIR / args.run
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {args.run}")
+    metadata = read_json(metadata_path)
+    if metadata["status"] == "completed":
+        raise SystemExit(f"cannot cancel run with status {metadata['status']}")
+    reason = args.reason or f"Run {args.run} cancelled."
+    metadata["status"] = "cancelled"
+    metadata["cancelled_at"] = now_stamp()
+    write_json(metadata_path, metadata)
+    (run_dir / "summary.md").write_text(f"# Run Summary\n\n{reason}\n", encoding="utf-8")
+
+    tasks = load_tasks(metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
+    task["status"] = "todo"
+    task.setdefault("notes", []).append({"at": now_stamp(), "note": reason})
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    record_event(
+        metadata["spec"],
+        "run.cancelled",
+        {
+            "run": metadata["id"],
+            "task": metadata["task"],
+            "role": metadata["role"],
+            "reason": reason,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "run": metadata["id"],
+                "task_status": task["status"],
+                "cancelled_at": metadata["cancelled_at"],
+                "reason": reason,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
 def show_task_history(args: argparse.Namespace) -> None:
     print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
 
@@ -2000,6 +2043,11 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--findings-json", default="")
     complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
+
+    cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
+    cancel_cmd.add_argument("--run", required=True)
+    cancel_cmd.add_argument("--reason", default="")
+    cancel_cmd.set_defaults(func=cancel_run)
 
     history_cmd = sub.add_parser("task-history", help="show run history for a task")
     history_cmd.add_argument("--spec", required=True)
