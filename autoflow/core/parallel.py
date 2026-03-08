@@ -603,6 +603,9 @@ class ParallelCoordinator:
         """
         Execute tasks concurrently with error isolation.
 
+        Each task runs in its own isolated context where exceptions are caught
+        and stored in the task result rather than propagating to stop other tasks.
+
         Args:
             tasks: List of task dictionaries
             agent_adapter: Optional agent adapter
@@ -617,7 +620,13 @@ class ParallelCoordinator:
             task_data: dict[str, Any],
             task_id: str,
         ) -> tuple[str, ParallelTaskResult]:
-            """Execute a single task with error isolation."""
+            """
+            Execute a single task with error isolation.
+
+            Wraps task execution in a try/except block to ensure that
+            exceptions from one task don't affect other tasks running
+            concurrently.
+            """
             task_result = ParallelTaskResult(task_id=task_id)
 
             # Use semaphore to limit concurrency
@@ -648,15 +657,37 @@ class ParallelCoordinator:
                             output=f"Task completed: {task_data.get('task', '')}",
                         )
 
-                except Exception as e:
-                    # Error isolation: catch exceptions per task
+                except asyncio.CancelledError:
+                    # Task was cancelled - mark as cancelled
+                    task_result.mark_complete(
+                        success=False,
+                        error="Task execution was cancelled",
+                    )
+
+                except asyncio.TimeoutError:
+                    # Task timed out - mark as timeout
+                    task_result.mark_complete(
+                        success=False,
+                        error=f"Task execution timed out after {timeout_seconds} seconds",
+                    )
+
+                except ParallelExecutionError as e:
+                    # Re-raise ParallelExecutionError with task_id context
                     task_result.mark_complete(
                         success=False,
                         error=str(e),
                     )
 
+                except Exception as e:
+                    # Catch-all for any other exceptions
+                    # This ensures complete error isolation
+                    task_result.mark_complete(
+                        success=False,
+                        error=f"Task execution failed: {str(e)}",
+                    )
+
                 finally:
-                    # Decrement active tasks counter
+                    # Always decrement active tasks counter
                     self._stats.active_tasks -= 1
                     self._update_stats()
 
@@ -668,18 +699,21 @@ class ParallelCoordinator:
             task_id = task_data.get("id", f"task-{idx}")
             coroutines.append(execute_single_task(task_data, task_id))
 
-        # Execute all tasks concurrently
+        # Execute all tasks concurrently with return_exceptions=True
+        # This ensures that even if one task raises an exception outside
+        # our try/except, it won't stop other tasks
         results = await asyncio.gather(*coroutines, return_exceptions=True)
 
-        # Process results
+        # Process results - handle both successful results and exceptions
         for item in results:
             if isinstance(item, Exception):
-                # Should not happen due to error isolation, but handle it
+                # This should rarely happen due to inner try/except,
+                # but we handle it for complete isolation
                 task_id = f"error-{uuid.uuid4()[:4]}"
                 task_results[task_id] = ParallelTaskResult(
                     task_id=task_id,
                     success=False,
-                    error=str(item),
+                    error=f"Unexpected error in task execution: {str(item)}",
                 )
             else:
                 task_id, task_result = item
