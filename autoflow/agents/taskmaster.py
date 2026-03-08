@@ -1485,6 +1485,52 @@ class TaskmasterAdapter:
         """
         return self.conflict_resolver.detect_conflicts(autoflow_task, taskmaster_task)
 
+    def _resolve_conflicts(
+        self,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+        strategy: Optional[ConflictResolutionStrategy] = None,
+    ) -> tuple[Task, list[TaskConflict]]:
+        """
+        Resolve conflicts between Autoflow and Taskmaster task versions.
+
+        Detects all conflicts between the two task versions and applies the
+        configured resolution strategy to resolve them. Returns the resolved
+        task and the list of conflicts that were handled.
+
+        Args:
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+            strategy: Optional override of the default resolution strategy.
+                If not provided, uses the strategy configured in the
+                ConflictResolver instance.
+
+        Returns:
+            Tuple of (resolved_task, list_of_conflicts)
+
+        Example:
+            >>> adapter = TaskmasterAdapter(config)
+            >>> af_task = Task(id="task-001", title="Fix bug", status=TaskStatus.IN_PROGRESS)
+            >>> tm_task = TaskmasterTask(id="task-001", title="Fix bug", status=TaskmasterTaskStatus.DONE)
+            >>> resolved_task, conflicts = adapter._resolve_conflicts(af_task, tm_task)
+            >>> print(f"Resolved {len(conflicts)} conflicts")
+        """
+        # Use provided strategy or fall back to resolver's default strategy
+        original_strategy = self.conflict_resolver.strategy
+        if strategy is not None:
+            self.conflict_resolver.strategy = strategy
+
+        try:
+            # Resolve all conflicts using the conflict resolver
+            resolved_task, conflicts = self.conflict_resolver.resolve_all_conflicts(
+                autoflow_task, taskmaster_task
+            )
+            return resolved_task, conflicts
+        finally:
+            # Restore original strategy if it was temporarily overridden
+            if strategy is not None:
+                self.conflict_resolver.strategy = original_strategy
+
     async def sync_from_taskmaster(
         self,
         status: Optional[TaskmasterTaskStatus] = None,
