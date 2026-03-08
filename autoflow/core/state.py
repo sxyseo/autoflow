@@ -620,6 +620,36 @@ class StateManager:
         specs.sort(key=lambda s: s.get("created_at", ""), reverse=True)
         return specs
 
+    def archive_spec(self, spec_id: str) -> bool:
+        """
+        Archive a specification by moving it to the archive directory.
+
+        Args:
+            spec_id: Spec identifier
+
+        Returns:
+            True if archived, False if not found
+
+        Example:
+            >>> success = state.archive_spec("spec-001")
+        """
+        source_path = self.specs_dir / f"{spec_id}.json"
+
+        if not source_path.exists():
+            return False
+
+        # Ensure archive directory exists
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create backup before moving
+        self._create_backup(source_path)
+
+        # Move to archive directory
+        target_path = self.archive_dir / f"{spec_id}.json"
+        shutil.move(str(source_path), str(target_path))
+
+        return True
+
     # === Memory Operations ===
 
     def save_memory(
