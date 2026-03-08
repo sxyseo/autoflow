@@ -8,11 +8,11 @@ Core Components:
     MetricsCollector: Base metrics collection and aggregation
     VelocityTracker: Task completion rates and cycle times
     QualityTrends: Test pass rates and review outcomes
-    (AgentPerformance): Backend effectiveness comparison (future)
+    AgentPerformance: Backend effectiveness comparison
     (ROICalculator): Time saved vs manual effort (future)
 
 Usage:
-    from autoflow.analytics import MetricsCollector, QualityTrends
+    from autoflow.analytics import MetricsCollector, QualityTrends, AgentPerformance
 
     collector = MetricsCollector()
     collector.record_metric("task_duration", 45.2, metadata={"task_id": "build-123"})
@@ -22,8 +22,20 @@ Usage:
     trends = QualityTrends()
     metrics = trends.get_quality_metrics()
     print(f"Test pass rate: {metrics.test_pass_rate:.1f}%")
+
+    perf = AgentPerformance()
+    perf.record_execution("claude_code", "success", 45.2)
+    summary = perf.get_agent_summary("claude_code")
+    print(f"Success rate: {summary.success_rate:.1f}%")
 """
 
+from autoflow.analytics.agent_performance import (
+    AgentComparison,
+    AgentExecutionRecord,
+    AgentExecutionStatus,
+    AgentPerformance,
+    AgentPerformanceSummary,
+)
 from autoflow.analytics.metrics import (
     MetricReading,
     MetricSummary,
@@ -54,4 +66,9 @@ __all__ = [
     "TestStatus",
     "ReviewRecord",
     "ReviewOutcome",
+    "AgentPerformance",
+    "AgentExecutionRecord",
+    "AgentPerformanceSummary",
+    "AgentComparison",
+    "AgentExecutionStatus",
 ]
