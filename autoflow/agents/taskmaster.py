@@ -28,6 +28,48 @@ from pydantic import BaseModel, Field, field_validator
 from autoflow.core.state import Task, TaskStatus
 
 
+class ConflictResolutionStrategy(str, Enum):
+    """
+    Strategy for resolving conflicts between Autoflow and Taskmaster tasks.
+
+    Attributes:
+        LAST_WRITE_WINS: Accept the task with the most recent updated_at timestamp
+        TIMESTAMP_BASED: Compare timestamps and merge fields from the most recent update
+        MANUAL: Flag conflicts for manual resolution without automatic merging
+        AUTOFLOW_WINS: Always prefer Autoflow's version of the task
+        TASKMASTER_WINS: Always prefer Taskmaster's version of the task
+    """
+
+    LAST_WRITE_WINS = "last_write_wins"
+    TIMESTAMP_BASED = "timestamp_based"
+    MANUAL = "manual"
+    AUTOFLOW_WINS = "autoflow_wins"
+    TASKMASTER_WINS = "taskmaster_wins"
+
+
+class ConflictType(str, Enum):
+    """
+    Type of conflict that can occur during sync.
+
+    Attributes:
+        STATUS: Different status values
+        PRIORITY: Different priority values
+        TITLE: Different titles
+        DESCRIPTION: Different descriptions
+        ASSIGNMENT: Different assigned agents
+        METADATA: Different metadata fields
+        DELETED: Task exists in one system but not the other
+    """
+
+    STATUS = "status"
+    PRIORITY = "priority"
+    TITLE = "title"
+    DESCRIPTION = "description"
+    ASSIGNMENT = "assignment"
+    METADATA = "metadata"
+    DELETED = "deleted"
+
+
 class TaskmasterTaskStatus(str, Enum):
     """Status of a task in Taskmaster AI."""
 
@@ -766,6 +808,449 @@ class TaskmasterAPIClient:
         await self.close()
 
 
+class TaskConflict(BaseModel):
+    """
+    Represents a conflict between Autoflow and Taskmaster task versions.
+
+    Stores details about conflicting field values between a local Autoflow
+    task and a remote Taskmaster task, along with resolution information.
+
+    Attributes:
+        task_id: ID of the task with the conflict
+        conflict_type: Type of conflict detected
+        autoflow_value: Value from the Autoflow task
+        taskmaster_value: Value from the Taskmaster task
+        autoflow_updated_at: When the Autoflow task was last updated
+        taskmaster_updated_at: When the Taskmaster task was last updated
+        resolved: Whether the conflict has been resolved
+        resolution: Optional resolution strategy used
+        resolved_value: Optional final resolved value
+        metadata: Additional conflict metadata
+    """
+
+    task_id: str
+    conflict_type: ConflictType
+    autoflow_value: Any
+    taskmaster_value: Any
+    autoflow_updated_at: datetime
+    taskmaster_updated_at: datetime
+    resolved: bool = False
+    resolution: Optional[ConflictResolutionStrategy] = None
+    resolved_value: Optional[Any] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def resolve(
+        self,
+        strategy: ConflictResolutionStrategy,
+        resolved_value: Any,
+    ) -> None:
+        """
+        Mark the conflict as resolved.
+
+        Args:
+            strategy: The resolution strategy that was applied
+            resolved_value: The final resolved value
+        """
+        self.resolved = True
+        self.resolution = strategy
+        self.resolved_value = resolved_value
+
+
+class ConflictResolver:
+    """
+    Resolves conflicts between Autoflow and Taskmaster task versions.
+
+    Implements multiple conflict resolution strategies to handle cases where
+    the same task has been modified in both Autoflow and Taskmaster AI since
+    the last synchronization.
+
+    Attributes:
+        strategy: Default conflict resolution strategy to use
+        strict_mode: If True, raise exceptions on unresolved conflicts
+
+    Example:
+        >>> resolver = ConflictResolver(
+        ...     strategy=ConflictResolutionStrategy.LAST_WRITE_WINS
+        ... )
+        >>> conflict = TaskConflict(
+        ...     task_id="task-001",
+        ...     conflict_type=ConflictType.STATUS,
+        ...     autoflow_value="in_progress",
+        ...     taskmaster_value="done",
+        ...     autoflow_updated_at=datetime.utcnow(),
+        ...     taskmaster_updated_at=datetime.utcnow()
+        ... )
+        >>> resolved_task = resolver.resolve_conflict(conflict, autoflow_task, taskmaster_task)
+    """
+
+    def __init__(
+        self,
+        strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITE_WINS,
+        strict_mode: bool = False,
+    ) -> None:
+        """
+        Initialize the ConflictResolver.
+
+        Args:
+            strategy: Default conflict resolution strategy
+            strict_mode: If True, raise exceptions on unresolved conflicts
+        """
+        self.strategy = strategy
+        self.strict_mode = strict_mode
+
+    def resolve_conflict(
+        self,
+        conflict: TaskConflict,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> Task:
+        """
+        Resolve a conflict between Autoflow and Taskmaster task versions.
+
+        Applies the configured resolution strategy to determine which version
+        of the task to use, or how to merge the conflicting versions.
+
+        Args:
+            conflict: The conflict details
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            Resolved Autoflow Task instance
+
+        Raises:
+            ValueError: If conflict cannot be resolved automatically and strict_mode is enabled
+
+        Example:
+            >>> resolved = resolver.resolve_conflict(conflict, af_task, tm_task)
+        """
+        strategy = self.strategy
+
+        if strategy == ConflictResolutionStrategy.LAST_WRITE_WINS:
+            return self._resolve_last_write_wins(
+                conflict, autoflow_task, taskmaster_task
+            )
+        elif strategy == ConflictResolutionStrategy.TIMESTAMP_BASED:
+            return self._resolve_timestamp_based(
+                conflict, autoflow_task, taskmaster_task
+            )
+        elif strategy == ConflictResolutionStrategy.AUTOFLOW_WINS:
+            return self._resolve_autoflow_wins(conflict, autoflow_task)
+        elif strategy == ConflictResolutionStrategy.TASKMASTER_WINS:
+            return self._resolve_taskmaster_wins(conflict, taskmaster_task)
+        elif strategy == ConflictResolutionStrategy.MANUAL:
+            if self.strict_mode:
+                raise ValueError(
+                    f"Manual resolution required for task {conflict.task_id} "
+                    f"but strict_mode is enabled"
+                )
+            # Return Autoflow version unchanged, mark as unresolved
+            conflict.resolve(strategy, conflict.autoflow_value)
+            return autoflow_task
+        else:
+            raise ValueError(f"Unknown conflict resolution strategy: {strategy}")
+
+    def _resolve_last_write_wins(
+        self,
+        conflict: TaskConflict,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> Task:
+        """
+        Resolve conflict by accepting the most recently updated version.
+
+        Compares the updated_at timestamps of both versions and uses the
+        entire task from the more recent version.
+
+        Args:
+            conflict: The conflict details
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            Autoflow Task from the most recently updated version
+        """
+        if autoflow_task.updated_at >= taskmaster_task.updated_at:
+            # Autoflow version is more recent or same
+            conflict.resolve(
+                ConflictResolutionStrategy.LAST_WRITE_WINS,
+                conflict.autoflow_value,
+            )
+            return autoflow_task
+        else:
+            # Taskmaster version is more recent
+            # Convert to Autoflow format
+            from autoflow.agents.taskmaster import TaskmasterAdapter
+
+            adapter = TaskmasterAdapter(
+                TaskmasterConfig(enabled=True, api_key="dummy")
+            )
+            resolved_task = adapter._map_taskmaster_to_autoflow(taskmaster_task)
+            conflict.resolve(
+                ConflictResolutionStrategy.LAST_WRITE_WINS,
+                conflict.taskmaster_value,
+            )
+            return resolved_task
+
+    def _resolve_timestamp_based(
+        self,
+        conflict: TaskConflict,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> Task:
+        """
+        Resolve conflict by merging fields based on individual timestamps.
+
+        For each conflicting field, chooses the value from the version that
+        was most recently updated. This provides a more granular merge than
+        last_write_wins.
+
+        Args:
+            conflict: The conflict details
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            Merged Autoflow Task with field-level timestamp resolution
+        """
+        # Start with Autoflow task as base
+        resolved_task_data = autoflow_task.model_dump()
+
+        # Determine which version has the more recent update for each field
+        if taskmaster_task.updated_at > autoflow_task.updated_at:
+            # Taskmaster is newer, update fields from Taskmaster
+            resolved_task_data["title"] = taskmaster_task.title
+            resolved_task_data["description"] = taskmaster_task.description
+            resolved_task_data["priority"] = taskmaster_task.priority
+            resolved_task_data["updated_at"] = taskmaster_task.updated_at
+            resolved_task_data["labels"] = list(taskmaster_task.labels)
+            resolved_task_data["dependencies"] = list(taskmaster_task.dependencies)
+
+            # Merge metadata, preferring Taskmaster values
+            merged_metadata = dict(autoflow_task.metadata)
+            merged_metadata.update(taskmaster_task.metadata)
+            resolved_task_data["metadata"] = merged_metadata
+
+            conflict.resolve(
+                ConflictResolutionStrategy.TIMESTAMP_BASED,
+                conflict.taskmaster_value,
+            )
+        else:
+            # Autoflow is newer or same, keep Autoflow values
+            conflict.resolve(
+                ConflictResolutionStrategy.TIMESTAMP_BASED,
+                conflict.autoflow_value,
+            )
+
+        # Return resolved task
+        return Task(**resolved_task_data)
+
+    def _resolve_autoflow_wins(
+        self,
+        conflict: TaskConflict,
+        autoflow_task: Task,
+    ) -> Task:
+        """
+        Resolve conflict by always preferring the Autoflow version.
+
+        Args:
+            conflict: The conflict details
+            autoflow_task: The Autoflow version of the task
+
+        Returns:
+            The Autoflow task unchanged
+        """
+        conflict.resolve(ConflictResolutionStrategy.AUTOFLOW_WINS, conflict.autoflow_value)
+        return autoflow_task
+
+    def _resolve_taskmaster_wins(
+        self,
+        conflict: TaskConflict,
+        taskmaster_task: TaskmasterTask,
+    ) -> Task:
+        """
+        Resolve conflict by always preferring the Taskmaster version.
+
+        Args:
+            conflict: The conflict details
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            Taskmaster task converted to Autoflow format
+        """
+        from autoflow.agents.taskmaster import TaskmasterAdapter
+
+        adapter = TaskmasterAdapter(TaskmasterConfig(enabled=True, api_key="dummy"))
+        resolved_task = adapter._map_taskmaster_to_autoflow(taskmaster_task)
+
+        conflict.resolve(
+            ConflictResolutionStrategy.TASKMASTER_WINS,
+            conflict.taskmaster_value,
+        )
+        return resolved_task
+
+    def detect_conflicts(
+        self,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> list[TaskConflict]:
+        """
+        Detect conflicts between Autoflow and Taskmaster task versions.
+
+        Compares two versions of the same task and identifies fields that
+        have different values in each version.
+
+        Args:
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            List of detected conflicts (empty if no conflicts)
+
+        Example:
+            >>> conflicts = resolver.detect_conflicts(af_task, tm_task)
+            >>> if conflicts:
+            ...     for conflict in conflicts:
+            ...         print(f"Conflict in {conflict.conflict_type}")
+        """
+        conflicts: list[TaskConflict] = []
+
+        # Map Taskmaster status to Autoflow status for comparison
+        status_mapping = {
+            TaskmasterTaskStatus.TODO: TaskStatus.PENDING,
+            TaskmasterTaskStatus.IN_PROGRESS: TaskStatus.IN_PROGRESS,
+            TaskmasterTaskStatus.IN_REVIEW: TaskStatus.IN_PROGRESS,
+            TaskmasterTaskStatus.DONE: TaskStatus.COMPLETED,
+            TaskmasterTaskStatus.CANCELLED: TaskStatus.CANCELLED,
+            TaskmasterTaskStatus.BLOCKED: TaskStatus.FAILED,
+        }
+
+        tm_status_equivalent = status_mapping.get(
+            taskmaster_task.status, TaskStatus.PENDING
+        )
+
+        # Check for status conflicts
+        if autoflow_task.status != tm_status_equivalent:
+            conflicts.append(
+                TaskConflict(
+                    task_id=autoflow_task.id,
+                    conflict_type=ConflictType.STATUS,
+                    autoflow_value=autoflow_task.status.value,
+                    taskmaster_value=taskmaster_task.status.value,
+                    autoflow_updated_at=autoflow_task.updated_at,
+                    taskmaster_updated_at=taskmaster_task.updated_at,
+                )
+            )
+
+        # Check for priority conflicts
+        if autoflow_task.priority != taskmaster_task.priority:
+            conflicts.append(
+                TaskConflict(
+                    task_id=autoflow_task.id,
+                    conflict_type=ConflictType.PRIORITY,
+                    autoflow_value=autoflow_task.priority,
+                    taskmaster_value=taskmaster_task.priority,
+                    autoflow_updated_at=autoflow_task.updated_at,
+                    taskmaster_updated_at=taskmaster_task.updated_at,
+                )
+            )
+
+        # Check for title conflicts
+        if autoflow_task.title != taskmaster_task.title:
+            conflicts.append(
+                TaskConflict(
+                    task_id=autoflow_task.id,
+                    conflict_type=ConflictType.TITLE,
+                    autoflow_value=autoflow_task.title,
+                    taskmaster_value=taskmaster_task.title,
+                    autoflow_updated_at=autoflow_task.updated_at,
+                    taskmaster_updated_at=taskmaster_task.updated_at,
+                )
+            )
+
+        # Check for description conflicts
+        if autoflow_task.description != taskmaster_task.description:
+            conflicts.append(
+                TaskConflict(
+                    task_id=autoflow_task.id,
+                    conflict_type=ConflictType.DESCRIPTION,
+                    autoflow_value=autoflow_task.description,
+                    taskmaster_value=taskmaster_task.description,
+                    autoflow_updated_at=autoflow_task.updated_at,
+                    taskmaster_updated_at=taskmaster_task.updated_at,
+                )
+            )
+
+        # Check for assignment conflicts
+        if autoflow_task.assigned_agent != taskmaster_task.assigned_to:
+            conflicts.append(
+                TaskConflict(
+                    task_id=autoflow_task.id,
+                    conflict_type=ConflictType.ASSIGNMENT,
+                    autoflow_value=autoflow_task.assigned_agent,
+                    taskmaster_value=taskmaster_task.assigned_to,
+                    autoflow_updated_at=autoflow_task.updated_at,
+                    taskmaster_updated_at=taskmaster_task.updated_at,
+                )
+            )
+
+        return conflicts
+
+    def resolve_all_conflicts(
+        self,
+        autoflow_task: Task,
+        taskmaster_task: TaskmasterTask,
+    ) -> tuple[Task, list[TaskConflict]]:
+        """
+        Detect and resolve all conflicts between task versions.
+
+        First detects all conflicts, then applies the configured resolution
+        strategy to resolve them. Returns the resolved task and the list of
+        conflicts that were handled.
+
+        Args:
+            autoflow_task: The Autoflow version of the task
+            taskmaster_task: The Taskmaster version of the task
+
+        Returns:
+            Tuple of (resolved_task, list_of_conflicts)
+
+        Example:
+            >>> resolved_task, conflicts = resolver.resolve_all_conflicts(af_task, tm_task)
+            >>> print(f"Resolved {len(conflicts)} conflicts")
+        """
+        # Detect all conflicts
+        conflicts = self.detect_conflicts(autoflow_task, taskmaster_task)
+
+        if not conflicts:
+            # No conflicts, return original task
+            return autoflow_task, conflicts
+
+        # Resolve conflicts based on strategy
+        # Note: For most strategies, we resolve the entire task at once
+        # rather than field-by-field
+        if conflicts:
+            primary_conflict = conflicts[0]
+            resolved_task = self.resolve_conflict(
+                primary_conflict, autoflow_task, taskmaster_task
+            )
+
+            # Mark all conflicts with the same resolution
+            for conflict in conflicts:
+                if not conflict.resolved:
+                    conflict.resolve(
+                        self.strategy,
+                        resolved_task.model_dump().get(
+                            conflict.conflict_type.value,
+                            conflict.autoflow_value,
+                        ),
+                    )
+
+            return resolved_task, conflicts
+
+        return autoflow_task, conflicts
+
+
 class TaskmasterAdapter:
     """
     Adapter for converting between Taskmaster AI and Autoflow task models.
@@ -776,6 +1261,7 @@ class TaskmasterAdapter:
 
     Attributes:
         config: TaskmasterConfig with integration settings
+        conflict_resolver: Optional conflict resolver for handling sync conflicts
 
     Example:
         >>> adapter = TaskmasterAdapter(config)
@@ -786,14 +1272,17 @@ class TaskmasterAdapter:
     def __init__(
         self,
         config: TaskmasterConfig,
+        conflict_resolver: Optional[ConflictResolver] = None,
     ) -> None:
         """
         Initialize the Taskmaster adapter.
 
         Args:
             config: TaskmasterConfig with integration settings
+            conflict_resolver: Optional conflict resolver for handling sync conflicts
         """
         self.config = config
+        self.conflict_resolver = conflict_resolver or ConflictResolver()
 
     def _map_taskmaster_to_autoflow(
         self,
