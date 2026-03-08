@@ -8,6 +8,9 @@ system to provide intelligent, adaptive recovery that improves over time.
 
 from __future__ import annotations
 
+import json
+import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -441,3 +444,480 @@ class LearnedStrategy:
             self.confidence in (PatternConfidence.MEDIUM, PatternConfidence.HIGH)
             and self.success_rate > 0.5
         )
+
+
+class RecoveryLearner:
+    """Learns from recovery attempts to improve automated error recovery.
+
+    This class records recovery attempts, analyzes historical data to identify
+    successful patterns, and maintains learned strategies for future error recovery.
+    It follows the pattern from FeedbackCollector for data persistence and
+    WorkflowHealthMonitor for statistics tracking.
+
+    Example:
+        learner = RecoveryLearner()
+        learner.record_attempt(
+            pattern_id="timeout-error-123",
+            strategy_used="retry_with_backoff",
+            action_type="RETRY",
+            parameters={"max_retries": 3, "backoff": "exponential"},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=5.2,
+        )
+        patterns = learner.learn_from_history()
+    """
+
+    # Default path for recovery learning data
+    DEFAULT_LEARNING_PATH = Path(".autoflow/recovery_learning.json")
+
+    def __init__(
+        self,
+        learning_path: Path | None = None,
+        root_dir: Path | None = None,
+    ) -> None:
+        """Initialize the recovery learner.
+
+        Args:
+            learning_path: Path to learning data JSON file. If None, uses DEFAULT_LEARNING_PATH.
+            root_dir: Root directory of the project. Defaults to current directory.
+        """
+        if root_dir is None:
+            root_dir = Path.cwd()
+
+        if learning_path is None:
+            learning_path = self.DEFAULT_LEARNING_PATH
+
+        self.learning_path = Path(learning_path)
+
+        # Ensure parent directory exists
+        self.learning_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Storage for recovery attempts and learned knowledge
+        self._attempts: dict[str, RecoveryAttempt] = {}
+        self._patterns: dict[str, RecoveryPattern] = {}
+        self._learned_strategies: dict[str, LearnedStrategy] = {}
+
+        # Load existing learning data or initialize empty
+        self._load_learning_data()
+
+    def record_attempt(
+        self,
+        pattern_id: str,
+        strategy_used: str,
+        action_type: str,
+        parameters: dict[str, Any],
+        outcome: RecoveryOutcome,
+        success: bool,
+        execution_time: float = 0.0,
+        error: str | None = None,
+        changes_made: list[str] | None = None,
+        verification_passed: bool = False,
+        outcome_details: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Record a recovery attempt for learning.
+
+        Creates a new recovery attempt record with timestamp and metadata.
+        Updates pattern statistics and learned strategies based on the outcome.
+        Persists all data to disk for future learning.
+
+        Args:
+            pattern_id: Identifier for the error pattern this attempt addressed.
+            strategy_used: The healing strategy that was applied.
+            action_type: Type of healing action executed (e.g., RETRY, RECONFIGURE).
+            parameters: Parameters used for this recovery attempt.
+            outcome: Final outcome of the recovery attempt.
+            success: Whether the recovery attempt was successful.
+            execution_time: Time taken to execute the recovery in seconds.
+            error: Error message if the recovery attempt failed.
+            changes_made: List of changes made during this recovery attempt.
+            verification_passed: Whether post-recovery verification passed.
+            outcome_details: Human-readable details about the outcome.
+            metadata: Additional context and diagnostic information.
+
+        Returns:
+            The unique attempt_id for the recorded attempt.
+
+        Raises:
+            IOError: If unable to write learning data to disk.
+        """
+        # Generate unique attempt ID
+        attempt_id = str(uuid.uuid4())
+
+        # Create recovery attempt record
+        attempt = RecoveryAttempt(
+            attempt_id=attempt_id,
+            pattern_id=pattern_id,
+            timestamp=datetime.now(UTC),
+            strategy_used=strategy_used,
+            action_type=action_type,
+            parameters=parameters,
+            outcome=outcome,
+            success=success,
+            error=error,
+            execution_time=execution_time,
+            changes_made=changes_made or [],
+            verification_passed=verification_passed,
+            outcome_details=outcome_details,
+            metadata=metadata or {},
+        )
+
+        # Store in memory
+        self._attempts[attempt_id] = attempt
+
+        # Update or create pattern
+        if pattern_id not in self._patterns:
+            self._patterns[pattern_id] = RecoveryPattern(
+                pattern_id=pattern_id,
+                error_category=metadata.get("error_category", "unknown")
+                if metadata
+                else "unknown",
+                error_signature=metadata.get("error_signature", "")
+                if metadata
+                else "",
+                features=metadata.get("features", {}) if metadata else {},
+            )
+
+        # Update pattern statistics
+        pattern = self._patterns[pattern_id]
+        pattern.occurrence_count += 1
+        pattern.last_seen = datetime.now(UTC)
+        if strategy_used not in pattern.related_strategies:
+            pattern.related_strategies.append(strategy_used)
+        if success:
+            pattern.success_count += 1
+        else:
+            pattern.failure_count += 1
+        pattern.update_confidence()
+
+        # Update or create learned strategy
+        strategy_key = f"{pattern_id}:{strategy_used}"
+        if strategy_key not in self._learned_strategies:
+            self._learned_strategies[strategy_key] = LearnedStrategy(
+                strategy_id=strategy_key,
+                pattern_id=pattern_id,
+                strategy_name=strategy_used,
+                strategy_type=action_type,
+                description=f"Learned strategy for {pattern_id}",
+                success_rate=0.0,
+                total_attempts=0,
+                successful_attempts=0,
+                failed_attempts=0,
+                avg_execution_time=0.0,
+                optimal_parameters=parameters.copy(),
+                confidence=PatternConfidence.LOW,
+            )
+
+        # Update learned strategy statistics
+        self._learned_strategies[strategy_key].update_statistics(
+            success=success,
+            execution_time=execution_time,
+            parameters=parameters if success else None,
+        )
+
+        # Persist to disk
+        self._save_learning_data()
+
+        return attempt_id
+
+    def learn_from_history(
+        self,
+        min_attempts: int = 3,
+        min_success_rate: float = 0.5,
+    ) -> list[LearnedStrategy]:
+        """Analyze historical recovery attempts to extract successful patterns.
+
+        Reviews all recorded recovery attempts, identifies patterns in successful
+        recoveries, and returns recommended strategies sorted by effectiveness.
+
+        Args:
+            min_attempts: Minimum number of attempts required to consider a pattern learned.
+            min_success_rate: Minimum success rate required to recommend a strategy.
+
+        Returns:
+            List of recommended LearnedStrategy objects sorted by effectiveness_score.
+
+        Raises:
+            IOError: If unable to read learning data.
+        """
+        recommended_strategies = []
+
+        for strategy in self._learned_strategies.values():
+            # Filter based on thresholds
+            if (
+                strategy.total_attempts >= min_attempts
+                and strategy.success_rate >= min_success_rate
+                and strategy.is_recommended()
+            ):
+                recommended_strategies.append(strategy)
+
+        # Sort by effectiveness score (highest first)
+        recommended_strategies.sort(
+            key=lambda s: (s.effectiveness_score, s.success_rate), reverse=True
+        )
+
+        return recommended_strategies
+
+    def get_pattern_statistics(self, pattern_id: str) -> dict[str, Any] | None:
+        """Get statistics for a specific error pattern.
+
+        Args:
+            pattern_id: The pattern identifier to look up.
+
+        Returns:
+            Dictionary with pattern statistics, or None if pattern not found.
+        """
+        if pattern_id not in self._patterns:
+            return None
+
+        pattern = self._patterns[pattern_id]
+        return {
+            "pattern_id": pattern.pattern_id,
+            "error_category": pattern.error_category,
+            "occurrence_count": pattern.occurrence_count,
+            "first_seen": pattern.first_seen.isoformat(),
+            "last_seen": pattern.last_seen.isoformat(),
+            "success_rate": pattern.get_success_rate(),
+            "confidence": pattern.confidence.value,
+            "related_strategies": pattern.related_strategies,
+        }
+
+    def get_best_strategy(
+        self, pattern_id: str, min_confidence: PatternConfidence = PatternConfidence.MEDIUM
+    ) -> LearnedStrategy | None:
+        """Get the best learned strategy for a given pattern.
+
+        Args:
+            pattern_id: The pattern identifier to find a strategy for.
+            min_confidence: Minimum confidence level required.
+
+        Returns:
+            The best LearnedStrategy for this pattern, or None if no suitable strategy found.
+        """
+        # Find all strategies for this pattern
+        pattern_strategies = [
+            s
+            for s in self._learned_strategies.values()
+            if s.pattern_id == pattern_id and s.confidence.value >= min_confidence.value
+        ]
+
+        if not pattern_strategies:
+            return None
+
+        # Return the one with highest effectiveness score
+        return max(pattern_strategies, key=lambda s: s.effectiveness_score)
+
+    def get_all_attempts(
+        self, pattern_id: str | None = None, limit: int | None = None
+    ) -> list[RecoveryAttempt]:
+        """Get recovery attempts, optionally filtered by pattern.
+
+        Args:
+            pattern_id: If specified, only return attempts for this pattern.
+            limit: Maximum number of attempts to return (most recent first).
+
+        Returns:
+            List of RecoveryAttempt objects.
+        """
+        attempts = list(self._attempts.values())
+
+        # Filter by pattern if specified
+        if pattern_id is not None:
+            attempts = [a for a in attempts if a.pattern_id == pattern_id]
+
+        # Sort by timestamp (most recent first)
+        attempts.sort(key=lambda a: a.timestamp, reverse=True)
+
+        # Apply limit if specified
+        if limit is not None:
+            attempts = attempts[:limit]
+
+        return attempts
+
+    def get_learning_summary(self) -> dict[str, Any]:
+        """Get comprehensive summary of learning data.
+
+        Returns:
+            Dictionary with statistics about attempts, patterns, and learned strategies.
+        """
+        total_attempts = len(self._attempts)
+        total_patterns = len(self._patterns)
+        total_strategies = len(self._learned_strategies)
+
+        # Count successful vs failed attempts
+        successful_attempts = sum(1 for a in self._attempts.values() if a.success)
+        failed_attempts = total_attempts - successful_attempts
+
+        # Count strategies by confidence
+        high_confidence = sum(
+            1 for s in self._learned_strategies.values() if s.confidence == PatternConfidence.HIGH
+        )
+        medium_confidence = sum(
+            1
+            for s in self._learned_strategies.values()
+            if s.confidence == PatternConfidence.MEDIUM
+        )
+        low_confidence = sum(
+            1 for s in self._learned_strategies.values() if s.confidence == PatternConfidence.LOW
+        )
+
+        return {
+            "total_attempts": total_attempts,
+            "successful_attempts": successful_attempts,
+            "failed_attempts": failed_attempts,
+            "overall_success_rate": successful_attempts / total_attempts if total_attempts > 0 else 0.0,
+            "total_patterns": total_patterns,
+            "total_learned_strategies": total_strategies,
+            "strategies_by_confidence": {
+                "high": high_confidence,
+                "medium": medium_confidence,
+                "low": low_confidence,
+            },
+        }
+
+    def clear_old_data(self, keep_recent: int = 1000) -> int:
+        """Remove old recovery attempts to manage storage.
+
+        Keeps the most recent N attempts and removes older ones.
+        Patterns and learned strategies are preserved as they represent learned knowledge.
+
+        Args:
+            keep_recent: Number of recent attempts to keep.
+
+        Returns:
+            Number of attempts removed.
+
+        Raises:
+            IOError: If unable to write learning data to disk.
+        """
+        if len(self._attempts) <= keep_recent:
+            return 0
+
+        # Sort attempts by timestamp (most recent first)
+        sorted_attempts = sorted(
+            self._attempts.items(),
+            key=lambda x: x[1].timestamp,
+            reverse=True,
+        )
+
+        # Keep only the most recent
+        kept = dict(sorted_attempts[:keep_recent])
+        removed = len(self._attempts) - len(kept)
+        self._attempts = kept
+
+        # Persist to disk
+        self._save_learning_data()
+
+        return removed
+
+    def _load_learning_data(self) -> None:
+        """Load learning data from disk.
+
+        Reads the learning JSON file and populates attempts, patterns, and strategies.
+        Creates an empty learning file if none exists.
+        """
+        if not self.learning_path.exists():
+            # Create empty learning file
+            self._save_learning_data()
+            return
+
+        try:
+            data = json.loads(self.learning_path.read_text(encoding="utf-8"))
+
+            # Load attempts
+            attempts_data = data.get("attempts", {})
+            self._attempts = {
+                attempt_id: RecoveryAttempt.from_dict(attempt_data)
+                for attempt_id, attempt_data in attempts_data.items()
+            }
+
+            # Load patterns
+            patterns_data = data.get("patterns", {})
+            self._patterns = {
+                pattern_id: RecoveryPattern(
+                    pattern_id=p["pattern_id"],
+                    error_category=p["error_category"],
+                    error_signature=p["error_signature"],
+                    features=p["features"],
+                    occurrence_count=p.get("occurrence_count", 1),
+                    first_seen=datetime.fromisoformat(p["first_seen"]),
+                    last_seen=datetime.fromisoformat(p["last_seen"]),
+                    related_strategies=p.get("related_strategies", []),
+                    success_count=p.get("success_count", 0),
+                    failure_count=p.get("failure_count", 0),
+                    confidence=PatternConfidence(p.get("confidence", PatternConfidence.LOW.value)),
+                    metadata=p.get("metadata", {}),
+                )
+                for pattern_id, p in patterns_data.items()
+            }
+
+            # Load learned strategies
+            strategies_data = data.get("learned_strategies", {})
+            self._learned_strategies = {
+                strategy_id: LearnedStrategy.from_dict(strategy_data)
+                for strategy_id, strategy_data in strategies_data.items()
+            }
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError):
+            # If file is corrupted, start fresh
+            self._attempts = {}
+            self._patterns = {}
+            self._learned_strategies = {}
+
+    def _save_learning_data(self) -> None:
+        """Save learning data to disk.
+
+        Writes attempts, patterns, and strategies to the learning JSON file.
+        Uses atomic write to prevent data loss.
+
+        Raises:
+            IOError: If unable to write to the learning file.
+        """
+        # Convert to dictionaries
+        attempts_data = {
+            attempt_id: attempt.to_dict()
+            for attempt_id, attempt in self._attempts.items()
+        }
+        patterns_data = {
+            pattern_id: pattern.to_dict()
+            for pattern_id, pattern in self._patterns.items()
+        }
+        strategies_data = {
+            strategy_id: strategy.to_dict()
+            for strategy_id, strategy in self._learned_strategies.items()
+        }
+
+        # Build learning data structure
+        learning_data = {
+            "attempts": attempts_data,
+            "patterns": patterns_data,
+            "learned_strategies": strategies_data,
+            "metadata": {
+                "total_attempts": len(self._attempts),
+                "total_patterns": len(self._patterns),
+                "total_strategies": len(self._learned_strategies),
+                "last_updated": datetime.now(UTC).isoformat(),
+            },
+        }
+
+        # Write to file with atomic update
+        temp_path = self.learning_path.with_suffix(".tmp")
+        try:
+            temp_path.write_text(json.dumps(learning_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.replace(self.learning_path)
+        except OSError as e:
+            # Clean up temp file if write fails
+            if temp_path.exists():
+                temp_path.unlink()
+            raise IOError(f"Failed to write learning data to {self.learning_path}: {e}") from e
+
+    def reset(self) -> None:
+        """Reset all learning data.
+
+        Clears all attempts, patterns, and learned strategies.
+        Use with caution as this loses all learned knowledge.
+        """
+        self._attempts.clear()
+        self._patterns.clear()
+        self._learned_strategies.clear()
+        self._save_learning_data()
