@@ -34,6 +34,27 @@ class PatternConfidence(Enum):
     MEDIUM = "medium"  # 50-80% success rate or limited samples
     LOW = "low"  # <50% success rate or very limited samples
 
+    # Define ordering for comparison
+    def __ge__(self, other: "PatternConfidence") -> bool:
+        """Greater than or equal comparison."""
+        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        return order[self] >= order[other]
+
+    def __gt__(self, other: "PatternConfidence") -> bool:
+        """Greater than comparison."""
+        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        return order[self] > order[other]
+
+    def __le__(self, other: "PatternConfidence") -> bool:
+        """Less than or equal comparison."""
+        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        return order[self] <= order[other]
+
+    def __lt__(self, other: "PatternConfidence") -> bool:
+        """Less than comparison."""
+        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        return order[self] < order[other]
+
 
 class RecoveryOutcome(str, Enum):
     """Possible outcomes of a recovery attempt.
@@ -1297,7 +1318,7 @@ class RecoveryLearner:
         pattern_strategies = [
             s
             for s in self._learned_strategies.values()
-            if s.pattern_id == pattern_id and s.confidence.value >= min_confidence.value
+            if s.pattern_id == pattern_id and s.confidence >= min_confidence
         ]
 
         if not pattern_strategies:

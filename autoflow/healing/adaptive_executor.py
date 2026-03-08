@@ -200,10 +200,12 @@ class AdaptiveRetryExecutor:
 
         try:
             # Get recommended strategy from learning system
+            from autoflow.healing.recovery_learner import PatternConfidence
+
             recommendation = self._learner.recommend_strategy(
                 root_cause=root_cause,
                 context=context,
-                min_confidence="medium",  # Require at least medium confidence
+                min_confidence=PatternConfidence.MEDIUM,  # Require at least medium confidence
             )
 
             if not recommendation:
@@ -264,10 +266,12 @@ class AdaptiveRetryExecutor:
 
         try:
             # Get recommended strategy with lower confidence threshold
+            from autoflow.healing.recovery_learner import PatternConfidence
+
             recommendation = self._learner.recommend_strategy(
                 root_cause=root_cause,
                 context=context or {},
-                min_confidence="low",  # Accept lower confidence for fallback
+                min_confidence=PatternConfidence.LOW,  # Accept lower confidence for fallback
             )
 
             if not recommendation:

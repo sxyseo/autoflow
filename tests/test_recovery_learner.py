@@ -2428,3 +2428,605 @@ class TestRecoveryLearnerIntegration:
         assert high_conf_strat.confidence == PatternConfidence.HIGH
         assert medium_conf_strat.confidence == PatternConfidence.MEDIUM
         assert low_conf_strat.confidence == PatternConfidence.LOW
+
+
+# ============================================================================
+# AdaptiveRetryExecutor Integration Tests
+# ============================================================================
+
+
+class TestAdaptiveRetryExecutorIntegration:
+    """Integration tests for AdaptiveRetryExecutor with learning system."""
+
+    @pytest.fixture
+    def learner(self, tmp_path: Path) -> RecoveryLearner:
+        """Create a RecoveryLearner instance with temporary storage."""
+        learning_path = tmp_path / "recovery_learning.json"
+        return RecoveryLearner(learning_path=learning_path)
+
+    @pytest.fixture
+    def root_cause(self) -> Any:
+        """Create a mock RootCause object for testing."""
+        from autoflow.healing.diagnostic import (
+            ConfidenceLevel,
+            FailureCategory,
+            HealingStrategy,
+            RootCause,
+        )
+
+        return RootCause(
+            category=FailureCategory.TIMEOUT,
+            description="Request timeout after 30 seconds",
+            evidence=["HTTP 504 Gateway Timeout", "3 subsequent retries failed"],
+            confidence=ConfidenceLevel.HIGH,
+            affected_components=["api_client", "external_service"],
+            related_metrics=["request_latency", "error_rate"],
+            suggested_strategies=[HealingStrategy.RETRY],
+        )
+
+    @pytest.fixture
+    def retry_action(self) -> Any:
+        """Create a mock HealingAction for retry."""
+        from autoflow.healing.actions import ActionSeverity, ActionType, HealingAction
+
+        return HealingAction(
+            action_type=ActionType.RETRY,
+            name="test_retry_action",
+            description="Test retry action for integration testing",
+            severity=ActionSeverity.LOW,
+            parameters={"max_retries": 3, "base_delay": 1.0},
+        )
+
+    def test_executor_init_with_learner(self, learner: RecoveryLearner) -> None:
+        """Test AdaptiveRetryExecutor initialization with learner."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        assert executor._learner is learner
+        assert executor._max_retries == 3
+        assert executor._base_delay == 1.0
+
+    def test_executor_init_without_learner(self) -> None:
+        """Test AdaptiveRetryExecutor initialization without learner."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=None)
+
+        assert executor._learner is None
+        assert executor._max_retries == 3
+        assert executor._base_delay == 1.0
+
+    def test_executor_init_custom_parameters(self, learner: RecoveryLearner) -> None:
+        """Test AdaptiveRetryExecutor initialization with custom parameters."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(
+            learner=learner, max_retries=5, base_delay=2.0
+        )
+
+        assert executor._max_retries == 5
+        assert executor._base_delay == 2.0
+
+    @pytest.mark.asyncio
+    async def test_execute_without_learning_integration(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test execution without root cause (no learning integration)."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock the base executor to avoid actual retry logic
+        with patch.object(
+            executor._base_executor, "execute", return_value=executor._base_executor.execute.__self__
+        ) as mock_execute:
+            # Create a mock result
+            from autoflow.healing.actions import ActionResult
+
+            mock_result = ActionResult(
+                status=ActionStatus.COMPLETED,
+                success=True,
+                message="Retry succeeded",
+                execution_time=2.5,
+                verification_passed=True,
+            )
+            mock_execute.return_value = mock_result
+
+            result = await executor.execute(action=retry_action, root_cause=None)
+
+            assert result.success is True
+            assert result.message == "Retry succeeded"
+            # Verify that learning was not invoked (no root cause)
+            assert len(learner._attempts) == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_records_attempt_for_learning(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that execution records attempts for learning."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock the base executor
+        mock_result = ActionResult(
+            status=ActionStatus.COMPLETED,
+            success=True,
+            message="Retry succeeded",
+            execution_time=3.2,
+            changes_made=["Retried with backoff"],
+            verification_passed=True,
+        )
+
+        with patch.object(
+            executor._base_executor, "execute", return_value=mock_result
+        ):
+            result = await executor.execute(
+                action=retry_action,
+                root_cause=root_cause,
+                context={"task_id": "task-123"},
+            )
+
+            assert result.success is True
+
+            # Verify attempt was recorded
+            assert len(learner._attempts) == 1
+
+            attempt = list(learner._attempts.values())[0]
+            assert attempt.strategy_used == "adaptive_retry"
+            assert attempt.action_type == "RETRY"
+            assert attempt.success is True
+            assert attempt.execution_time == 3.2
+            assert "root_cause" in attempt.metadata
+
+    @pytest.mark.asyncio
+    async def test_execute_adjusts_parameters_from_learning(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that execution adjusts parameters based on learning."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        # First, record some successful attempts with specific parameters
+        # Use the same pattern extraction logic that the executor uses
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="adaptive_retry",
+                action_type="RETRY",
+                parameters={"max_retries": 5, "base_delay": 2.0},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=4.0,
+                metadata={"error_category": root_cause.category.value},
+            )
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock the base executor to capture the adjusted parameters
+        captured_action = None
+
+        def capture_action(action: Any) -> ActionResult:
+            nonlocal captured_action
+            captured_action = action
+            return ActionResult(
+                status=ActionStatus.COMPLETED,
+                success=True,
+                message="Retry succeeded",
+                execution_time=3.0,
+            )
+
+        with patch.object(executor._base_executor, "execute", side_effect=capture_action):
+            result = await executor.execute(action=retry_action, root_cause=root_cause, context={})
+
+            # Verify parameters were adjusted
+            assert captured_action is not None
+            # Parameters should be updated from learning (max_retries=5, base_delay=2.0)
+            assert captured_action.parameters.get("max_retries") == 5
+            assert captured_action.parameters.get("base_delay") == 2.0
+
+    @pytest.mark.asyncio
+    async def test_execute_fallback_to_learned_strategy(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test fallback to learned strategy when default retry fails."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        # Record a successful alternative strategy
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="custom_timeout_strategy",
+                action_type="RECONFIGURE",
+                parameters={"timeout": 120},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+                metadata={"error_category": root_cause.category.value},
+            )
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock base executor to fail first, then succeed with alternative
+        call_count = 0
+
+        def mock_execute(action: Any) -> ActionResult:
+            nonlocal call_count
+            call_count += 1
+
+            # First call (default retry) fails
+            if call_count == 1:
+                return ActionResult(
+                    status=ActionStatus.FAILED,
+                    success=False,
+                    message="Default retry failed",
+                    error="Connection timeout",
+                    execution_time=3.0,
+                )
+            # Second call (alternative strategy) succeeds
+            else:
+                return ActionResult(
+                    status=ActionStatus.COMPLETED,
+                    success=True,
+                    message="Alternative strategy succeeded",
+                    execution_time=2.0,
+                    verification_passed=True,
+                )
+
+        with patch.object(executor._base_executor, "execute", side_effect=mock_execute):
+            result = await executor.execute(action=retry_action, root_cause=root_cause, context={})
+
+            # Should ultimately succeed via fallback
+            assert result.success is True
+            assert call_count == 2  # Default retry + fallback
+
+    @pytest.mark.asyncio
+    async def test_execute_no_fallback_when_no_strategy_available(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that executor returns original result when no fallback available."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock base executor to fail
+        mock_result = ActionResult(
+            status=ActionStatus.FAILED,
+            success=False,
+            message="Retry failed",
+            error="Connection error",
+            execution_time=2.0,
+        )
+
+        with patch.object(executor._base_executor, "execute", return_value=mock_result):
+            result = await executor.execute(action=retry_action, root_cause=root_cause)
+
+            # Should return the original failed result
+            assert result.success is False
+            assert result.message == "Retry failed"
+
+    @pytest.mark.asyncio
+    async def test_adjust_parameters_from_learning(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test parameter adjustment from learning system."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        # Record successful attempts with specific parameters
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="adaptive_retry",
+                action_type="RETRY",
+                parameters={"max_retries": 7, "base_delay": 3.0, "backoff_multiplier": 2.5},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=4.5,
+                metadata={"error_category": root_cause.category.value},
+            )
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Call _adjust_parameters_from_learning directly
+        adjusted = executor._adjust_parameters_from_learning(
+            action=retry_action,
+            root_cause=root_cause,
+            context={},
+        )
+
+        assert adjusted is not None
+        assert adjusted["max_retries"] == 7
+        assert adjusted["base_delay"] == 3.0
+        assert adjusted["backoff_multiplier"] == 2.5
+
+    @pytest.mark.asyncio
+    async def test_adjust_parameters_returns_none_without_learning(
+        self, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that parameter adjustment returns None without learner."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=None)
+
+        adjusted = executor._adjust_parameters_from_learning(
+            action=retry_action,
+            root_cause=root_cause,
+            context={},
+        )
+
+        assert adjusted is None
+
+    @pytest.mark.asyncio
+    async def test_try_learned_strategy_with_high_confidence(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test trying a learned strategy with high confidence."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        # Record a successful alternative strategy
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(8):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="high_confidence_strategy",
+                action_type="RECONFIGURE",
+                parameters={"timeout": 180},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=6.0,
+                metadata={"error_category": root_cause.category.value},
+            )
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock base executor
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.message = "Strategy succeeded"
+        mock_result.execution_time = 5.0
+        mock_result.error = None
+        mock_result.changes_made = ["Increased timeout"]
+        mock_result.verification_passed = True
+
+        with patch.object(executor._base_executor, "execute", return_value=mock_result):
+            result = await executor.try_learned_strategy(
+                action=retry_action,
+                root_cause=root_cause,
+                context={},
+            )
+
+            assert result is not None
+            assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_try_learned_strategy_returns_none_without_learner(
+        self, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that trying learned strategy returns None without learner."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=None)
+
+        result = await executor.try_learned_strategy(
+            action=retry_action,
+            root_cause=root_cause,
+            context={},
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_try_learned_strategy_returns_none_for_same_strategy(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that trying learned strategy returns None when only adaptive_retry available."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        # Record only adaptive_retry attempts
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="adaptive_retry",
+                action_type="RETRY",
+                parameters={"max_retries": 3},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=2.0,
+            )
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        result = await executor.try_learned_strategy(
+            action=retry_action,
+            root_cause=root_cause,
+            context={},
+        )
+
+        # Should return None because adaptive_retry is the same as the default
+        assert result is None
+
+    def test_adjust_parameters_method(self, learner: RecoveryLearner) -> None:
+        """Test the adjust_parameters method."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Adjust parameters
+        executor.adjust_parameters(max_retries=10, base_delay=5.0)
+
+        assert executor._max_retries == 10
+        assert executor._base_delay == 5.0
+        assert executor._base_executor._max_retries == 10
+        assert executor._base_executor._base_delay == 5.0
+
+    def test_adjust_parameters_partial(self, learner: RecoveryLearner) -> None:
+        """Test adjusting only some parameters."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Adjust only max_retries
+        executor.adjust_parameters(max_retries=7)
+
+        assert executor._max_retries == 7
+        assert executor._base_delay == 1.0  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_integration(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test end-to-end integration with learning system."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # First execution: default retry fails, no learning data yet
+        mock_result_fail = ActionResult(
+            status=ActionStatus.FAILED,
+            success=False,
+            message="Retry failed",
+            error="Timeout",
+            execution_time=3.0,
+        )
+
+        with patch.object(executor._base_executor, "execute", return_value=mock_result_fail):
+            result1 = await executor.execute(action=retry_action, root_cause=root_cause, context={})
+            assert result1.success is False
+
+        # Record a successful alternative strategy manually
+        pattern_id = learner.extract_pattern(root_cause, {})["pattern_id"]
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="alternative_strategy",
+                action_type="RECONFIGURE",
+                parameters={"timeout": 120},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=4.0,
+                metadata={"error_category": root_cause.category.value},
+            )
+
+        # Second execution: should use learned strategy as fallback
+        call_count = 0
+
+        def mock_execute_with_fallback(action: Any) -> ActionResult:
+            nonlocal call_count
+            call_count += 1
+
+            if call_count == 1:
+                # Default retry still fails
+                return ActionResult(
+                    status=ActionStatus.FAILED,
+                    success=False,
+                    message="Default retry failed",
+                    error="Timeout",
+                    execution_time=3.0,
+                )
+            else:
+                # Fallback to learned strategy succeeds
+                return ActionResult(
+                    status=ActionStatus.COMPLETED,
+                    success=True,
+                    message="Learned strategy succeeded",
+                    execution_time=2.0,
+                    verification_passed=True,
+                )
+
+        with patch.object(
+            executor._base_executor, "execute", side_effect=mock_execute_with_fallback
+        ):
+            result2 = await executor.execute(action=retry_action, root_cause=root_cause, context={})
+
+            # Should succeed via fallback to learned strategy
+            assert result2.success is True
+            assert call_count == 2
+
+            # Verify both attempts were recorded
+            assert len(learner._attempts) >= 2
+
+    @pytest.mark.asyncio
+    async def test_learning_recording_failure_does_not_affect_execution(
+        self, learner: RecoveryLearner, retry_action: Any, root_cause: Any
+    ) -> None:
+        """Test that learning recording failure doesn't affect execution."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        # Mock extract_pattern to raise an exception
+        with patch.object(
+            learner, "extract_pattern", side_effect=Exception("Learning system error")
+        ):
+            # Mock base executor to succeed
+            mock_result = ActionResult(
+                status=ActionStatus.COMPLETED,
+                success=True,
+                message="Retry succeeded despite learning error",
+                execution_time=2.0,
+            )
+
+            with patch.object(executor._base_executor, "execute", return_value=mock_result):
+                result = await executor.execute(
+                    action=retry_action, root_cause=root_cause
+                )
+
+                # Execution should still succeed
+                assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_verify_delegates_to_base_executor(
+        self, learner: RecoveryLearner, retry_action: Any
+    ) -> None:
+        """Test that verify delegates to base executor."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        with patch.object(executor._base_executor, "verify", return_value=True) as mock_verify:
+            result = await executor.verify(action=retry_action)
+
+            assert result is True
+            mock_verify.assert_called_once_with(retry_action)
+
+    @pytest.mark.asyncio
+    async def test_rollback_delegates_to_base_executor(
+        self, learner: RecoveryLearner, retry_action: Any
+    ) -> None:
+        """Test that rollback delegates to base executor."""
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+        from autoflow.healing.actions import ActionStatus, ActionResult
+
+        executor = AdaptiveRetryExecutor(learner=learner)
+
+        mock_result = ActionResult(
+            status=ActionStatus.ROLLED_BACK,
+            success=True,
+            message="Rollback succeeded",
+            execution_time=1.0,
+        )
+
+        with patch.object(
+            executor._base_executor, "rollback", return_value=mock_result
+        ) as mock_rollback:
+            result = await executor.rollback(action=retry_action)
+
+            assert result.success is True
+            mock_rollback.assert_called_once_with(retry_action)
