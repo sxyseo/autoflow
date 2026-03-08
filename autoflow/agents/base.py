@@ -113,7 +113,7 @@ class ExecutionResult(BaseModel):
         metadata: Additional result metadata
     """
 
-    status: ExecutionStatus
+    status: Optional[ExecutionStatus] = None
     output: Optional[str] = None
     error: Optional[str] = None
     exit_code: Optional[int] = None
