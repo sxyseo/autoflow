@@ -1177,6 +1177,111 @@ class RecoveryLearner:
 
         return features
 
+    def recommend_strategy(
+        self,
+        root_cause: "RootCause",
+        context: dict[str, Any] | None = None,
+        min_confidence: PatternConfidence = PatternConfidence.MEDIUM,
+    ) -> dict[str, Any] | None:
+        """Recommend the best recovery strategy based on historical performance.
+
+        Analyzes the root cause to identify the error pattern, then looks up
+        learned strategies for similar patterns. Returns the strategy with the
+        highest effectiveness score and success rate.
+
+        Args:
+            root_cause: The RootCause object from diagnostic analysis.
+            context: Additional context about the error (e.g., task_id, workflow_id,
+                error_message, stack_trace).
+            min_confidence: Minimum confidence level required for recommendation.
+
+        Returns:
+            Dictionary containing:
+                - strategy: The LearnedStrategy object (as dict)
+                - pattern_id: The error pattern identifier
+                - success_rate: Historical success rate for this strategy
+                - confidence: Confidence level in this recommendation
+                - rationale: Human-readable explanation of the recommendation
+                - alternative_strategies: List of alternative strategies (if any)
+            Returns None if no suitable strategy found or pattern has insufficient data.
+        """
+        if root_cause is None:
+            return None
+
+        context = context or {}
+
+        # Extract pattern from root cause
+        try:
+            pattern_info = self.extract_pattern(root_cause, context)
+            pattern_id = pattern_info["pattern_id"]
+        except (ValueError, KeyError):
+            return None
+
+        # Get all strategies for this pattern
+        pattern_strategies = [
+            s
+            for s in self._learned_strategies.values()
+            if s.pattern_id == pattern_id and s.confidence.value >= min_confidence.value
+        ]
+
+        if not pattern_strategies:
+            return None
+
+        # Sort by effectiveness score (highest first)
+        pattern_strategies.sort(
+            key=lambda s: (s.effectiveness_score, s.success_rate), reverse=True
+        )
+
+        # Get the best strategy
+        best_strategy = pattern_strategies[0]
+
+        # Get alternative strategies (up to 3)
+        alternatives = pattern_strategies[1:4]
+
+        # Build rationale
+        rationale_parts = [
+            f"Strategy '{best_strategy.strategy_name}' has been attempted "
+            f"{best_strategy.total_attempts} times for this error pattern, "
+            f"with a success rate of {best_strategy.success_rate:.1%}.",
+        ]
+
+        if best_strategy.effectiveness_score > 0.8:
+            rationale_parts.append("High effectiveness score indicates this strategy is reliable.")
+        elif best_strategy.effectiveness_score > 0.6:
+            rationale_parts.append("Moderate effectiveness score suggests this strategy is reasonably effective.")
+        else:
+            rationale_parts.append("Lower effectiveness score suggests this strategy may require monitoring.")
+
+        if best_strategy.avg_execution_time > 0:
+            rationale_parts.append(
+                f"Average execution time: {best_strategy.avg_execution_time:.1f}s."
+            )
+
+        # Add confidence rationale
+        if best_strategy.confidence == PatternConfidence.HIGH:
+            rationale_parts.append(
+                "High confidence: Based on sufficient successful attempts with strong performance."
+            )
+        elif best_strategy.confidence == PatternConfidence.MEDIUM:
+            rationale_parts.append(
+                "Medium confidence: Based on moderate historical data with acceptable performance."
+            )
+        else:
+            rationale_parts.append(
+                "Low confidence: Limited historical data or inconsistent performance."
+            )
+
+        rationale = " ".join(rationale_parts)
+
+        return {
+            "strategy": best_strategy.to_dict(),
+            "pattern_id": pattern_id,
+            "success_rate": best_strategy.success_rate,
+            "confidence": best_strategy.confidence.value,
+            "rationale": rationale,
+            "alternative_strategies": [s.to_dict() for s in alternatives],
+        }
+
     def reset(self) -> None:
         """Reset all learning data.
 
