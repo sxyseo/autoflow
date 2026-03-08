@@ -158,26 +158,23 @@ def velocity(
 
     try:
         # Get velocity metrics
-        end_date = datetime.now(UTC)
-        start_date = end_date - timedelta(days=days)
-
-        metrics = tracker.get_velocity_metrics(
-            start_date=start_date,
-            end_date=end_date,
-        )
+        metrics = tracker.get_velocity_metrics(period_days=days)
 
         if ctx.obj["output_json"]:
             _print_json({
                 "period": {
-                    "start": start_date.isoformat(),
-                    "end": end_date.isoformat(),
+                    "start": metrics.period_start.isoformat(),
+                    "end": metrics.period_end.isoformat(),
                     "days": days,
                 },
                 "metrics": {
                     "tasks_completed": metrics.tasks_completed,
-                    "average_cycle_time_hours": metrics.average_cycle_time_hours,
-                    "tasks_per_day": metrics.tasks_per_day,
+                    "tasks_started": metrics.tasks_started,
+                    "avg_cycle_time_seconds": metrics.avg_cycle_time,
+                    "avg_lead_time_seconds": metrics.avg_lead_time,
+                    "throughput_per_day": metrics.throughput,
                     "completion_rate": metrics.completion_rate,
+                    "trend": metrics.trend.value,
                 },
             })
             return
@@ -186,9 +183,12 @@ def velocity(
         click.echo(f"Velocity Metrics (Last {days} days)")
         click.echo("=" * 60)
         click.echo(f"Tasks Completed: {metrics.tasks_completed}")
-        click.echo(f"Avg Cycle Time: {_format_duration(metrics.average_cycle_time_hours * 3600)}")
-        click.echo(f"Tasks Per Day: {metrics.tasks_per_day:.1f}")
+        click.echo(f"Tasks Started: {metrics.tasks_started}")
+        click.echo(f"Avg Cycle Time: {_format_duration(metrics.avg_cycle_time)}")
+        click.echo(f"Avg Lead Time: {_format_duration(metrics.avg_lead_time)}")
+        click.echo(f"Throughput: {metrics.throughput:.2f} tasks/day")
         click.echo(f"Completion Rate: {_format_percentage(metrics.completion_rate)}")
+        click.echo(f"Trend: {metrics.trend.value}")
 
         if trend:
             click.echo("\nTrend:")
@@ -252,27 +252,24 @@ def quality(
 
     try:
         # Get quality metrics
-        end_date = datetime.now(UTC)
-        start_date = end_date - timedelta(days=days)
-
-        metrics = trends.get_quality_metrics(
-            start_date=start_date,
-            end_date=end_date,
-        )
+        metrics = trends.get_quality_metrics(period_days=days)
 
         if ctx.obj["output_json"]:
             _print_json({
                 "period": {
-                    "start": start_date.isoformat(),
-                    "end": end_date.isoformat(),
+                    "start": metrics.period_start,
+                    "end": metrics.period_end,
                     "days": days,
                 },
                 "metrics": {
                     "test_pass_rate": metrics.test_pass_rate,
-                    "test_count": metrics.test_count,
+                    "test_total": metrics.test_total,
                     "review_approval_rate": metrics.review_approval_rate,
-                    "review_count": metrics.review_count,
+                    "review_first_try_rate": metrics.review_first_try_rate,
+                    "review_total": metrics.review_total,
+                    "defect_density": metrics.defect_density,
                     "quality_score": metrics.quality_score,
+                    "trend": metrics.trend.value,
                 },
             })
             return
@@ -281,10 +278,12 @@ def quality(
         click.echo(f"Quality Trends (Last {days} days)")
         click.echo("=" * 60)
         click.echo(f"Test Pass Rate: {_format_percentage(metrics.test_pass_rate)}")
-        click.echo(f"Test Count: {metrics.test_count}")
+        click.echo(f"Test Total: {metrics.test_total}")
         click.echo(f"Review Approval Rate: {_format_percentage(metrics.review_approval_rate)}")
-        click.echo(f"Review Count: {metrics.review_count}")
+        click.echo(f"Review First-Try Rate: {_format_percentage(metrics.review_first_try_rate)}")
+        click.echo(f"Review Total: {metrics.review_total}")
         click.echo(f"Quality Score: {metrics.quality_score:.1f}/100")
+        click.echo(f"Trend: {metrics.trend.value}")
 
         if trend:
             click.echo("\nTrend:")
@@ -348,31 +347,27 @@ def agents(
     perf = AgentPerformance()
 
     try:
-        end_date = datetime.now(UTC)
-        start_date = end_date - timedelta(days=days)
+        end_time = datetime.now(UTC)
+        start_time = end_time - timedelta(days=days)
 
         if compare:
             # Compare specific agents
             agent_names = list(compare)
         else:
             # Show all agents
-            summary = perf.get_all_agents_summary(
-                start_date=start_date,
-                end_date=end_date,
-            )
-            agent_names = [s.agent_name for s in summary]
+            agent_names = perf.get_agent_names()
 
         if ctx.obj["output_json"]:
             comparison = perf.compare_agents(
                 agent_names=agent_names,
-                start_date=start_date,
-                end_date=end_date,
+                start_time=start_time,
+                end_time=end_time,
             )
 
             _print_json({
                 "period": {
-                    "start": start_date.isoformat(),
-                    "end": end_date.isoformat(),
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
                     "days": days,
                 },
                 "agents": comparison,
@@ -386,21 +381,18 @@ def agents(
         for agent_name in agent_names:
             summary = perf.get_agent_summary(
                 agent_name=agent_name,
-                start_date=start_date,
-                end_date=end_date,
+                start_time=start_time,
+                end_time=end_time,
             )
 
             click.echo(f"\n{agent_name}:")
             click.echo(f"  Total Executions: {summary.total_executions}")
+            click.echo(f"  Successful: {summary.successful_executions}")
+            click.echo(f"  Failed: {summary.failed_executions}")
             click.echo(f"  Success Rate: {_format_percentage(summary.success_rate)}")
-            click.echo(f"  Avg Duration: {_format_duration(summary.average_duration_seconds)}")
-            click.echo(f"  Error Rate: {_format_percentage(summary.error_rate)}")
-
-            if summary.total_executions > 0:
-                click.echo(f"  Status Distribution:")
-                for status, count in summary.status_distribution.items():
-                    pct = (count / summary.total_executions) * 100
-                    click.echo(f"    {status}: {count} ({pct:.1f}%)")
+            click.echo(f"  Avg Duration: {_format_duration(summary.avg_duration_seconds)}")
+            click.echo(f"  Min Duration: {_format_duration(summary.min_duration_seconds)}")
+            click.echo(f"  Max Duration: {_format_duration(summary.max_duration_seconds)}")
 
     except Exception as e:
         click.echo(f"Error retrieving agent performance: {e}", err=True)
@@ -448,27 +440,28 @@ def roi(
     calculator = ROICalculator()
 
     try:
-        end_date = datetime.now(UTC)
-        start_date = end_date - timedelta(days=days)
+        end_time = datetime.now(UTC)
+        start_time = end_time - timedelta(days=days)
 
         metrics = calculator.get_roi_summary(
-            start_date=start_date,
-            end_date=end_date,
+            start_time=start_time,
+            end_time=end_time,
         )
 
         if ctx.obj["output_json"]:
             _print_json({
                 "period": {
-                    "start": start_date.isoformat(),
-                    "end": end_date.isoformat(),
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
                     "days": days,
                 },
                 "metrics": {
+                    "total_tasks": metrics.total_tasks,
                     "total_time_saved_hours": metrics.total_time_saved_hours,
-                    "manual_hours_avoided": metrics.manual_hours_avoided,
-                    "autonomous_hours": metrics.autonomous_hours,
-                    "efficiency_ratio": metrics.efficiency_ratio,
-                    "cost_savings_estimate": metrics.cost_savings_estimate,
+                    "manual_hours_estimate": metrics.total_manual_time_estimate_seconds / 3600,
+                    "autoflow_hours": metrics.total_autoflow_time_seconds / 3600,
+                    "avg_efficiency_ratio": metrics.avg_efficiency_ratio,
+                    "roi_percentage": metrics.roi_percentage,
                 },
             })
             return
@@ -476,17 +469,20 @@ def roi(
         # Human-readable output
         click.echo(f"ROI Metrics (Last {days} days)")
         click.echo("=" * 60)
+        click.echo(f"Total Tasks: {metrics.total_tasks}")
         click.echo(f"Total Time Saved: {metrics.total_time_saved_hours:.1f}h")
-        click.echo(f"Manual Hours Avoided: {metrics.manual_hours_avoided:.1f}h")
-        click.echo(f"Autonomous Hours: {metrics.autonomous_hours:.1f}h")
-        click.echo(f"Efficiency Ratio: {metrics.efficiency_ratio:.1f}x")
-        click.echo(f"Cost Savings Estimate: ${metrics.cost_savings_estimate:.2f}")
+        click.echo(f"Manual Hours Estimate: {metrics.total_manual_time_estimate_seconds / 3600:.1f}h")
+        click.echo(f"Autoflow Hours: {metrics.total_autoflow_time_seconds / 3600:.1f}h")
+        click.echo(f"Avg Efficiency Ratio: {metrics.avg_efficiency_ratio:.1f}x")
+        click.echo(f"ROI Percentage: {metrics.roi_percentage:.1f}%")
+        if metrics.cost_savings_estimate_usd is not None:
+            click.echo(f"Cost Savings Estimate: ${metrics.cost_savings_estimate_usd:.2f}")
 
         if trend:
             click.echo("\nTrend:")
             trend_data = calculator.get_roi_trend(
-                start_date=start_date,
-                end_date=end_date,
+                start_time=start_time,
+                end_time=end_time,
                 bucket_days=max(1, days // 10),
             )
 
@@ -646,23 +642,23 @@ def metrics(
     collector = MetricsCollector()
 
     try:
-        end_date = datetime.now(UTC)
-        start_date = end_date - timedelta(days=days)
+        end_time = datetime.now(UTC)
+        start_time = end_time - timedelta(days=days)
 
         if metric:
             # Show specific metric
             summary = collector.get_metric_summary(
                 metric_name=metric,
-                start_date=start_date,
-                end_date=end_date,
+                start_time=start_time,
+                end_time=end_time,
             )
 
             if ctx.obj["output_json"]:
                 _print_json({
                     "metric": metric,
                     "period": {
-                        "start": start_date.isoformat(),
-                        "end": end_date.isoformat(),
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat(),
                         "days": days,
                     },
                     "summary": {
@@ -687,16 +683,13 @@ def metrics(
 
         else:
             # List all metrics
-            all_metrics = collector.list_metrics(
-                start_date=start_date,
-                end_date=end_date,
-            )
+            all_metrics = collector.get_metric_names()
 
             if ctx.obj["output_json"]:
                 _print_json({
                     "period": {
-                        "start": start_date.isoformat(),
-                        "end": end_date.isoformat(),
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat(),
                         "days": days,
                     },
                     "metrics": all_metrics,
@@ -712,8 +705,8 @@ def metrics(
                 for metric_name in sorted(all_metrics):
                     summary = collector.get_metric_summary(
                         metric_name=metric_name,
-                        start_date=start_date,
-                        end_date=end_date,
+                        start_time=start_time,
+                        end_time=end_time,
                     )
                     click.echo(f"\n{metric_name}:")
                     click.echo(f"  Count: {summary.count}")
