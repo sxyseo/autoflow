@@ -1,10 +1,10 @@
 {
   "active": true,
   "spec": "048-add-inline-comments-to-configuration-examples",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 2,
+    "total": 5,
     "in_progress": 1,
     "failed": 0
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 4,
     "started_at": "2026-03-08T11:08:38.924037"
   },
-  "last_update": "2026-03-08T11:11:46.914867"
+  "last_update": "2026-03-08T11:15:17.789493"
 }
