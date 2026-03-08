@@ -434,6 +434,87 @@ class TaskmasterAPIClient:
         """
         return await self._make_request("DELETE", endpoint)
 
+    async def fetch_tasks(
+        self,
+        status: Optional[TaskmasterTaskStatus] = None,
+        project_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[TaskmasterTask]:
+        """
+        Fetch tasks from the Taskmaster API.
+
+        Retrieves tasks from Taskmaster with optional filtering by status,
+        project, parent task, or result limit. Returns a list of
+        TaskmasterTask objects.
+
+        Args:
+            status: Optional status filter (e.g., TaskmasterTaskStatus.TODO)
+            project_id: Optional project ID to filter tasks by
+            parent_task_id: Optional parent task ID to filter subtasks by
+            limit: Optional maximum number of tasks to return
+
+        Returns:
+            List of TaskmasterTask objects matching the filter criteria
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+            httpx.TimeoutException: If the request times out
+            httpx.HTTPError: For other HTTP-related errors
+            ValueError: If the response data is invalid
+
+        Example:
+            >>> # Fetch all tasks
+            >>> tasks = await client.fetch_tasks()
+            >>>
+            >>> # Fetch only pending tasks
+            >>> pending = await client.fetch_tasks(status=TaskmasterTaskStatus.TODO)
+            >>>
+            >>> # Fetch tasks for a specific project
+            >>> project_tasks = await client.fetch_tasks(project_id="proj-123")
+            """
+        # Build the endpoint path
+        if self.config.workspace_id:
+            endpoint = f"/workspaces/{self.config.workspace_id}/tasks"
+        else:
+            endpoint = "/tasks"
+
+        # Build query parameters
+        params: dict[str, Any] = {}
+        if status:
+            params["status"] = status.value
+        if project_id:
+            params["project_id"] = project_id
+        if parent_task_id:
+            params["parent_task_id"] = parent_task_id
+        if limit:
+            params["limit"] = limit
+
+        # Make the request
+        response_data = await self.get(endpoint, params=params)
+
+        # Parse the response
+        # The API might return {"tasks": [...]} or just [...] at the top level
+        if isinstance(response_data, dict):
+            tasks_data = response_data.get("tasks", [])
+        elif isinstance(response_data, list):
+            tasks_data = response_data
+        else:
+            raise ValueError(f"Unexpected response format: {type(response_data)}")
+
+        # Convert to TaskmasterTask objects
+        tasks = []
+        for task_data in tasks_data:
+            try:
+                task = TaskmasterTask(**task_data)
+                tasks.append(task)
+            except Exception as e:
+                # Skip invalid tasks but log the error
+                # In production, you might want to log this
+                continue
+
+        return tasks
+
     async def check_health(self) -> bool:
         """
         Check if the Taskmaster API is accessible.
