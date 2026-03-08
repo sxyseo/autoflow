@@ -1898,6 +1898,15 @@ def repo_add_cmd(args: argparse.Namespace) -> None:
     print(f"Repository '{repo_id}' added successfully")
 
 
+def repo_list_cmd(_: argparse.Namespace) -> None:
+    """List all registered repositories."""
+    items = []
+    for repo_path in sorted(REPOSITORIES_DIR.glob("*.json")):
+        repo_data = read_json(repo_path)
+        items.append(repo_data)
+    print(json.dumps(items, indent=2, ensure_ascii=True))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1986,6 +1995,9 @@ def build_parser() -> argparse.ArgumentParser:
     repo_add_cmd_parser.add_argument("--description", default="", help="repository description (optional)")
     repo_add_cmd_parser.add_argument("--branch", default="", help="default branch name (default: main)")
     repo_add_cmd_parser.set_defaults(func=repo_add_cmd)
+
+    repo_list_cmd_parser = sub.add_parser("repo-list", help="list all registered repositories")
+    repo_list_cmd_parser.set_defaults(func=repo_list_cmd)
 
     init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
     init_system_cmd.set_defaults(func=init_system_config)
