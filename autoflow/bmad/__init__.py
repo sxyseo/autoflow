@@ -13,45 +13,18 @@ role transitions, reducing context loss and ensuring complete work.
 
 from __future__ import annotations
 
+from autoflow.bmad.artifacts import (
+    ArtifactCollection,
+    ArtifactSpec,
+    ArtifactType,
+)
+
+
+# NOTE: BMADCheckpoint is a stub implementation for module structure.
+# Full implementation will be provided in subtask-1-3.
+
 from dataclasses import dataclass
 from typing import Any
-
-# NOTE: These are stub implementations for module structure.
-# Full implementations will be provided in subsequent subtasks.
-
-
-@dataclass
-class ArtifactSpec:
-    """Specification for an artifact required during a role transition.
-
-    Attributes:
-        name: Identifier for this artifact.
-        type: Type of artifact (file, directory, git_state, etc.).
-        path: Relative path to the artifact.
-        required: Whether this artifact must exist before handoff.
-        description: Optional description of the artifact.
-        content_check: Optional validation rule for artifact content.
-    """
-
-    name: str
-    type: str
-    path: str
-    required: bool = True
-    description: str = ""
-    content_check: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert spec to dictionary.
-
-        Returns:
-            Dictionary representation of the spec.
-        """
-        return {
-            "name": self.name,
-            "type": self.type,
-            "path": self.path,
-            "required": self.required,
-        }
 
 
 @dataclass
@@ -91,12 +64,10 @@ class BMADCheckpoint:
         }
 
 
-# Forward declarations for classes that will be implemented in later subtasks
-# These are imported here for API convenience but will be fully implemented later
-
-
 __all__ = [
     # Core classes
     "ArtifactSpec",
+    "ArtifactType",
+    "ArtifactCollection",
     "BMADCheckpoint",
 ]
