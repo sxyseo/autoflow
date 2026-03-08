@@ -31,6 +31,7 @@ import click
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
+from autoflow.collaboration.team import TeamManager
 from autoflow.collaboration.workspace import WorkspaceManager
 from autoflow.collaboration.models import RoleType
 from autoflow.collaboration.activity import ActivityTracker
@@ -1654,6 +1655,435 @@ def workspace_update_member(
 
     except Exception as e:
         click.echo(f"Error updating member: {e}", err=True)
+        ctx.exit(1)
+
+
+# === Team Commands ===
+
+@main.group()
+def team() -> None:
+    """Manage teams for collaboration."""
+    pass
+
+
+@team.command("create")
+@click.argument("team_id", type=str)
+@click.argument("name", type=str)
+@click.option(
+    "--description",
+    "-d",
+    type=str,
+    default="",
+    help="Team description.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_create(
+    ctx: click.Context,
+    team_id: str,
+    name: str,
+    description: str,
+    output_json: bool,
+) -> None:
+    """
+    Create a new team.
+
+    Creates a team for organizing users and shared workspaces.
+
+    \b
+    Examples:
+        autoflow team create team-001 "Engineering"
+        autoflow team create team-002 "DevOps" --description "Operations team"
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        # Create team
+        team = manager.create_team(
+            team_id=team_id,
+            name=name,
+            description=description,
+        )
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "status": "created",
+                "team": team.model_dump(mode="json"),
+            })
+        else:
+            click.echo(f"Created team: {team.id}")
+            click.echo(f"  Name: {team.name}")
+            if description:
+                click.echo(f"  Description: {description}")
+            click.echo(f"  Created: {_format_datetime(team.created_at)}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error creating team: {e}", err=True)
+        ctx.exit(1)
+
+
+@team.command("list")
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of teams to show.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_list(
+    ctx: click.Context,
+    limit: int,
+    output_json: bool,
+) -> None:
+    """
+    List teams.
+
+    Shows all teams in the system.
+
+    \b
+    Examples:
+        autoflow team list
+        autoflow team list --limit 50
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        teams = manager.list_teams(limit=limit)
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "teams": [t.model_dump(mode="json") for t in teams],
+                "count": len(teams),
+            })
+            return
+
+        if not teams:
+            click.echo("No teams found.")
+            return
+
+        click.echo(f"Teams ({len(teams)}):")
+        for team in teams:
+            click.echo(f"\n  [{team.id}]")
+            click.echo(f"  Name: {team.name}")
+            if team.description:
+                click.echo(f"  Description: {team.description}")
+            click.echo(f"  Members: {len(team.member_ids)}")
+            click.echo(f"  Created: {_format_datetime(team.created_at)}")
+
+    except Exception as e:
+        click.echo(f"Error listing teams: {e}", err=True)
+        ctx.exit(1)
+
+
+@team.command("add-member")
+@click.argument("team_id", type=str)
+@click.argument("user_id", type=str)
+@click.option(
+    "--role",
+    "-r",
+    "role_type",
+    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
+    default="member",
+    help="Role to assign to the user.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_add_member(
+    ctx: click.Context,
+    team_id: str,
+    user_id: str,
+    role_type: str,
+    output_json: bool,
+) -> None:
+    """
+    Add a member to a team.
+
+    Adds a user to a team with the specified role.
+
+    \b
+    Examples:
+        autoflow team add-member team-001 user-001
+        autoflow team add-member team-001 user-002 --role admin
+        autoflow team add-member team-001 user-003 --role reviewer
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        # Convert role string to RoleType enum
+        role_enum = RoleType[role_type.upper()]
+
+        # Add member
+        role = manager.add_member(
+            team_id=team_id,
+            user_id=user_id,
+            role_type=role_enum,
+        )
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "status": "added",
+                "team_id": team_id,
+                "user_id": user_id,
+                "role": role.model_dump(mode="json"),
+            })
+        else:
+            click.echo(f"Added member to team: {team_id}")
+            click.echo(f"  User: {user_id}")
+            click.echo(f"  Role: {role.role_type.value}")
+            click.echo(f"  Granted: {_format_datetime(role.granted_at)}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error adding member: {e}", err=True)
+        ctx.exit(1)
+
+
+@team.command("set-role")
+@click.argument("team_id", type=str)
+@click.argument("user_id", type=str)
+@click.argument("role", type=str)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_set_role(
+    ctx: click.Context,
+    team_id: str,
+    user_id: str,
+    role: str,
+    output_json: bool,
+) -> None:
+    """
+    Set a member's role in a team.
+
+    Changes the role of an existing team member, or adds them if they're not already a member.
+
+    \b
+    Examples:
+        autoflow team set-role team-001 user-001 admin
+        autoflow team set-role team-001 user-002 member
+        autoflow team set-role team-001 user-003 reviewer
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        # Convert role string to RoleType enum
+        role_enum = RoleType[role.upper()]
+
+        # Set member role
+        updated_role = manager.set_member_role(
+            team_id=team_id,
+            user_id=user_id,
+            role_type=role_enum,
+        )
+
+        if updated_role is None:
+            click.echo(f"Error: Team '{team_id}' not found.", err=True)
+            ctx.exit(1)
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "status": "updated",
+                "team_id": team_id,
+                "user_id": user_id,
+                "role": updated_role.model_dump(mode="json"),
+            })
+        else:
+            click.echo(f"Updated role in team: {team_id}")
+            click.echo(f"  User: {user_id}")
+            click.echo(f"  New role: {updated_role.role_type.value}")
+            click.echo(f"  Updated: {_format_datetime(updated_role.granted_at)}")
+
+    except KeyError:
+        click.echo(f"Error: Invalid role '{role}'. Valid roles: owner, admin, member, reviewer, viewer", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error setting role: {e}", err=True)
+        ctx.exit(1)
+
+
+@team.command("members")
+@click.argument("team_id", type=str)
+@click.option(
+    "--role",
+    "-r",
+    "role_type",
+    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
+    default=None,
+    help="Filter by role type.",
+)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_members(
+    ctx: click.Context,
+    team_id: str,
+    role_type: Optional[str],
+    output_json: bool,
+) -> None:
+    """
+    List members of a team.
+
+    Shows all members of a team, optionally filtered by role.
+
+    \b
+    Examples:
+        autoflow team members team-001
+        autoflow team members team-001 --role admin
+        autoflow team members team-001 --role reviewer
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        # Convert role string to RoleType enum if provided
+        role_enum = RoleType[role_type.upper()] if role_type else None
+
+        # Get team
+        team = manager.get_team(team_id)
+        if team is None:
+            click.echo(f"Error: Team '{team_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # List members
+        members = manager.list_members(team_id=team_id, role_type=role_enum)
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "team_id": team_id,
+                "team_name": team.name,
+                "members": [m.model_dump(mode="json") for m in members],
+                "count": len(members),
+            })
+            return
+
+        if not members:
+            if role_type:
+                click.echo(f"No members with role '{role_type}' in team: {team_id}")
+            else:
+                click.echo(f"No members in team: {team_id}")
+            return
+
+        click.echo(f"Members of {team.name} ({team_id}):")
+        for member in members:
+            click.echo(f"\n  [{member.user_id}]")
+            click.echo(f"  Role: {member.role_type.value}")
+            click.echo(f"  Granted: {_format_datetime(member.granted_at)}")
+            if member.granted_by:
+                click.echo(f"  Granted by: {member.granted_by}")
+            if member.expires_at:
+                click.echo(f"  Expires: {_format_datetime(member.expires_at)}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error listing members: {e}", err=True)
+        ctx.exit(1)
+
+
+@team.command("remove-member")
+@click.argument("team_id", type=str)
+@click.argument("user_id", type=str)
+@click.option(
+    "--json",
+    "output_json",
+    is_flag=True,
+    help="Output in JSON format.",
+)
+@click.pass_context
+def team_remove_member(
+    ctx: click.Context,
+    team_id: str,
+    user_id: str,
+    output_json: bool,
+) -> None:
+    """
+    Remove a member from a team.
+
+    Removes a user from a team.
+
+    \b
+    Examples:
+        autoflow team remove-member team-001 user-001
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = TeamManager(state_dir)
+        manager.initialize()
+
+        # Remove member
+        removed = manager.remove_member(
+            team_id=team_id,
+            user_id=user_id,
+        )
+
+        if not removed:
+            click.echo(f"Error: User '{user_id}' is not a member of team '{team_id}'.", err=True)
+            ctx.exit(1)
+
+        if output_json or ctx.obj["output_json"]:
+            _print_json({
+                "status": "removed",
+                "team_id": team_id,
+                "user_id": user_id,
+            })
+        else:
+            click.echo(f"Removed member from team: {team_id}")
+            click.echo(f"  User: {user_id}")
+
+    except Exception as e:
+        click.echo(f"Error removing member: {e}", err=True)
         ctx.exit(1)
 
 

@@ -62,6 +62,7 @@ from autoflow.collaboration.models import (
     Workspace,
 )
 from autoflow.collaboration.notifications import NotificationManager
+from autoflow.collaboration.team import TeamManager
 from autoflow.collaboration.workspace import WorkspaceManager
 
 __all__ = [
@@ -75,6 +76,7 @@ __all__ = [
     "Notification",
     "NotificationStatus",
     "NotificationType",
+    "TeamManager",
     "WorkspaceManager",
     "ActivityTracker",
     "NotificationManager",
