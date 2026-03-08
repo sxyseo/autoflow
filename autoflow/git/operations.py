@@ -503,6 +503,88 @@ class GitOperations:
 
         return status
 
+    def rebase_with_conflict_detection(
+        self,
+        branch: str,
+        onto: Optional[str] = None,
+    ) -> RebaseResult:
+        """
+        Rebase the current branch onto another branch with conflict detection.
+
+        This method attempts to rebase the current branch onto the target branch.
+        If conflicts occur during the rebase, they are detected and reported
+        without aborting the rebase, allowing the caller to handle them.
+
+        Args:
+            branch: Branch to rebase onto (e.g., "main", "origin/main")
+            onto: Optional base commit for rebase (defaults to branch)
+
+        Returns:
+            RebaseResult with:
+                - success: True if rebase completed successfully
+                - has_conflicts: True if merge conflicts occurred
+                - current_commit: Current HEAD commit SHA after rebase
+                - conflicted_files: List of files with conflicts
+                - error: Error message if rebase failed
+
+        Raises:
+            GitError: If git command fails catastrophically
+
+        Example:
+            >>> git_ops = GitOperations()
+            >>> result = git_ops.rebase_with_conflict_detection("main")
+            >>> if result.has_conflicts:
+            ...     print(f"Conflicts in: {result.conflicted_files}")
+            >>> elif result.success:
+            ...     print("Rebase successful!")
+        """
+        result = RebaseResult()
+
+        # Ensure working directory is clean before rebasing
+        if not self.is_clean_working_dir():
+            result.error = "Working directory is not clean"
+            return result
+
+        # Determine rebase target
+        target = onto if onto else branch
+
+        try:
+            # Attempt rebase
+            rebase_result = self._run_git(
+                ["rebase", target],
+                check=False,
+            )
+
+            # Check if rebase succeeded
+            if rebase_result.returncode == 0:
+                result.success = True
+                result.has_conflicts = False
+
+                # Get current commit
+                try:
+                    commit_result = self._run_git(["rev-parse", "HEAD"])
+                    result.current_commit = commit_result.stdout.strip()
+                except GitError:
+                    pass
+            else:
+                # Rebase failed - check for conflicts
+                result.success = False
+
+                # Detect conflicts
+                if self.has_merge_conflicts():
+                    result.has_conflicts = True
+                    result.conflicted_files = self.get_conflicted_files()
+                    result.error = "Rebase stopped due to merge conflicts"
+                else:
+                    # Other error (e.g., divergent branches)
+                    result.error = rebase_result.stderr or "Rebase failed"
+
+        except GitError as e:
+            result.error = str(e)
+            result.success = False
+
+        return result
+
     def __repr__(self) -> str:
         """Return string representation."""
         try:
