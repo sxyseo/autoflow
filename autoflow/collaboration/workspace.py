@@ -29,6 +29,12 @@ Usage:
     # Update a workspace
     manager.update_workspace("workspace-001", description="Updated description")
 
+    # Manage workspace members
+    role = manager.add_member("workspace-001", "user-001", RoleType.ADMIN)
+    members = manager.list_members("workspace-001")
+    manager.update_member_role("workspace-001", "user-001", RoleType.MEMBER)
+    manager.remove_member("workspace-001", "user-001")
+
     # Delete a workspace
     manager.delete_workspace("workspace-001")
 """
@@ -45,7 +51,7 @@ from typing import Any, Optional, Union
 
 from pydantic import ValidationError
 
-from autoflow.collaboration.models import Workspace
+from autoflow.collaboration.models import Role, RoleType, Workspace
 
 
 class WorkspaceManager:
@@ -86,13 +92,14 @@ class WorkspaceManager:
         """
         self.state_dir = Path(state_dir).resolve()
         self.workspaces_dir = self.state_dir / "workspaces"
+        self.roles_dir = self.state_dir / "workspace_roles"
         self.backup_dir = self.state_dir / "backups"
 
     def initialize(self) -> None:
         """
         Initialize the workspace directory structure.
 
-        Creates the workspaces directory if it doesn't exist.
+        Creates the workspaces and roles directories if they don't exist.
         Idempotent - safe to call multiple times.
 
         Example:
@@ -102,6 +109,7 @@ class WorkspaceManager:
         """
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
+        self.roles_dir.mkdir(exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
     def create_workspace(
@@ -337,6 +345,239 @@ class WorkspaceManager:
         """
         return len(self.list_workspaces(team_id=team_id))
 
+    def add_member(
+        self,
+        workspace_id: str,
+        user_id: str,
+        role_type: RoleType = RoleType.MEMBER,
+        granted_by: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Role:
+        """
+        Add a member to a workspace with a specific role.
+
+        Args:
+            workspace_id: Workspace identifier
+            user_id: User ID to add as a member
+            role_type: Role to assign (default: MEMBER)
+            granted_by: User ID who is granting this role (optional)
+            expires_at: Optional expiration timestamp for the role
+            metadata: Additional role data
+
+        Returns:
+            Created Role object
+
+        Raises:
+            ValueError: If workspace doesn't exist or user is already a member
+
+        Example:
+            >>> role = manager.add_member(
+            ...     "workspace-001",
+            ...     "user-001",
+            ...     role_type=RoleType.ADMIN
+            ... )
+            >>> print(role.role_type)
+            admin
+        """
+        # Check if workspace exists
+        if not self.workspace_exists(workspace_id):
+            raise ValueError(f"Workspace {workspace_id} does not exist")
+
+        # Check if user is already a member
+        if self.get_member_role(workspace_id, user_id) is not None:
+            raise ValueError(f"User {user_id} is already a member of workspace {workspace_id}")
+
+        # Create role
+        role = Role(
+            user_id=user_id,
+            role_type=role_type,
+            workspace_id=workspace_id,
+            granted_by=granted_by,
+            expires_at=expires_at,
+            metadata=metadata or {},
+        )
+
+        # Save role
+        self._save_role(role)
+        return role
+
+    def remove_member(self, workspace_id: str, user_id: str) -> bool:
+        """
+        Remove a member from a workspace.
+
+        Args:
+            workspace_id: Workspace identifier
+            user_id: User ID to remove
+
+        Returns:
+            True if member was removed, False if not found
+
+        Example:
+            >>> removed = manager.remove_member("workspace-001", "user-001")
+            >>> if removed:
+            ...     print("Member removed")
+        """
+        role_file = self.roles_dir / f"{workspace_id}_{user_id}.json"
+        if role_file.exists():
+            # Create backup before deletion
+            self._create_backup(role_file)
+            role_file.unlink()
+            return True
+        return False
+
+    def update_member_role(
+        self,
+        workspace_id: str,
+        user_id: str,
+        role_type: RoleType,
+        granted_by: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
+    ) -> Optional[Role]:
+        """
+        Update a member's role in a workspace.
+
+        Args:
+            workspace_id: Workspace identifier
+            user_id: User ID whose role to update
+            role_type: New role type
+            granted_by: User ID who is granting this role (optional)
+            expires_at: Optional expiration timestamp for the role
+
+        Returns:
+            Updated Role object or None if member not found
+
+        Example:
+            >>> role = manager.update_member_role(
+            ...     "workspace-001",
+            ...     "user-001",
+            ...     role_type=RoleType.ADMIN
+            ... )
+            >>> print(role.role_type)
+            admin
+        """
+        role = self.get_member_role(workspace_id, user_id)
+        if role is None:
+            return None
+
+        # Update role
+        role.role_type = role_type
+        role.granted_by = granted_by
+        role.expires_at = expires_at
+
+        # Save changes
+        self._save_role(role)
+        return role
+
+    def get_member_role(self, workspace_id: str, user_id: str) -> Optional[Role]:
+        """
+        Get a member's role in a workspace.
+
+        Args:
+            workspace_id: Workspace identifier
+            user_id: User ID
+
+        Returns:
+            Role object or None if not found
+
+        Example:
+            >>> role = manager.get_member_role("workspace-001", "user-001")
+            >>> if role:
+            ...     print(role.role_type)
+        """
+        role_file = self.roles_dir / f"{workspace_id}_{user_id}.json"
+        if not role_file.exists():
+            return None
+
+        try:
+            with open(role_file, encoding="utf-8") as f:
+                data = json.load(f)
+            return Role(**data)
+        except (json.JSONDecodeError, ValidationError, FileNotFoundError):
+            return None
+
+    def list_members(
+        self,
+        workspace_id: str,
+        role_type: Optional[RoleType] = None,
+    ) -> list[Role]:
+        """
+        List all members of a workspace, optionally filtered by role.
+
+        Args:
+            workspace_id: Workspace identifier
+            role_type: Filter by role type (optional)
+
+        Returns:
+            List of Role objects representing workspace members
+
+        Example:
+            >>> members = manager.list_members("workspace-001")
+            >>> for role in members:
+            ...     print(f"{role.user_id}: {role.role_type}")
+        """
+        members = []
+        if not self.roles_dir.exists():
+            return members
+
+        # Filter role files for this workspace
+        pattern = f"{workspace_id}_*.json"
+        for role_file in self.roles_dir.glob(pattern):
+            try:
+                with open(role_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                role = Role(**data)
+
+                # Filter by role_type if provided
+                if role_type and role.role_type != role_type:
+                    continue
+
+                # Skip expired roles
+                if role.is_expired():
+                    continue
+
+                members.append(role)
+            except (json.JSONDecodeError, ValidationError):
+                continue
+
+        # Sort by granted_at descending
+        members.sort(key=lambda r: r.granted_at, reverse=True)
+        return members
+
+    def is_member(self, workspace_id: str, user_id: str) -> bool:
+        """
+        Check if a user is a member of a workspace.
+
+        Args:
+            workspace_id: Workspace identifier
+            user_id: User ID to check
+
+        Returns:
+            True if user is a member, False otherwise
+
+        Example:
+            >>> if manager.is_member("workspace-001", "user-001"):
+            ...     print("User is a member")
+        """
+        role = self.get_member_role(workspace_id, user_id)
+        return role is not None and not role.is_expired()
+
+    def get_member_count(self, workspace_id: str) -> int:
+        """
+        Get the count of members in a workspace.
+
+        Args:
+            workspace_id: Workspace identifier
+
+        Returns:
+            Number of members in the workspace
+
+        Example:
+            >>> count = manager.get_member_count("workspace-001")
+            >>> print(f"Workspace has {count} members")
+        """
+        return len(self.list_members(workspace_id))
+
     def _save_workspace(self, workspace: Workspace) -> Path:
         """
         Save a workspace to a file atomically.
@@ -362,6 +603,53 @@ class WorkspaceManager:
 
         # Convert to dict for JSON serialization
         data = workspace.model_dump(mode="json")
+
+        # Write to temporary file in same directory
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=file_path.parent,
+            prefix=f".{file_path.name}.",
+            suffix=".tmp",
+        )
+
+        try:
+            # Write data to temp file
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Atomic rename
+            os.replace(temp_path, file_path)
+            return file_path
+        except Exception:
+            # Clean up temp file on failure
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+
+    def _save_role(self, role: Role) -> Path:
+        """
+        Save a role to a file atomically.
+
+        Uses write-to-temporary-and-rename pattern for crash safety.
+
+        Args:
+            role: Role object to save
+
+        Returns:
+            Path to the saved role file
+
+        Raises:
+            OSError: If write operation fails
+        """
+        file_path = self.roles_dir / f"{role.workspace_id}_{role.user_id}.json"
+
+        # Create parent directories
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create backup of existing file
+        self._create_backup(file_path)
+
+        # Convert to dict for JSON serialization
+        data = role.model_dump(mode="json")
 
         # Write to temporary file in same directory
         temp_fd, temp_path = tempfile.mkstemp(
