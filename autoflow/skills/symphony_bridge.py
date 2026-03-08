@@ -54,7 +54,12 @@ from autoflow.skills.executor import (
     SkillExecutionStatus,
     SkillExecutor,
 )
-from autoflow.skills.registry import SkillDefinition, SkillRegistry
+from autoflow.skills.registry import (
+    SkillDefinition,
+    SkillMetadata,
+    SkillRegistry,
+    SkillStatus,
+)
 
 
 class SymphonyBridgeStatus(str, Enum):
@@ -250,6 +255,7 @@ class SymphonyBridge:
         self._executor = executor
         self._adapters: dict[str, AgentAdapter] = {}
         self._default_timeout = default_timeout or self.DEFAULT_TIMEOUT
+        self._registered_workflow_skills: set[str] = set()
 
         # Create executor if not provided
         if self._executor is None:
@@ -328,6 +334,232 @@ class SymphonyBridge:
             List of agent type identifiers
         """
         return list(self._adapters.keys())
+
+    def _create_virtual_skill(
+        self,
+        workflow_name: str,
+        workflow_description: Optional[str] = None,
+        workflow_metadata: Optional[dict[str, Any]] = None,
+    ) -> SkillDefinition:
+        """
+        Create a virtual skill definition from a Symphony workflow.
+
+        This method translates a Symphony workflow into a SkillDefinition
+        that can be registered and invoked like any other Autoflow skill.
+
+        Args:
+            workflow_name: Name of the Symphony workflow
+            workflow_description: Optional description of the workflow
+            workflow_metadata: Optional additional workflow metadata
+
+        Returns:
+            SkillDefinition for the workflow
+
+        Raises:
+            SymphonyBridgeError: If workflow_name is invalid
+        """
+        # Validate workflow name format (should be valid skill name)
+        if not workflow_name or not isinstance(workflow_name, str):
+            raise SymphonyBridgeError(
+                f"Invalid workflow name: {workflow_name!r}"
+            )
+
+        # Convert workflow name to skill name format
+        # e.g., "multi-agent-analysis" -> "MULTI_AGENT_ANALYSIS"
+        skill_name = workflow_name.upper().replace("-", "_")
+
+        # Create skill metadata
+        metadata = SkillMetadata(
+            name=skill_name,
+            description=workflow_description or f"Symphony workflow: {workflow_name}",
+            version="1.0.0",
+            agents=["symphony"],
+            enabled=True,
+        )
+
+        # Build skill content that describes the workflow invocation
+        content_parts: list[str] = []
+
+        # Add workflow header
+        content_parts.append(f"# Symphony Workflow: {workflow_name}\n")
+
+        # Add description if provided
+        if workflow_description:
+            content_parts.append(f"{workflow_description}\n")
+
+        # Add workflow metadata if provided
+        if workflow_metadata:
+            content_parts.append("\n## Workflow Metadata\n")
+            for key, value in workflow_metadata.items():
+                content_parts.append(f"- {key}: {value}\n")
+
+        # Add execution instructions
+        content_parts.append("\n## Execution Instructions\n")
+        content_parts.append(
+            "This is a Symphony workflow that will be executed through the "
+            "Symphony agent adapter. The workflow will be invoked with the "
+            "provided task and context.\n"
+        )
+
+        # Add workflow invocation template
+        content_parts.append("\n## Workflow Invocation\n")
+        content_parts.append(f"**Workflow Name:** {workflow_name}\n")
+        content_parts.append(
+            "**Agent Type:** symphony\n"
+        )
+
+        content = "".join(content_parts)
+
+        # Create skill definition (file_path is virtual)
+        skill = SkillDefinition(
+            metadata=metadata,
+            content=content,
+            file_path=Path(f"virtual://symphony/{workflow_name}/SKILL.md"),
+            status=SkillStatus.LOADED,
+            errors=[],
+        )
+
+        return skill
+
+    def register_workflow_as_skill(
+        self,
+        workflow_name: str,
+        workflow_description: Optional[str] = None,
+        workflow_metadata: Optional[dict[str, Any]] = None,
+        override: bool = False,
+    ) -> SkillDefinition:
+        """
+        Register a Symphony workflow as a virtual skill in the registry.
+
+        This method creates a virtual skill from a Symphony workflow and
+        registers it in the skill registry, making it discoverable and
+        invocable like any other Autoflow skill.
+
+        Args:
+            workflow_name: Name of the Symphony workflow
+            workflow_description: Optional description of the workflow
+            workflow_metadata: Optional additional workflow metadata
+            override: Whether to override existing skill with same name
+
+        Returns:
+            The registered SkillDefinition
+
+        Raises:
+            SymphonyBridgeError: If skill already exists and override=False
+
+        Example:
+            >>> skill = bridge.register_workflow_as_skill(
+            ...     workflow_name="multi-agent-analysis",
+            ...     workflow_description="Analyzes code using multiple agents"
+            ... )
+            >>> print(skill.name)
+            MULTI_AGENT_ANALYSIS
+        """
+        # Create virtual skill
+        skill = self._create_virtual_skill(
+            workflow_name=workflow_name,
+            workflow_description=workflow_description,
+            workflow_metadata=workflow_metadata,
+        )
+
+        # Check if skill already exists
+        existing = self.registry.get_skill(skill.name)
+        if existing is not None and not override:
+            raise SymphonyBridgeError(
+                f"Skill '{skill.name}' already exists in registry. "
+                f"Use override=True to replace it."
+            )
+
+        # Register skill in registry using the correct API
+        # register_skill takes metadata and content separately
+        from autoflow.skills.registry import SkillRegistryError
+
+        try:
+            registered = self.registry.register_skill(
+                metadata=skill.metadata.model_dump(),
+                content=skill.content,
+            )
+        except SkillRegistryError as e:
+            raise SymphonyBridgeError(f"Failed to register workflow skill: {e}") from e
+
+        # Track registered workflow skill
+        self._registered_workflow_skills.add(registered.name)
+
+        return registered
+
+    def unregister_workflow_skill(
+        self,
+        workflow_name: str,
+    ) -> bool:
+        """
+        Unregister a Symphony workflow skill from the registry.
+
+        Args:
+            workflow_name: Name of the Symphony workflow
+
+        Returns:
+            True if skill was unregistered, False if not found
+
+        Example:
+            >>> removed = bridge.unregister_workflow_skill("multi-agent-analysis")
+            >>> print(removed)
+            True
+        """
+        # Convert workflow name to skill name format
+        skill_name = workflow_name.upper().replace("-", "_")
+
+        # Unregister from registry
+        unregistered = self.registry.unregister_skill(skill_name)
+
+        # Remove from tracking set
+        if unregistered:
+            self._registered_workflow_skills.discard(skill_name)
+
+        return unregistered
+
+    def get_registered_workflow_skills(self) -> list[SkillDefinition]:
+        """
+        Get all Symphony workflow skills currently registered.
+
+        Returns:
+            List of SkillDefinition objects for Symphony workflows
+
+        Example:
+            >>> workflow_skills = bridge.get_registered_workflow_skills()
+            >>> for skill in workflow_skills:
+            ...     print(skill.name)
+        """
+        # Get skills from tracking set
+        workflow_skills: list[SkillDefinition] = []
+
+        for skill_name in self._registered_workflow_skills:
+            skill = self.registry.get_skill(skill_name)
+            if skill is not None:
+                workflow_skills.append(skill)
+
+        return workflow_skills
+
+    def is_workflow_registered(self, workflow_name: str) -> bool:
+        """
+        Check if a Symphony workflow is registered as a skill.
+
+        Args:
+            workflow_name: Name of the Symphony workflow
+
+        Returns:
+            True if workflow is registered as a skill
+
+        Example:
+            >>> registered = bridge.is_workflow_registered("multi-agent-analysis")
+            >>> print(registered)
+            True
+        """
+        # Convert workflow name to skill name format
+        skill_name = workflow_name.upper().replace("-", "_")
+
+        # Check if skill exists
+        skill = self.registry.get_skill(skill_name)
+        return skill is not None
 
     async def execute_workflow_as_skill(
         self,
@@ -454,6 +686,127 @@ class SymphonyBridge:
 
         return result
 
+    async def execute_workflow_skill(
+        self,
+        workflow_name: str,
+        task: str,
+        workdir: Union[str, Path],
+        agent_type: Optional[str] = None,
+        agent_config: Optional[AgentConfig] = None,
+        context_files: Optional[list[Path]] = None,
+        context_text: Optional[str] = None,
+        session_id: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> SymphonyBridgeResult:
+        """
+        Execute a Symphony workflow through the standard skill execution flow.
+
+        This method demonstrates the complete workflow-to-skill translation:
+        1. The workflow is registered as a virtual skill
+        2. The skill is executed through the standard SkillExecutor
+        3. Results are returned in a SymphonyBridgeResult
+
+        This differs from execute_workflow_as_skill() by using the standard
+        skill execution path rather than directly invoking the adapter.
+
+        Args:
+            workflow_name: Name of the Symphony workflow
+            task: Task description
+            workdir: Working directory for execution
+            agent_type: Optional preferred agent type (defaults to "symphony")
+            agent_config: Optional agent configuration overrides
+            context_files: Optional files to include as context
+            context_text: Optional additional context text
+            session_id: Optional session ID for resume
+            timeout_seconds: Optional timeout override
+            metadata: Optional execution metadata
+
+        Returns:
+            SymphonyBridgeResult with status and output
+
+        Raises:
+            SymphonyBridgeError: If workflow not registered or execution fails
+
+        Example:
+            >>> # Register workflow as skill
+            >>> bridge.register_workflow_as_skill(
+            ...     workflow_name="multi-agent-analysis",
+            ...     workflow_description="Analyzes code using multiple agents"
+            ... )
+            >>>
+            >>> # Execute through standard skill flow
+            >>> result = await bridge.execute_workflow_skill(
+            ...     workflow_name="multi-agent-analysis",
+            ...     task="Analyze the codebase",
+            ...     workdir="/path/to/project"
+            ... )
+            >>> if result.success:
+            ...     print(result.output)
+        """
+        # Convert workflow name to skill name format
+        skill_name = workflow_name.upper().replace("-", "_")
+
+        # Create result object
+        result = SymphonyBridgeResult(
+            operation_type="workflow_as_skill",
+            metadata=metadata or {},
+        )
+        result.status = SymphonyBridgeStatus.RUNNING
+
+        try:
+            # Check if workflow is registered as a skill
+            skill = self.registry.get_skill(skill_name)
+            if skill is None:
+                raise SymphonyBridgeError(
+                    f"Workflow '{workflow_name}' is not registered as a skill. "
+                    f"Call register_workflow_as_skill('{workflow_name}') first."
+                )
+
+            # Execute through standard skill executor
+            skill_result = await self._executor.execute_skill(
+                skill_name=skill_name,
+                task=task,
+                workdir=workdir,
+                agent_type=agent_type or "symphony",
+                agent_config=agent_config,
+                context_files=context_files,
+                context_text=context_text,
+                session_id=session_id,
+                timeout_seconds=timeout_seconds,
+            )
+
+            # Map skill execution status to bridge status
+            status_map = {
+                SkillExecutionStatus.SUCCESS: SymphonyBridgeStatus.SUCCESS,
+                SkillExecutionStatus.FAILURE: SymphonyBridgeStatus.FAILURE,
+                SkillExecutionStatus.TIMEOUT: SymphonyBridgeStatus.FAILURE,
+                SkillExecutionStatus.CANCELLED: SymphonyBridgeStatus.CANCELLED,
+                SkillExecutionStatus.ERROR: SymphonyBridgeStatus.ERROR,
+            }
+
+            result.mark_complete(
+                status=status_map.get(
+                    skill_result.status,
+                    SymphonyBridgeStatus.ERROR
+                ),
+                execution_result=skill_result,
+                error=skill_result.error,
+            )
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            result.mark_complete(
+                status=SymphonyBridgeStatus.ERROR,
+                error=f"Workflow skill execution failed: {str(e)}",
+            )
+            raise SymphonyBridgeError(
+                f"Workflow skill execution failed: {e}"
+            ) from e
+
+        return result
+
     async def execute_skill_in_workflow(
         self,
         skill_name: str,
@@ -559,12 +912,13 @@ class SymphonyBridge:
         workflow_name: str,
         task: str,
         context_text: Optional[str] = None,
-        context_files: list[Path] = None,
+        context_files: Optional[list[Path]] = None,
     ) -> str:
         """
         Build the full prompt for workflow execution.
 
-        Combines workflow name with task and additional context.
+        Translates skill execution context into Symphony workflow prompt format.
+        This is the core context mapping logic for the translation layer.
 
         Args:
             workflow_name: Name of the Symphony workflow
@@ -573,32 +927,48 @@ class SymphonyBridge:
             context_files: Optional files to include as context
 
         Returns:
-            Complete prompt string
+            Complete prompt string formatted for Symphony workflow execution
         """
         parts: list[str] = []
 
-        # Add workflow identifier
-        parts.append(f"## Symphony Workflow\n\nWorkflow: {workflow_name}\n")
+        # Add workflow identifier with execution context
+        parts.append(f"## Symphony Workflow Execution\n")
+        parts.append(f"**Workflow:** {workflow_name}\n")
+        parts.append(f"**Execution Mode:** Autoflow Skill Bridge\n")
 
         # Add separator
         parts.append("\n---\n")
 
         # Add context text if provided
         if context_text:
-            parts.append(f"## Context\n\n{context_text}\n")
+            parts.append(f"## Execution Context\n\n{context_text}\n")
+            parts.append("\n---\n")
 
-        # Add task
-        parts.append(f"## Task\n\n{task}")
+        # Add task as primary objective
+        parts.append(f"## Task Objective\n\n{task}")
 
         # Add file context if provided
         if context_files:
-            parts.append("\n## Context Files\n")
+            parts.append("\n\n## Context Files\n")
+            parts.append(
+                "The following files are provided as context for this workflow execution:\n"
+            )
             for file_path in context_files:
                 try:
                     content = file_path.read_text(encoding="utf-8")
-                    parts.append(f"\n### {file_path.name}\n\n```\n{content}\n```")
+                    parts.append(f"\n### {file_path}\n")
+                    parts.append(f"```\n{content}\n```")
                 except Exception as e:
-                    parts.append(f"\n### {file_path.name}\n\nError reading file: {e}")
+                    parts.append(f"\n### {file_path}\n")
+                    parts.append(f"**Error reading file:** {e}")
+
+        # Add execution instructions for Symphony
+        parts.append("\n\n## Execution Instructions\n")
+        parts.append(
+            "Execute the Symphony workflow with the provided task and context. "
+            "The workflow should leverage its multi-agent coordination capabilities "
+            "to complete the task while respecting the provided context and constraints.\n"
+        )
 
         return "\n".join(parts)
 
