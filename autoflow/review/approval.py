@@ -376,10 +376,12 @@ class ApprovalGate:
         if self.config.require_coverage:
             if coverage_data is None:
                 blocking.append("Coverage required but no data provided")
-            elif coverage_data.get("total", 0) < 80.0:
-                blocking.append(
-                    f"Coverage too low: {coverage_data['total']:.1f}% < 80.0%"
-                )
+            else:
+                total_coverage = coverage_data.get("total")
+                if total_coverage is None or total_coverage < 80.0:
+                    blocking.append(
+                        f"Coverage too low: {total_coverage:.1f}% < 80.0%" if total_coverage is not None else "Coverage required but no data provided"
+                    )
 
         # Check QA findings
         if self.config.require_qa_check and qa_findings:
@@ -438,7 +440,8 @@ class ApprovalGate:
         test_results: Dict[str, int],
         coverage_data: Dict[str, Optional[float]],
         qa_findings_count: Dict[str, int],
-        git_commit: Optional[str] = None
+        git_commit: Optional[str] = None,
+        metadata: Optional[Dict] = None
     ) -> Tuple[bool, List[str]]:
         """
         Grant approval by creating and saving approval token.
@@ -448,6 +451,7 @@ class ApprovalGate:
             coverage_data: Coverage metrics
             qa_findings_count: QA findings by severity
             git_commit: Optional associated commit hash
+            metadata: Optional additional metadata
 
         Returns:
             Tuple of (approved, messages)
@@ -467,7 +471,8 @@ class ApprovalGate:
             test_results=test_results,
             coverage_data=coverage_data,
             qa_findings_count=qa_findings_count,
-            git_commit=git_commit
+            git_commit=git_commit,
+            metadata=metadata
         )
 
         self.save_token(token)
@@ -598,28 +603,32 @@ class ApprovalGate:
             if not checkpoint_status or checkpoint_status.get("status") == "not_found":
                 return None
 
-            # Extract checkpoint data
-            checkpoint_data = checkpoint_status.get("checkpoint", {})
+            # Extract metadata which contains verification data
+            checkpoint_metadata = checkpoint_status.get("metadata", {})
 
             # Build approval-friendly data structure
             approval_data = {
                 "checkpoint_id": checkpoint_id,
-                "gate_name": checkpoint_data.get("gate_name", "unknown"),
-                "gate_type": checkpoint_data.get("gate_type", "unknown"),
-                "status": checkpoint_data.get("status", "pending"),
+                "gate_name": checkpoint_status.get("gate_name", "unknown"),
+                "gate_type": checkpoint_status.get("gate_type", "unknown"),
+                "status": checkpoint_status.get("status", "pending"),
             }
 
-            # Add test results if available
-            if "test_results" in checkpoint_data:
-                approval_data["test_results"] = checkpoint_data["test_results"]
+            # Add verification results from metadata if available
+            if "test_results" in checkpoint_metadata:
+                approval_data["test_results"] = checkpoint_metadata["test_results"]
+            else:
+                approval_data["test_results"] = {"total": 0, "passed": 0, "failed": 0, "skipped": 0}
 
-            # Add coverage data if available
-            if "coverage_data" in checkpoint_data:
-                approval_data["coverage_data"] = checkpoint_data["coverage_data"]
+            if "coverage_data" in checkpoint_metadata:
+                approval_data["coverage_data"] = checkpoint_metadata["coverage_data"]
+            else:
+                approval_data["coverage_data"] = {"total": None}
 
-            # Add QA findings count if available
-            if "qa_findings_count" in checkpoint_data:
-                approval_data["qa_findings_count"] = checkpoint_data["qa_findings_count"]
+            if "qa_findings_count" in checkpoint_metadata:
+                approval_data["qa_findings_count"] = checkpoint_metadata["qa_findings_count"]
+            else:
+                approval_data["qa_findings_count"] = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
 
             return approval_data
 
@@ -705,7 +714,8 @@ class ApprovalGate:
             test_results=test_results,
             coverage_data=coverage_data,
             qa_findings_count=qa_findings_count,
-            git_commit=git_commit
+            git_commit=git_commit,
+            metadata=metadata
         )
 
     def verify_checkpoint_approval(

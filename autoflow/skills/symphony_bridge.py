@@ -1517,6 +1517,9 @@ class SymphonyBridge:
                 "created_at": checkpoint_info.get("created_at"),
                 "approved_at": checkpoint_info.get("approved_at"),
                 "rejected_at": checkpoint_info.get("rejected_at"),
+                "approver": checkpoint_info.get("approver"),
+                "rejecter": checkpoint_info.get("rejecter"),
+                "metadata": checkpoint_info.get("metadata", {}),  # Include verification data
             }
 
         except SymphonyBridgeError:
