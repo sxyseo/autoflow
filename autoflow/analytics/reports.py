@@ -588,39 +588,72 @@ class ReportGenerator:
 
         html_parts.append("        </div>")
 
-        # Velocity section
+        # Velocity section with chart
         if data.velocity:
-            html_parts.extend([
-                "        <div class='section'>",
-                "            <h2>Velocity Metrics</h2>",
-                f"            <div class='metric'><div class='metric-label'>Total Tasks</div><div class='metric-value'>{data.velocity.tasks_completed}</div></div>",
-                f"            <div class='metric'><div class='metric-label'>Avg Cycle Time</div><div class='metric-value'>{data.velocity.avg_cycle_time / 60:.2f} min</div></div>",
-                f"            <div class='metric'><div class='metric-label'>Completion Rate</div><div class='metric-value'>{data.velocity.completion_rate:.1f}%</div></div>",
-                "        </div>",
-            ])
+            if include_charts:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>Velocity Metrics</h2>",
+                    "            <canvas id='velocityChart' style='max-height: 300px;'></canvas>",
+                    f"            <div class='metric'><div class='metric-label'>Total Tasks</div><div class='metric-value'>{data.velocity.tasks_completed}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Avg Cycle Time</div><div class='metric-value'>{data.velocity.avg_cycle_time / 60:.2f} min</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Completion Rate</div><div class='metric-value'>{data.velocity.completion_rate:.1f}%</div></div>",
+                    "        </div>",
+                ])
+            else:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>Velocity Metrics</h2>",
+                    f"            <div class='metric'><div class='metric-label'>Total Tasks</div><div class='metric-value'>{data.velocity.tasks_completed}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Avg Cycle Time</div><div class='metric-value'>{data.velocity.avg_cycle_time / 60:.2f} min</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Completion Rate</div><div class='metric-value'>{data.velocity.completion_rate:.1f}%</div></div>",
+                    "        </div>",
+                ])
 
-        # Quality section
+        # Quality section with chart
         if data.quality:
-            html_parts.extend([
-                "        <div class='section'>",
-                "            <h2>Quality Metrics</h2>",
-                f"            <div class='metric'><div class='metric-label'>Test Pass Rate</div><div class='metric-value'>{data.quality.test_pass_rate:.1f}%</div></div>",
-                f"            <div class='metric'><div class='metric-label'>Quality Score</div><div class='metric-value'>{data.quality.quality_score:.1f}</div></div>",
-                f"            <div class='metric'><div class='metric-label'>Review Approval Rate</div><div class='metric-value'>{data.quality.review_approval_rate:.1f}%</div></div>",
-                "        </div>",
-            ])
+            if include_charts:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>Quality Metrics</h2>",
+                    "            <canvas id='qualityChart' style='max-height: 300px;'></canvas>",
+                    f"            <div class='metric'><div class='metric-label'>Test Pass Rate</div><div class='metric-value'>{data.quality.test_pass_rate:.1f}%</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Quality Score</div><div class='metric-value'>{data.quality.quality_score:.1f}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Review Approval Rate</div><div class='metric-value'>{data.quality.review_approval_rate:.1f}%</div></div>",
+                    "        </div>",
+                ])
+            else:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>Quality Metrics</h2>",
+                    f"            <div class='metric'><div class='metric-label'>Test Pass Rate</div><div class='metric-value'>{data.quality.test_pass_rate:.1f}%</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Quality Score</div><div class='metric-value'>{data.quality.quality_score:.1f}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Review Approval Rate</div><div class='metric-value'>{data.quality.review_approval_rate:.1f}%</div></div>",
+                    "        </div>",
+                ])
 
-        # ROI section
+        # ROI section with chart
         if data.roi:
             cost_saved = f"${data.roi.cost_savings_estimate_usd:.2f}" if data.roi.cost_savings_estimate_usd else "N/A"
-            html_parts.extend([
-                "        <div class='section'>",
-                "            <h2>ROI Metrics</h2>",
-                f"            <div class='metric'><div class='metric-label'>Time Saved</div><div class='metric-value'>{data.roi.total_time_saved_hours:.2f} hours</div></div>",
-                f"            <div class='metric'><div class='metric-label'>Cost Saved</div><div class='metric-value'>{cost_saved}</div></div>",
-                f"            <div class='metric'><div class='metric-label'>ROI</div><div class='metric-value'>{data.roi.roi_percentage:.1f}%</div></div>",
-                "        </div>",
-            ])
+            if include_charts:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>ROI Metrics</h2>",
+                    "            <canvas id='roiChart' style='max-height: 300px;'></canvas>",
+                    f"            <div class='metric'><div class='metric-label'>Time Saved</div><div class='metric-value'>{data.roi.total_time_saved_hours:.2f} hours</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Cost Saved</div><div class='metric-value'>{cost_saved}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>ROI</div><div class='metric-value'>{data.roi.roi_percentage:.1f}%</div></div>",
+                    "        </div>",
+                ])
+            else:
+                html_parts.extend([
+                    "        <div class='section'>",
+                    "            <h2>ROI Metrics</h2>",
+                    f"            <div class='metric'><div class='metric-label'>Time Saved</div><div class='metric-value'>{data.roi.total_time_saved_hours:.2f} hours</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>Cost Saved</div><div class='metric-value'>{cost_saved}</div></div>",
+                    f"            <div class='metric'><div class='metric-label'>ROI</div><div class='metric-value'>{data.roi.roi_percentage:.1f}%</div></div>",
+                    "        </div>",
+                ])
 
         # Agent performance section
         if data.agent_performance and data.agent_performance.get("comparison_data"):
@@ -649,8 +682,152 @@ class ReportGenerator:
             "            Generated by Autoflow Analytics",
             "        </div>",
             "    </div>",
+        ])
+
+        # Add JavaScript for chart rendering
+        if include_charts:
+            # Prepare chart data
+            chart_data = self._prepare_chart_data(data)
+
+            html_parts.extend([
+                "    <script>",
+                "        // Chart.js configuration",
+                "        const chartDefaults = {",
+                "            responsive: true,",
+                "            maintainAspectRatio: true,",
+                "            plugins: {",
+                "                legend: {",
+                "                    position: 'bottom'",
+                "                }",
+                "            }",
+                "        };",
+            ])
+
+            # Velocity chart
+            if data.velocity and chart_data.get("velocity"):
+                html_parts.extend([
+                    "",
+                    "        // Velocity Chart",
+                    f"        const velocityCtx = document.getElementById('velocityChart');",
+                    f"        if (velocityCtx) {{",
+                    f"            new Chart(velocityCtx, {{",
+                    f"                type: 'bar',",
+                    f"                data: {chart_data['velocity']},",
+                    f"                options: {{...chartDefaults, plugins: {{ title: {{ display: true, text: 'Task Completion & Performance' }} }} }}",
+                    f"            }});",
+                    f"        }}",
+                ])
+
+            # Quality chart
+            if data.quality and chart_data.get("quality"):
+                html_parts.extend([
+                    "",
+                    "        // Quality Chart",
+                    f"        const qualityCtx = document.getElementById('qualityChart');",
+                    f"        if (qualityCtx) {{",
+                    f"            new Chart(qualityCtx, {{",
+                    f"                type: 'line',",
+                    f"                data: {chart_data['quality']},",
+                    f"                options: {{...chartDefaults, plugins: {{ title: {{ display: true, text: 'Quality Metrics Over Time' }} }} }}",
+                    f"            }});",
+                    f"        }}",
+                ])
+
+            # ROI chart
+            if data.roi and chart_data.get("roi"):
+                html_parts.extend([
+                    "",
+                    "        // ROI Chart",
+                    f"        const roiCtx = document.getElementById('roiChart');",
+                    f"        if (roiCtx) {{",
+                    f"            new Chart(roiCtx, {{",
+                    f"                type: 'doughnut',",
+                    f"                data: {chart_data['roi']},",
+                    f"                options: {{...chartDefaults, plugins: {{ title: {{ display: true, text: 'Time Distribution' }} }} }}",
+                    f"            }});",
+                    f"        }}",
+                ])
+
+            html_parts.append("    </script>")
+
+        html_parts.extend([
             "</body>",
             "</html>",
         ])
 
         return "\n".join(html_parts)
+
+    def _prepare_chart_data(self, data: ReportData) -> dict[str, str]:
+        """Prepare JavaScript chart data objects for HTML reports.
+
+        Args:
+            data: Report data to visualize
+
+        Returns:
+            Dictionary with JavaScript data objects for charts
+        """
+        import json as json_lib
+
+        chart_data: dict[str, str] = {}
+
+        # Velocity chart data
+        if data.velocity:
+            velocity_data = {
+                "labels": ["Tasks Completed", "Avg Cycle Time (min)", "Completion Rate (%)"],
+                "datasets": [
+                    {
+                        "label": "Velocity Metrics",
+                        "data": [
+                            data.velocity.tasks_completed,
+                            round(data.velocity.avg_cycle_time / 60, 2) if data.velocity.avg_cycle_time else 0,
+                            round(data.velocity.completion_rate, 1),
+                        ],
+                        "backgroundColor": ["#4CAF50", "#2196F3", "#FF9800"],
+                        "borderColor": ["#45a049", "#1976D2", "#F57C00"],
+                        "borderWidth": 1,
+                    },
+                ],
+            }
+            chart_data["velocity"] = json_lib.dumps(velocity_data)
+
+        # Quality chart data
+        if data.quality:
+            quality_data = {
+                "labels": ["Test Pass Rate", "Quality Score", "Review Approval Rate"],
+                "datasets": [
+                    {
+                        "label": "Quality Metrics",
+                        "data": [
+                            round(data.quality.test_pass_rate, 1),
+                            round(data.quality.quality_score, 1),
+                            round(data.quality.review_approval_rate, 1),
+                        ],
+                        "fill": False,
+                        "borderColor": "#9C27B0",
+                        "backgroundColor": "#9C27B0",
+                        "tension": 0.1,
+                    },
+                ],
+            }
+            chart_data["quality"] = json_lib.dumps(quality_data)
+
+        # ROI chart data
+        if data.roi:
+            roi_data = {
+                "labels": ["Manual Time (hrs)", "Autoflow Time (hrs)", "Time Saved (hrs)"],
+                "datasets": [
+                    {
+                        "label": "Time Distribution",
+                        "data": [
+                            round(data.roi.total_manual_time_estimate_seconds / 3600, 2),
+                            round(data.roi.total_autoflow_time_seconds / 3600, 2),
+                            round(data.roi.total_time_saved_hours, 2),
+                        ],
+                        "backgroundColor": ["#f44336", "#4CAF50", "#2196F3"],
+                        "hoverOffset": 4,
+                    },
+                ],
+            }
+            chart_data["roi"] = json_lib.dumps(roi_data)
+
+        return chart_data
