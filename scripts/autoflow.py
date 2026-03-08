@@ -1185,6 +1185,8 @@ Describe the problem this system is solving.
             "base_branch": detect_base_branch(),
         },
     }
+    if getattr(args, "repository", None):
+        metadata["repository"] = args.repository
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
     files["spec"].write_text(spec_markdown, encoding="utf-8")
     files["handoff"].write_text(handoff, encoding="utf-8")
@@ -1982,6 +1984,7 @@ def build_parser() -> argparse.ArgumentParser:
     spec_cmd.add_argument("--slug", default="")
     spec_cmd.add_argument("--title", required=True)
     spec_cmd.add_argument("--summary", required=True)
+    spec_cmd.add_argument("--repository", default="", help="repository ID for multi-repo specs")
     spec_cmd.set_defaults(func=create_spec)
 
     tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
