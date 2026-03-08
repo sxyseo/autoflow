@@ -48,6 +48,7 @@ from autoflow.agents.base import (
     ExecutionResult,
     ExecutionStatus,
 )
+from autoflow.core.state import StateManager, RunStatus, TaskStatus
 from autoflow.skills.executor import (
     SkillExecutionContext,
     SkillExecutionResult,
@@ -210,6 +211,14 @@ class SymphonyBridge:
     The bridge uses the SkillExecutor for skill execution and registered
     agent adapters for Symphony workflow execution.
 
+    State Synchronization:
+    When a state_dir is provided, the bridge maintains persistent state
+    mapping between Symphony checkpoints and Autoflow runs. This enables:
+    - Bi-directional state sync: checkpoint ↔ run
+    - Checkpoint discovery from runs and vice versa
+    - Persistent checkpoint state storage in run metadata
+    - Status mapping between checkpoint and run states
+
     Example:
         >>> from autoflow.skills.symphony_bridge import SymphonyBridge
         >>> from autoflow.skills.registry import SkillRegistry
@@ -218,7 +227,7 @@ class SymphonyBridge:
         >>> registry = SkillRegistry()
         >>> registry.load_skills()
         >>>
-        >>> bridge = SymphonyBridge(registry=registry)
+        >>> bridge = SymphonyBridge(registry=registry, state_dir=".autoflow")
         >>> bridge.register_adapter("symphony", SymphonyAdapter())
         >>>
         >>> # Execute Symphony workflow as a skill
@@ -227,14 +236,23 @@ class SymphonyBridge:
         ...     task="Analyze the codebase",
         ...     workdir="/path/to/project"
         ... )
+        >>>
+        >>> # Sync checkpoint state to run
+        >>> bridge.sync_checkpoint_to_run(
+        ...     checkpoint_id="checkpoint-123",
+        ...     run_id=result.session_id,
+        ...     checkpoint_data={"status": "complete"}
+        ... )
 
     Attributes:
         executor: SkillExecutor instance for skill execution
         adapters: Dictionary of registered agent adapters by type
         default_timeout: Default execution timeout in seconds
+        state_manager: Optional StateManager for persistent state
     """
 
     DEFAULT_TIMEOUT = 600  # 10 minutes for Symphony workflows
+    DEFAULT_STATE_DIR = ".autoflow"
 
     def __init__(
         self,
@@ -242,6 +260,7 @@ class SymphonyBridge:
         executor: Optional[SkillExecutor] = None,
         adapters: Optional[dict[str, AgentAdapter]] = None,
         default_timeout: Optional[int] = None,
+        state_dir: Optional[Union[str, Path]] = None,
     ):
         """
         Initialize the Symphony bridge.
@@ -251,15 +270,22 @@ class SymphonyBridge:
             executor: Optional SkillExecutor instance
             adapters: Optional dict of pre-registered adapters
             default_timeout: Default timeout in seconds
+            state_dir: Optional state directory for persistent storage
         """
         self._executor = executor
         self._adapters: dict[str, AgentAdapter] = {}
         self._default_timeout = default_timeout or self.DEFAULT_TIMEOUT
         self._registered_workflow_skills: set[str] = set()
+        self._state_manager: Optional[StateManager] = None
 
         # Create executor if not provided
         if self._executor is None:
             self._executor = SkillExecutor(registry=registry)
+
+        # Initialize state manager
+        if state_dir is not None:
+            self._state_manager = StateManager(state_dir)
+            self._state_manager.initialize()
 
         # Register adapters
         if adapters:
@@ -285,6 +311,16 @@ class SymphonyBridge:
             SkillRegistry instance
         """
         return self._executor.registry
+
+    @property
+    def state_manager(self) -> Optional[StateManager]:
+        """
+        Get the state manager if initialized.
+
+        Returns:
+            StateManager instance or None
+        """
+        return self._state_manager
 
     def register_adapter(
         self,
@@ -971,6 +1007,335 @@ class SymphonyBridge:
         )
 
         return "\n".join(parts)
+
+    # === State Synchronization Methods ===
+
+    def sync_checkpoint_to_run(
+        self,
+        checkpoint_id: str,
+        run_id: str,
+        checkpoint_data: Optional[dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Synchronize Symphony checkpoint state to Autoflow run.
+
+        Maps Symphony checkpoint information to Autoflow run state,
+        storing checkpoint metadata in the run's metadata field.
+
+        Args:
+            checkpoint_id: Symphony checkpoint identifier
+            run_id: Autoflow run identifier
+            checkpoint_data: Optional checkpoint data to store
+
+        Returns:
+            True if synchronization successful, False otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or sync fails
+
+        Example:
+            >>> success = bridge.sync_checkpoint_to_run(
+            ...     checkpoint_id="symphony-checkpoint-123",
+            ...     run_id="autoflow-run-456",
+            ...     checkpoint_data={"step": "analysis", "status": "complete"}
+            ... )
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Load current run data
+            run_data = self._state_manager.load_run(run_id)
+            if run_data is None:
+                return False
+
+            # Initialize metadata if needed
+            if "metadata" not in run_data:
+                run_data["metadata"] = {}
+
+            # Store checkpoint information
+            checkpoint_info = {
+                "checkpoint_id": checkpoint_id,
+                "synced_at": datetime.utcnow().isoformat(),
+            }
+            if checkpoint_data:
+                checkpoint_info["checkpoint_data"] = checkpoint_data
+
+            run_data["metadata"]["symphony_checkpoint"] = checkpoint_info
+
+            # Update run status based on checkpoint if available
+            if checkpoint_data and "status" in checkpoint_data:
+                # Map checkpoint status to run status
+                checkpoint_status = checkpoint_data["status"]
+                if checkpoint_status == "complete":
+                    run_data["status"] = RunStatus.COMPLETED.value
+                elif checkpoint_status == "failed":
+                    run_data["status"] = RunStatus.FAILED.value
+                elif checkpoint_status == "running":
+                    run_data["status"] = RunStatus.RUNNING.value
+
+            # Save updated run data
+            self._state_manager.save_run(run_id, run_data)
+            return True
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to sync checkpoint to run: {e}"
+            ) from e
+
+    def sync_run_to_checkpoint(
+        self,
+        run_id: str,
+        checkpoint_id: str,
+        run_data_override: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Synchronize Autoflow run state to Symphony checkpoint format.
+
+        Extracts relevant run information and formats it for Symphony
+        checkpoint consumption.
+
+        Args:
+            run_id: Autoflow run identifier
+            checkpoint_id: Symphony checkpoint identifier
+            run_data_override: Optional run data to use instead of loading
+
+        Returns:
+            Dictionary containing run state formatted for Symphony checkpoint
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or sync fails
+
+        Example:
+            >>> checkpoint_data = bridge.sync_run_to_checkpoint(
+            ...     run_id="autoflow-run-456",
+            ...     checkpoint_id="symphony-checkpoint-123"
+            ... )
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Load run data if not provided
+            if run_data_override is None:
+                run_data = self._state_manager.load_run(run_id)
+                if run_data is None:
+                    raise SymphonyBridgeError(f"Run not found: {run_id}")
+            else:
+                run_data = run_data_override
+
+            # Build checkpoint data from run state
+            checkpoint_data = {
+                "checkpoint_id": checkpoint_id,
+                "run_id": run_id,
+                "synced_at": datetime.utcnow().isoformat(),
+                "run_status": run_data.get("status"),
+                "agent": run_data.get("agent"),
+                "started_at": run_data.get("started_at"),
+                "completed_at": run_data.get("completed_at"),
+                "duration_seconds": run_data.get("duration_seconds"),
+                "output": run_data.get("output"),
+                "error": run_data.get("error"),
+            }
+
+            # Include metadata if present
+            if "metadata" in run_data:
+                checkpoint_data["run_metadata"] = run_data["metadata"]
+
+            return checkpoint_data
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to sync run to checkpoint: {e}"
+            ) from e
+
+    def get_run_from_checkpoint(
+        self,
+        checkpoint_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Find Autoflow run associated with a Symphony checkpoint.
+
+        Searches through runs to find one with matching checkpoint ID
+        in its metadata.
+
+        Args:
+            checkpoint_id: Symphony checkpoint identifier
+
+        Returns:
+            Run data dictionary if found, None otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized
+
+        Example:
+            >>> run = bridge.get_run_from_checkpoint("symphony-checkpoint-123")
+            >>> if run:
+            ...     print(f"Found run: {run['id']}")
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # List all runs and search for checkpoint match
+            runs = self._state_manager.list_runs()
+            for run in runs:
+                metadata = run.get("metadata", {})
+                checkpoint_info = metadata.get("symphony_checkpoint", {})
+                if checkpoint_info.get("checkpoint_id") == checkpoint_id:
+                    return run
+            return None
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to find run from checkpoint: {e}"
+            ) from e
+
+    def get_checkpoint_from_run(
+        self,
+        run_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Get Symphony checkpoint information associated with a run.
+
+        Extracts checkpoint metadata from the run's metadata field.
+
+        Args:
+            run_id: Autoflow run identifier
+
+        Returns:
+            Checkpoint information dict if found, None otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized
+
+        Example:
+            >>> checkpoint = bridge.get_checkpoint_from_run("autoflow-run-456")
+            >>> if checkpoint:
+            ...     print(f"Checkpoint ID: {checkpoint['checkpoint_id']}")
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Load run data
+            run_data = self._state_manager.load_run(run_id)
+            if run_data is None:
+                return None
+
+            # Extract checkpoint info from metadata
+            metadata = run_data.get("metadata", {})
+            checkpoint_info = metadata.get("symphony_checkpoint")
+
+            return checkpoint_info
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to get checkpoint from run: {e}"
+            ) from e
+
+    def _save_checkpoint_state(
+        self,
+        run_id: str,
+        checkpoint_id: str,
+        checkpoint_state: dict[str, Any],
+    ) -> None:
+        """
+        Save checkpoint state to run metadata.
+
+        Internal method for persisting checkpoint state information
+        within a run's metadata field.
+
+        Args:
+            run_id: Autoflow run identifier
+            checkpoint_id: Symphony checkpoint identifier
+            checkpoint_state: Checkpoint state data to save
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or save fails
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Load current run data
+            run_data = self._state_manager.load_run(run_id)
+            if run_data is None:
+                raise SymphonyBridgeError(f"Run not found: {run_id}")
+
+            # Initialize metadata if needed
+            if "metadata" not in run_data:
+                run_data["metadata"] = {}
+
+            # Save checkpoint state
+            run_data["metadata"]["symphony_checkpoint_state"] = {
+                "checkpoint_id": checkpoint_id,
+                "state": checkpoint_state,
+                "saved_at": datetime.utcnow().isoformat(),
+            }
+
+            # Save updated run
+            self._state_manager.save_run(run_id, run_data)
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to save checkpoint state: {e}"
+            ) from e
+
+    def _load_checkpoint_state(
+        self,
+        run_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Load checkpoint state from run metadata.
+
+        Internal method for retrieving checkpoint state information
+        from a run's metadata field.
+
+        Args:
+            run_id: Autoflow run identifier
+
+        Returns:
+            Checkpoint state dict if found, None otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or load fails
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Load run data
+            run_data = self._state_manager.load_run(run_id)
+            if run_data is None:
+                return None
+
+            # Extract checkpoint state from metadata
+            metadata = run_data.get("metadata", {})
+            checkpoint_state_info = metadata.get("symphony_checkpoint_state")
+
+            return checkpoint_state_info
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to load checkpoint state: {e}"
+            ) from e
 
     def __repr__(self) -> str:
         """Return string representation."""
