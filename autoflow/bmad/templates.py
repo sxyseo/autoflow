@@ -61,6 +61,27 @@ def get_schema_path(root: Path | str | None = None) -> Path:
     return templates_dir / "schema.json"
 
 
+def get_project_bmad_dir(root: Path | str | None = None) -> Path | None:
+    """Get the project-level BMAD override directory.
+
+    Checks for a .autoflow/bmad/ directory in the project root for
+    project-specific template overrides.
+
+    Args:
+        root: Optional project root directory. If None, uses default.
+
+    Returns:
+        Path to the project BMAD directory if it exists, None otherwise.
+    """
+    if root is None:
+        root = get_default_root()
+    elif isinstance(root, str):
+        root = Path(root)
+
+    project_bmad_dir = root / ".autoflow" / "bmad"
+    return project_bmad_dir if project_bmad_dir.exists() else None
+
+
 def read_json(path: Path) -> dict[str, Any]:
     """Read a JSON file and return its contents.
 
@@ -83,6 +104,10 @@ def load_bmad_template(role: str, root: Path | str | None = None) -> str:
     BMAD templates are markdown files that define role-specific instructions
     for agents in the Breakdown, Make, and Debug framework.
 
+    This function supports project-level template overrides. If a project-specific
+    template exists in .autoflow/bmad/{role}.md, it will be used instead of the
+    default template.
+
     Args:
         role: The role name (e.g., "reviewer", "writer", "maintainer").
         root: Optional project root directory. If None, uses default.
@@ -91,14 +116,26 @@ def load_bmad_template(role: str, root: Path | str | None = None) -> str:
         The template content as a string.
 
     Raises:
-        FileNotFoundError: If the template file doesn't exist.
+        FileNotFoundError: If the template file doesn't exist in either location.
 
     Example:
         >>> template = load_bmad_template("reviewer")
         >>> print(template)
         # BMAD Frame: Reviewer
         ...
+
+        >>> # Use project-specific templates
+        >>> template = load_bmad_template("writer", root=".")
+        >>> print(template)
     """
+    # First check for project-level override
+    project_bmad_dir = get_project_bmad_dir(root)
+    if project_bmad_dir is not None:
+        project_template_path = project_bmad_dir / f"{role}.md"
+        if project_template_path.exists():
+            return project_template_path.read_text(encoding="utf-8")
+
+    # Fall back to default templates
     templates_dir = get_bmad_templates_dir(root)
     template_path = templates_dir / f"{role}.md"
 
