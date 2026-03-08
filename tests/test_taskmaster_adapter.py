@@ -2563,3 +2563,413 @@ class TestConflictResolution:
 
         # Resolver's strategy should be unchanged
         assert adapter.conflict_resolver.strategy == original_strategy
+
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+
+class TestIntegration:
+    """End-to-end integration tests for the full sync workflow."""
+
+    @pytest.mark.asyncio
+    async def test_full_round_trip_sync_workflow(
+        self, adapter: TaskmasterAdapter, config: TaskmasterConfig
+    ) -> None:
+        """Test complete round-trip: Autoflow -> Taskmaster -> Autoflow."""
+        # Create initial Autoflow tasks
+        autoflow_tasks = [
+            Task(
+                id="af-001",
+                title="Implement feature A",
+                description="Feature A description",
+                status=TaskStatus.PENDING,
+                priority=5,
+                tags=["feature", "backend"],
+            ),
+            Task(
+                id="af-002",
+                title="Fix bug B",
+                description="Bug B description",
+                status=TaskStatus.IN_PROGRESS,
+                priority=8,
+                tags=["bug", "urgent"],
+            ),
+        ]
+
+        # Mock the API client for sync_to_taskmaster
+        created_taskmaster_tasks = [
+            TaskmasterTask(
+                id="tm-001",
+                taskmaster_id="tm-001",
+                title="Implement feature A",
+                description="Feature A description",
+                status=TaskmasterTaskStatus.TODO,
+                priority=5,
+            ),
+            TaskmasterTask(
+                id="tm-002",
+                taskmaster_id="tm-002",
+                title="Fix bug B",
+                description="Bug B description",
+                status=TaskmasterTaskStatus.IN_PROGRESS,
+                priority=8,
+            ),
+        ]
+
+        mock_client_to = AsyncMock()
+        mock_client_to.create_task.side_effect = created_taskmaster_tasks
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client_to,
+        ) as mock_api_to:
+            mock_api_to.return_value.__aenter__ = AsyncMock(return_value=mock_client_to)
+            mock_api_to.return_value.__aexit__ = AsyncMock()
+
+            # Sync to Taskmaster
+            taskmaster_tasks = await adapter.sync_to_taskmaster(autoflow_tasks)
+
+            # Verify export
+            assert len(taskmaster_tasks) == 2
+            assert taskmaster_tasks[0].title == "Implement feature A"
+            assert taskmaster_tasks[1].title == "Fix bug B"
+
+        # Now sync back from Taskmaster to Autoflow
+        mock_client_from = AsyncMock()
+        mock_client_from.fetch_tasks.return_value = taskmaster_tasks
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client_from,
+        ) as mock_api_from:
+            mock_api_from.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client_from
+            )
+            mock_api_from.return_value.__aexit__ = AsyncMock()
+
+            # Sync from Taskmaster
+            synced_autoflow_tasks = await adapter.sync_from_taskmaster()
+
+            # Verify import - tasks should match original structure
+            assert len(synced_autoflow_tasks) == 2
+            assert synced_autoflow_tasks[0].title == "Implement feature A"
+            assert synced_autoflow_tasks[1].title == "Fix bug B"
+
+    @pytest.mark.asyncio
+    async def test_bidirectional_sync_with_conflict_resolution(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test bidirectional sync with conflict resolution."""
+        # Create Autoflow task
+        autoflow_task = Task(
+            id="af-conflict-001",
+            title="Original Title",
+            description="Original description",
+            status=TaskStatus.PENDING,
+            priority=5,
+        )
+
+        # Create corresponding Taskmaster task with conflicts
+        taskmaster_task = TaskmasterTask(
+            id="tm-conflict-001",
+            title="Modified Title in Taskmaster",
+            description="Modified description in Taskmaster",
+            status=TaskmasterTaskStatus.DONE,
+            priority=8,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        # Detect conflicts
+        conflicts = adapter._detect_conflicts(autoflow_task, taskmaster_task)
+
+        assert len(conflicts) > 0
+        assert any(c.conflict_type == ConflictType.TITLE for c in conflicts)
+        assert any(c.conflict_type == ConflictType.STATUS for c in conflicts)
+        assert any(c.conflict_type == ConflictType.PRIORITY for c in conflicts)
+
+        # Resolve conflicts with Taskmaster winning
+        resolved_task, resolved_conflicts = adapter._resolve_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        # Verify resolution
+        assert len(resolved_conflicts) > 0
+        assert resolved_task.title == "Modified Title in Taskmaster"
+        assert resolved_task.status == TaskStatus.COMPLETED
+        assert resolved_task.priority == 8
+
+    @pytest.mark.asyncio
+    async def test_sync_preserves_metadata_across_round_trip(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test that metadata is preserved across sync operations."""
+        # Create Autoflow task with metadata
+        original_task = Task(
+            id="af-meta-001",
+            title="Task with metadata",
+            description="Description",
+            status=TaskStatus.PENDING,
+            priority=7,
+            metadata={
+                "custom_field": "custom_value",
+                "source": "user_input",
+                "created_by": "test_user",
+            },
+        )
+
+        # Mock sync to Taskmaster - returns a task with taskmaster_id
+        taskmaster_task = TaskmasterTask(
+            id="af-meta-001",  # ID is preserved
+            taskmaster_id="tm-meta-001",  # Taskmaster's internal ID
+            title="Task with metadata",
+            description="Description",
+            status=TaskmasterTaskStatus.TODO,
+            priority=7,
+            metadata={
+                "custom_field": "custom_value",
+                "source": "user_input",
+                "created_by": "test_user",
+            },
+        )
+
+        mock_client = AsyncMock()
+        mock_client.create_task.return_value = taskmaster_task
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api:
+            mock_api.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api.return_value.__aexit__ = AsyncMock()
+
+            # Export to Taskmaster
+            exported_tasks = await adapter.sync_to_taskmaster([original_task])
+            assert len(exported_tasks) == 1
+            # Verify metadata is preserved in the exported task
+            assert exported_tasks[0].metadata.get("custom_field") == "custom_value"
+            assert exported_tasks[0].taskmaster_id == "tm-meta-001"
+
+        # Mock sync back from Taskmaster
+        mock_client_fetch = AsyncMock()
+        mock_client_fetch.fetch_tasks.return_value = [taskmaster_task]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client_fetch,
+        ) as mock_api_fetch:
+            mock_api_fetch.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client_fetch
+            )
+            mock_api_fetch.return_value.__aexit__ = AsyncMock()
+
+            # Import from Taskmaster
+            imported_tasks = await adapter.sync_from_taskmaster()
+            assert len(imported_tasks) == 1
+
+            # Verify the task was imported with metadata preserved
+            assert imported_tasks[0].id == "af-meta-001"
+            assert imported_tasks[0].metadata.get("custom_field") == "custom_value"
+            assert imported_tasks[0].metadata.get("taskmaster_id") == "tm-meta-001"
+
+    @pytest.mark.asyncio
+    async def test_sync_handles_partial_failures_gracefully(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test that sync handles partial failures gracefully."""
+        autoflow_tasks = [
+            Task(id="af-001", title="Task 1", status=TaskStatus.PENDING),
+            Task(id="af-002", title="Task 2", status=TaskStatus.PENDING),
+            Task(id="af-003", title="Task 3", status=TaskStatus.PENDING),
+        ]
+
+        # Mock create_task to fail for the second task
+        call_count = [0]
+
+        async def create_task_side_effect(
+            title, description=None, status=None, priority=None, **kwargs
+        ):
+            call_count[0] += 1
+            if "Task 2" in title:
+                raise Exception("API error for Task 2")
+            return TaskmasterTask(
+                id=f"tm-{call_count[0]}",
+                title=title,
+                status=status or TaskmasterTaskStatus.TODO,
+            )
+
+        mock_client = AsyncMock()
+        mock_client.create_task.side_effect = create_task_side_effect
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api:
+            mock_api.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api.return_value.__aexit__ = AsyncMock()
+
+            # Sync should handle failures gracefully
+            result_tasks = await adapter.sync_to_taskmaster(autoflow_tasks)
+
+            # Should return successful tasks only (2 out of 3)
+            assert len(result_tasks) == 2
+            assert all(t.title != "Task 2" for t in result_tasks)
+
+    @pytest.mark.asyncio
+    async def test_sync_with_empty_task_lists(self, adapter: TaskmasterAdapter) -> None:
+        """Test sync behavior with empty task lists."""
+        # Test sync_to_taskmaster with empty list
+        mock_client = AsyncMock()
+        mock_client.create_task.return_value = None
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api:
+            mock_api.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api.return_value.__aexit__ = AsyncMock()
+
+            result = await adapter.sync_to_taskmaster([])
+            assert result == []
+
+        # Test sync_from_taskmaster with empty results
+        mock_client_fetch = AsyncMock()
+        mock_client_fetch.fetch_tasks.return_value = []
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client_fetch,
+        ) as mock_api_fetch:
+            mock_api_fetch.return_value.__aenter__ = AsyncMock(
+                return_value=mock_client_fetch
+            )
+            mock_api_fetch.return_value.__aexit__ = AsyncMock()
+
+            result = await adapter.sync_from_taskmaster()
+            assert result == []
+
+    @pytest.mark.asyncio
+    async def test_sync_configuration_validation(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test that sync validates configuration properly."""
+        # Test with disabled config
+        adapter.config.enabled = False
+
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.sync_from_taskmaster()
+        assert "enabled=True" in str(exc_info.value)
+
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.sync_to_taskmaster([])
+        assert "enabled=True" in str(exc_info.value)
+
+        # Test with unconfigured config (no api_key)
+        adapter.config.enabled = True
+        adapter.config.api_key = None
+
+        with pytest.raises(ValueError) as exc_info:
+            await adapter.sync_from_taskmaster()
+        assert "api_key" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_integration_with_different_conflict_strategies(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test integration with different conflict resolution strategies."""
+        autoflow_task = Task(
+            id="af-int-001",
+            title="Autoflow Title",
+            status=TaskStatus.PENDING,
+            priority=3,
+        )
+
+        taskmaster_task = TaskmasterTask(
+            id="tm-int-001",
+            title="Taskmaster Title",
+            status=TaskmasterTaskStatus.IN_PROGRESS,
+            priority=7,
+            updated_at=datetime(2026, 3, 8, 10, 0, 0),
+        )
+
+        # Test with AUTOFLOW_WINS strategy
+        adapter.conflict_resolver.strategy = ConflictResolutionStrategy.AUTOFLOW_WINS
+        resolved_autoflow, conflicts = adapter._resolve_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        assert resolved_autoflow.title == "Autoflow Title"
+        assert resolved_autoflow.priority == 3
+        assert len(conflicts) > 0
+
+        # Test with TASKMASTER_WINS strategy
+        adapter.conflict_resolver.strategy = (
+            ConflictResolutionStrategy.TASKMASTER_WINS
+        )
+        resolved_taskmaster, conflicts = adapter._resolve_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        assert resolved_taskmaster.title == "Taskmaster Title"
+        assert resolved_taskmaster.priority == 7
+        assert len(conflicts) > 0
+
+        # Test with LAST_WRITE_WINS strategy
+        adapter.conflict_resolver.strategy = ConflictResolutionStrategy.LAST_WRITE_WINS
+        resolved_recent, conflicts = adapter._resolve_conflicts(
+            autoflow_task, taskmaster_task
+        )
+
+        # Taskmaster task has updated_at, so it should win
+        assert resolved_recent.title == "Taskmaster Title"
+        assert len(conflicts) > 0
+
+    @pytest.mark.asyncio
+    async def test_sync_preserves_task_relationships(
+        self, adapter: TaskmasterAdapter
+    ) -> None:
+        """Test that sync preserves parent-child task relationships."""
+        # Create parent and child tasks
+        parent_task = Task(
+            id="af-parent-001",
+            title="Parent Task",
+            status=TaskStatus.PENDING,
+        )
+        child_task = Task(
+            id="af-child-001",
+            title="Child Task",
+            status=TaskStatus.PENDING,
+            parent_task_id="af-parent-001",
+        )
+
+        # Mock export to Taskmaster
+        mock_client = AsyncMock()
+        mock_client.create_task.side_effect = [
+            TaskmasterTask(
+                id="tm-parent-001",
+                title="Parent Task",
+                status=TaskmasterTaskStatus.TODO,
+            ),
+            TaskmasterTask(
+                id="tm-child-001",
+                title="Child Task",
+                status=TaskmasterTaskStatus.TODO,
+                parent_task_id="tm-parent-001",
+            ),
+        ]
+
+        with patch(
+            "autoflow.agents.taskmaster.TaskmasterAPIClient",
+            return_value=mock_client,
+        ) as mock_api:
+            mock_api.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_api.return_value.__aexit__ = AsyncMock()
+
+            # Export tasks
+            exported = await adapter.sync_to_taskmaster([parent_task, child_task])
+
+            assert len(exported) == 2
+            # Verify child task has parent reference
+            child_exported = next(t for t in exported if "Child" in t.title)
+            assert child_exported.parent_task_id == "tm-parent-001"
