@@ -748,3 +748,180 @@ class StateSynchronizer:
         self.version_vectors.clear()
         self._conflicts.clear()
         self.sync_status = SyncStatus.SYNCED
+
+    def anti_entropy(
+        self,
+        remote_state_func: callable,
+        resolution_strategy: ConflictResolution = ConflictResolution.HIGHEST_VERSION,
+        full_sync: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Perform anti-entropy reconciliation with remote nodes.
+
+        Anti-entropy is a protocol used in distributed systems to periodically
+        reconcile state between nodes to ensure eventual consistency. This method
+        exchanges state information with remote nodes, detects inconsistencies,
+        and merges differences using configurable strategies.
+
+        The process:
+        1. Fetch remote state snapshots from other nodes
+        2. Compare version vectors to detect divergences
+        3. Merge remote state into local state
+        4. Detect and resolve conflicts
+        5. Return summary of synchronization results
+
+        Args:
+            remote_state_func: Callable that returns list of remote StateSnapshot objects
+            resolution_strategy: Strategy for resolving conflicts during merge
+            full_sync: If True, perform full state comparison. If False, only
+                      compare keys with divergent version vectors.
+
+        Returns:
+            Dictionary with reconciliation results including:
+            - success: Whether reconciliation completed successfully
+            - nodes_synced: Number of nodes synchronized with
+            - keys_updated: Number of state keys updated
+            - conflicts_detected: Number of conflicts found
+            - conflicts_resolved: Number of conflicts automatically resolved
+            - conflicts_manual: Number of conflicts requiring manual resolution
+            - sync_duration_seconds: Time taken for synchronization
+            - timestamp: When reconciliation was performed
+
+        Raises:
+            ValueError: If remote_state_func returns invalid data
+            Exception: If reconciliation fails
+
+        Example:
+            >>> def fetch_remote_snapshots():
+            ...     # Fetch state from other nodes in cluster
+            ...     return [node1_snapshot, node2_snapshot]
+            >>>
+            >>> result = sync.anti_entropy(
+            ...     fetch_remote_snapshots,
+            ...     resolution_strategy=ConflictResolution.LATEST_TIMESTAMP
+            ... )
+            >>> print(f"Synced with {result['nodes_synced']} nodes")
+            >>> print(f"Updated {result['keys_updated']} keys")
+        """
+        from datetime import timedelta
+
+        start_time = datetime.utcnow()
+
+        result: dict[str, Any] = {
+            "success": False,
+            "nodes_synced": 0,
+            "keys_updated": 0,
+            "conflicts_detected": 0,
+            "conflicts_resolved": 0,
+            "conflicts_manual": 0,
+            "sync_duration_seconds": 0.0,
+            "timestamp": start_time.isoformat(),
+            "error": None,
+        }
+
+        try:
+            # Fetch remote state snapshots
+            remote_snapshots = remote_state_func()
+
+            if not isinstance(remote_snapshots, list):
+                raise ValueError(
+                    "remote_state_func must return a list of StateSnapshot objects"
+                )
+
+            if not remote_snapshots:
+                result["success"] = True
+                result["error"] = "No remote nodes to synchronize with"
+                result["sync_duration_seconds"] = (
+                    datetime.utcnow() - start_time
+                ).total_seconds()
+                return result
+
+            # Process each remote snapshot
+            total_conflicts: list[StateConflict] = []
+            keys_to_sync: set[str] = set()
+
+            for remote_snapshot in remote_snapshots:
+                # Validate snapshot
+                if not isinstance(remote_snapshot, StateSnapshot):
+                    continue
+
+                # Skip if snapshot is from this node
+                if remote_snapshot.node_id == self.node_id:
+                    continue
+
+                result["nodes_synced"] += 1
+
+                # Determine which keys need synchronization
+                if full_sync:
+                    # Full sync: compare all keys
+                    remote_keys = set(remote_snapshot.state.keys())
+                    local_keys = set(self.state.keys())
+                    keys_to_sync.update(remote_keys | local_keys)
+                else:
+                    # Incremental sync: only keys with divergent versions
+                    for key, remote_vv_dict in remote_snapshot.version_vectors.items():
+                        if key not in self.version_vectors:
+                            # New key from remote
+                            keys_to_sync.add(key)
+                        else:
+                            local_vv = self.version_vectors[key]
+                            remote_vv = VersionVector.from_dict(remote_vv_dict)
+
+                            # Check if versions are concurrent (divergent)
+                            if local_vv.is_concurrent(remote_vv):
+                                keys_to_sync.add(key)
+                            elif remote_vv.dominates(local_vv):
+                                keys_to_sync.add(key)
+
+            # If no keys need sync, return early
+            if not keys_to_sync and not full_sync:
+                result["success"] = True
+                result["sync_duration_seconds"] = (
+                    datetime.utcnow() - start_time
+                ).total_seconds()
+                return result
+
+            # Perform merge for each remote snapshot
+            for remote_snapshot in remote_snapshots:
+                if not isinstance(remote_snapshot, StateSnapshot):
+                    continue
+                if remote_snapshot.node_id == self.node_id:
+                    continue
+
+                try:
+                    conflicts = self.merge(remote_snapshot, resolution_strategy)
+                    total_conflicts.extend(conflicts)
+                except Exception as e:
+                    # Continue with other nodes even if one fails
+                    result["error"] = f"Merge failed with node {remote_snapshot.node_id}: {e}"
+                    continue
+
+            # Count results
+            result["keys_updated"] = len(keys_to_sync)
+            result["conflicts_detected"] = len(total_conflicts)
+
+            # Categorize conflicts
+            for conflict in total_conflicts:
+                if conflict.resolution == ConflictResolution.MANUAL:
+                    result["conflicts_manual"] += 1
+                else:
+                    result["conflicts_resolved"] += 1
+
+            # Update sync status
+            if result["conflicts_manual"] > 0:
+                self.sync_status = SyncStatus.CONFLICT
+            elif total_conflicts:
+                self.sync_status = SyncStatus.SYNCED
+            else:
+                self.sync_status = SyncStatus.SYNCED
+
+            result["success"] = True
+
+        except Exception as e:
+            result["error"] = f"Anti-entropy reconciliation failed: {e}"
+            self.sync_status = SyncStatus.ERROR
+        finally:
+            result["sync_duration_seconds"] = (datetime.utcnow() - start_time).total_seconds()
+            result["timestamp"] = datetime.utcnow().isoformat()
+
+        return result
