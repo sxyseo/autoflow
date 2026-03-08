@@ -711,3 +711,371 @@ class TestRefreshPRsErrorHandling:
 
         assert result.success is False
         assert "Detection error" in result.error
+
+
+# ============================================================================
+# Test: Fix Task Creation - Integration Tests
+# ============================================================================
+
+
+class TestRefreshPRsFixTaskIntegration:
+    """Integration tests for fix task creation when conflicts are detected."""
+
+    @pytest.mark.asyncio
+    async def test_fix_task_created_on_conflict_resolution_failure(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+        sample_pr_state: PRState,
+    ) -> None:
+        """Test that a fix task is created when conflict resolution fails."""
+        # Set up stale PRs
+        mock_pr_manager.detect_stale_prs.return_value = [sample_pr_state]
+
+        # Mock rebase with conflicts
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock failed resolution
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=False,
+        )
+
+        # Mock conflict context extraction
+        conflict_context = {
+            "total_conflicts": 3,
+            "conflicted_files": ["src/file1.py", "src/file2.py", "src/file3.py"],
+            "file_details": {
+                "src/file1.py": {"conflicts": 1},
+                "src/file2.py": {"conflicts": 1},
+                "src/file3.py": {"conflicts": 1},
+            },
+            "suggested_approach": "standard_manual",
+        }
+        mock_resolver.extract_conflict_context.return_value = conflict_context
+
+        with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+            with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                    with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                        with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                            result = await refresh_prs()
+
+        # Verify job completed
+        assert result.success is True
+        assert result.metrics["prs_with_conflicts"] == 1
+        assert result.metrics["fix_tasks_created"] == 1
+
+        # Verify fix task was saved
+        mock_state_manager.save_task.assert_called_once()
+        call_args = mock_state_manager.save_task.call_args
+        task_id = call_args[0][0]
+        task = call_args[0][1]
+
+        # Verify task structure
+        assert task["type"] == "fix"
+        assert task["status"] == "pending"
+        assert task["priority"] == "medium"  # 3 conflicts = medium priority
+        assert task["agent"] == "implementation-runner"
+        assert "PR #123" in task["title"]
+        assert task["conflict"]["pr_number"] == 123
+        assert task["conflict"]["branch"] == "feature-branch"
+        assert task["conflict"]["base_branch"] == "main"
+        assert task["conflict"]["total_conflicts"] == 3
+        assert len(task["conflict"]["conflicted_files"]) == 3
+
+        # Verify task ID format
+        assert task_id.startswith("fix-conflict-pr123-")
+
+    @pytest.mark.asyncio
+    async def test_fix_task_created_on_rebase_continue_failure(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+        sample_pr_state: PRState,
+    ) -> None:
+        """Test that a fix task is created when rebase_continue fails after resolution."""
+        # Set up stale PRs
+        mock_pr_manager.detect_stale_prs.return_value = [sample_pr_state]
+
+        # Mock rebase with conflicts
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock successful resolution but rebase_continue fails
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=True,
+        )
+        mock_git_ops.rebase_continue.side_effect = Exception("Continue failed")
+
+        # Mock conflict context extraction
+        conflict_context = {
+            "total_conflicts": 1,
+            "conflicted_files": ["src/file1.py"],
+            "file_details": {
+                "src/file1.py": {"conflicts": 1},
+            },
+            "suggested_approach": "standard_manual",
+        }
+        mock_resolver.extract_conflict_context.return_value = conflict_context
+
+        with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+            with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                    with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                        with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                            result = await refresh_prs()
+
+        # Verify job completed
+        assert result.success is True
+        assert result.metrics["prs_with_conflicts"] == 1
+        assert result.metrics["fix_tasks_created"] == 1
+
+        # Verify fix task was saved
+        mock_state_manager.save_task.assert_called_once()
+        call_args = mock_state_manager.save_task.call_args
+        task = call_args[0][1]
+
+        # Verify task structure
+        assert task["type"] == "fix"
+        assert task["priority"] == "low"  # 1 conflict = low priority
+
+    @pytest.mark.asyncio
+    async def test_multiple_fix_tasks_created_for_multiple_conflicts(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+    ) -> None:
+        """Test that multiple fix tasks are created for multiple PRs with conflicts."""
+        # Set up multiple stale PRs
+        pr1 = PRState(pr_number=1, branch="feature-1", base_branch="main")
+        pr2 = PRState(pr_number=2, branch="feature-2", base_branch="main")
+        pr3 = PRState(pr_number=3, branch="feature-3", base_branch="main")
+
+        mock_pr_manager.detect_stale_prs.return_value = [pr1, pr2, pr3]
+
+        # Mock rebase with conflicts for all PRs
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock failed resolution
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=False,
+        )
+
+        # Mock conflict context extraction
+        conflict_context = {
+            "total_conflicts": 2,
+            "conflicted_files": ["src/file1.py", "src/file2.py"],
+            "file_details": {
+                "src/file1.py": {"conflicts": 1},
+                "src/file2.py": {"conflicts": 1},
+            },
+            "suggested_approach": "standard_manual",
+        }
+        mock_resolver.extract_conflict_context.return_value = conflict_context
+
+        with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+            with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                    with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                        with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                            result = await refresh_prs()
+
+        # Verify multiple fix tasks were created
+        assert result.success is True
+        assert result.metrics["prs_with_conflicts"] == 3
+        assert result.metrics["fix_tasks_created"] == 3
+
+        # Verify save_task was called 3 times
+        assert mock_state_manager.save_task.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_fix_task_priority_based_on_conflict_count(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+        sample_pr_state: PRState,
+    ) -> None:
+        """Test that fix task priority is set correctly based on conflict count."""
+        # Set up stale PRs
+        mock_pr_manager.detect_stale_prs.return_value = [sample_pr_state]
+
+        # Mock rebase with conflicts
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock failed resolution
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=False,
+        )
+
+        # Test different conflict counts for different priorities
+        test_cases = [
+            (1, "low"),
+            (3, "medium"),
+            (6, "high"),
+            (15, "critical"),
+        ]
+
+        for conflict_count, expected_priority in test_cases:
+            # Reset mock
+            mock_state_manager.reset_mock()
+
+            # Mock conflict context
+            conflict_context = {
+                "total_conflicts": conflict_count,
+                "conflicted_files": [f"src/file{i}.py" for i in range(conflict_count)],
+                "file_details": {},
+                "suggested_approach": "standard_manual",
+            }
+            mock_resolver.extract_conflict_context.return_value = conflict_context
+
+            with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+                with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                    with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                        with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                            with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                                result = await refresh_prs()
+
+            # Verify priority
+            call_args = mock_state_manager.save_task.call_args
+            task = call_args[0][1]
+            assert task["priority"] == expected_priority, (
+                f"Expected priority {expected_priority} for {conflict_count} conflicts, "
+                f"got {task['priority']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_fix_task_includes_action_steps(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+        sample_pr_state: PRState,
+    ) -> None:
+        """Test that fix task includes required action steps."""
+        # Set up stale PRs
+        mock_pr_manager.detect_stale_prs.return_value = [sample_pr_state]
+
+        # Mock rebase with conflicts
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock failed resolution
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=False,
+        )
+
+        # Mock conflict context extraction
+        conflict_context = {
+            "total_conflicts": 2,
+            "conflicted_files": ["src/file1.py", "src/file2.py"],
+            "file_details": {},
+            "suggested_approach": "standard_manual",
+        }
+        mock_resolver.extract_conflict_context.return_value = conflict_context
+
+        with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+            with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                    with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                        with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                            result = await refresh_prs()
+
+        # Verify fix task actions
+        call_args = mock_state_manager.save_task.call_args
+        task = call_args[0][1]
+
+        assert "actions" in task
+        assert len(task["actions"]) == 2
+
+        # Verify first action: resolve conflicts
+        resolve_action = task["actions"][0]
+        assert resolve_action["type"] == "resolve_conflicts"
+        assert "conflicted_files" in resolve_action
+
+        # Verify second action: verify
+        verify_action = task["actions"][1]
+        assert verify_action["type"] == "verify"
+        assert "command" in verify_action
+
+    @pytest.mark.asyncio
+    async def test_fix_task_creation_error_handling(
+        self,
+        mock_config: MagicMock,
+        mock_state_manager: MagicMock,
+        mock_pr_manager: MagicMock,
+        mock_git_ops: MagicMock,
+        sample_pr_state: PRState,
+    ) -> None:
+        """Test that fix task creation errors are handled gracefully."""
+        # Set up stale PRs
+        mock_pr_manager.detect_stale_prs.return_value = [sample_pr_state]
+
+        # Mock rebase with conflicts
+        mock_git_ops.rebase_with_conflict_detection.return_value = RebaseResult(
+            success=False,
+            has_conflicts=True,
+            error="Merge conflict",
+        )
+
+        # Mock failed resolution
+        mock_resolver = MagicMock()
+        mock_resolver.attempt_resolution.return_value = MagicMock(
+            success=False,
+        )
+
+        # Mock extract_conflict_context to raise an exception
+        mock_resolver.extract_conflict_context.side_effect = Exception("Extraction failed")
+
+        with patch("autoflow.scheduler.pr_refresh_job.load_config", return_value=mock_config):
+            with patch("autoflow.scheduler.pr_refresh_job.PRManager", return_value=mock_pr_manager):
+                with patch("autoflow.scheduler.pr_refresh_job.create_git_operations", return_value=mock_git_ops):
+                    with patch("autoflow.scheduler.pr_refresh_job.StateManager", return_value=mock_state_manager):
+                        with patch("autoflow.scheduler.pr_refresh_job.ConflictResolver", return_value=mock_resolver):
+                            result = await refresh_prs()
+
+        # Verify job still completes despite task creation error
+        assert result.success is True
+        assert result.metrics["prs_with_conflicts"] == 1
+        assert result.metrics["fix_tasks_created"] == 0  # No task created due to error
+
+        # Verify save_task was not called
+        mock_state_manager.save_task.assert_not_called()
+
+        # Verify PR state was still updated to CONFLICT_DETECTED
+        mock_pr_manager.update_pr_refresh_state.assert_any_call(
+            123,
+            PRRefreshStatus.CONFLICT_DETECTED,
+            error="Automatic conflict resolution failed",
+        )
