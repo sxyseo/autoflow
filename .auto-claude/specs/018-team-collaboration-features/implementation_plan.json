@@ -233,7 +233,9 @@
             "command": "python -c \"from autoflow.collaboration.workspace import WorkspaceManager; wm = WorkspaceManager(); print('Member methods:', [m for m in dir(wm) if 'member' in m])\"",
             "expected": "Member methods:"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Successfully implemented workspace member management in WorkspaceManager class. Added 7 new methods: add_member() (with role assignment, expiration, and metadata support), remove_member() (with backup before deletion), update_member_role() (for role changes), get_member_role() (retrieve specific member role), list_members() (with optional role type filtering, excludes expired roles), is_member() (check membership including expiration), and get_member_role_count() (count active members). Implementation follows patterns from state.py: atomic file operations using write-to-temporary-and-rename pattern, roles stored in workspace_roles/ directory with filename pattern {workspace_id}_{user_id}.json, proper error handling with ValueError for duplicates and non-existent workspaces, comprehensive docstrings with examples following Google style, and use of Role model from models.py. Added RoleType import to workspace.py. Updated module docstring to include member management usage examples. All functional tests passed: add/remove/update members, list with filters, check membership, handle expired roles, error handling for duplicates and non-existent workspaces. Verification passed: all 7 member methods are present and accessible.",
+          "updated_at": "2026-03-08T22:00:00.000000+00:00"
         },
         {
           "id": "subtask-3-3",
@@ -251,7 +253,9 @@
             "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('.autoflow'); print(hasattr(sm, 'workspaces_dir'))\"",
             "expected": "True"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Successfully integrated workspace state with StateManager. Added WORKSPACES_DIR constant ('workspaces'), workspaces_dir property that returns state_dir/workspaces, updated initialize() method to create workspaces directory, updated get_status() to include workspaces count, and updated class docstring to document the workspaces directory. Implementation follows the exact pattern used for specs, tasks, runs, and memory directories. Verification passed: workspaces_dir attribute is present and accessible on StateManager instances. All changes maintain consistency with existing code patterns and conventions.",
+          "updated_at": "2026-03-08T22:15:00.000000+00:00"
         },
         {
           "id": "subtask-3-4",
@@ -781,7 +785,7 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-08T13:52:45.336Z",
+  "updated_at": "2026-03-08T13:55:42.833Z",
   "last_updated": "2026-03-08T12:30:26.290210+00:00",
   "recoveryNote": "Task recovered from stuck state at 2026-03-08T13:43:51.783Z"
 }
