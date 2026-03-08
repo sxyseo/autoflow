@@ -14,6 +14,7 @@ from autoflow.coordination.cluster import (
     WorkItem,
     WorkItemStatus,
 )
+from autoflow.coordination.client import NodeClient, NodeClientError
 from autoflow.coordination.node import Node, NodeStatus
 from autoflow.coordination.registry import NodeRegistry, RegistryStats
 
@@ -26,4 +27,6 @@ __all__ = [
     "WorkItemStatus",
     "NodeRegistry",
     "RegistryStats",
+    "NodeClient",
+    "NodeClientError",
 ]
