@@ -78,26 +78,30 @@ class BMADCheckpoint:
         """
         return [a for a in self.artifacts if not a.required]
 
-    def validate(self, root: Optional[Path] = None) -> list[str]:
+    def validate(self, root: Optional[Path | str] = None) -> list[str]:
         """Validate that all required artifacts are present.
 
         Args:
-            root: Root directory for path resolution. Defaults to current working directory.
+            root: Root directory for path resolution. Can be Path or string.
+                  Defaults to current working directory.
 
         Returns:
             List of validation errors (empty if all required artifacts present).
         """
         errors: list[str] = []
 
+        # Convert root to Path if needed
+        root_path = Path(root) if root else None
+
         # Validate required artifacts
         for artifact in self.get_required_artifacts():
-            artifact_errors = artifact.validate(root)
+            artifact_errors = artifact.validate(root_path)
             if artifact_errors:
                 errors.extend(artifact_errors)
 
         return errors
 
-    def is_valid(self, root: Optional[Path] = None) -> bool:
+    def is_valid(self, root: Optional[Path | str] = None) -> bool:
         """Check if all required artifacts are present.
 
         Args:
