@@ -313,16 +313,13 @@ class AgentSpecValidator(BaseModel):
         Validate command arguments.
 
         Returns:
-            True if validation passes, False if validation fails
+            True if validation passes
 
         Raises:
             ValidationError: If any argument contains shell metacharacters or dangerous flags
         """
-        try:
-            self._validate_args_list(self.args, "args")
-            return True
-        except ValidationError:
-            return False
+        self._validate_args_list(self.args, "args")
+        return True
 
     def validate_runtime_args(self) -> None:
         """
@@ -512,6 +509,13 @@ def validate_agent_spec(
 
     # Run security validation if requested
     if validate_all_fields:
-        validator.validate_all()
+        result = validator.validate_all()
+        if not result:
+            raise ValidationError(
+                "Agent specification failed security validation. "
+                "Command must be in the allowlist and arguments must not contain "
+                "shell metacharacters or dangerous flags.",
+                field="agent_spec",
+            )
 
     return validator

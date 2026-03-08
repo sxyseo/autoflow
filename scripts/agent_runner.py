@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from scripts.agent_validation import ValidationError, validate_agent_spec
+
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -30,6 +32,12 @@ def apply_runtime_config(command: list[str], agent_spec: dict[str, Any]) -> list
 
 
 def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: dict[str, Any] | None = None) -> list[str]:
+    # Security: Validate agent specification before building command
+    try:
+        validate_agent_spec(agent_spec, validate_all_fields=True)
+    except (ValidationError, ValueError) as e:
+        raise SystemExit(f"Invalid agent specification: {e}") from e
+
     prompt_text = load_prompt(prompt_file)
     protocol = agent_spec.get("protocol", "cli")
     if protocol == "acp":
