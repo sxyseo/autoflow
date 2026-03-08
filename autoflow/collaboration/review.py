@@ -45,7 +45,8 @@ from autoflow.review.cross_review import (
 )
 
 # Import collaboration models
-from autoflow.collaboration.models import RoleType, User
+from autoflow.collaboration.models import NotificationType, RoleType, User
+from autoflow.collaboration.notifications import NotificationManager
 
 
 class CollaborativeReviewStatus(str, Enum):
@@ -308,10 +309,14 @@ class CollaborativeReview:
     - Review assignment and tracking
     - Finding aggregation and deduplication
     - Activity tracking integration
-    - Notification support
+    - Notification support for review requests and completions
 
     Example:
-        >>> review = CollaborativeReview()
+        >>> from autoflow.collaboration.notifications import NotificationManager
+        >>> notification_mgr = NotificationManager(".autoflow")
+        >>> notification_mgr.initialize()
+        >>>
+        >>> review = CollaborativeReview(notification_manager=notification_mgr)
         >>>
         >>> # Create a new review
         >>> result = await review.create_review(
@@ -321,7 +326,7 @@ class CollaborativeReview:
         ...     title="Feature X implementation"
         ... )
         >>>
-        >>> # Assign reviewers
+        >>> # Assign reviewers (notifications sent automatically)
         >>> await review.add_reviewer(result.review_id, "user-002", ReviewerRole.PRIMARY_REVIEWER)
         >>> await review.add_reviewer(result.review_id, "user-003", ReviewerRole.SECONDARY_REVIEWER)
         >>>
@@ -337,6 +342,7 @@ class CollaborativeReview:
         default_strategy: Default review strategy
         default_timeout_hours: Default timeout for reviews
         min_reviewers: Minimum number of reviewers required
+        notification_manager: Optional notification manager for sending notifications
     """
 
     DEFAULT_STRATEGY = ReviewStrategy.MAJORITY
@@ -357,6 +363,8 @@ class CollaborativeReview:
         default_timeout_hours: Optional[int] = None,
         min_reviewers: Optional[int] = None,
         role_weights: Optional[dict[ReviewerRole, float]] = None,
+        notification_manager: Optional[NotificationManager] = None,
+        state_dir: Optional[Union[str, Path]] = None,
     ):
         """
         Initialize the collaborative review system.
@@ -366,6 +374,8 @@ class CollaborativeReview:
             default_timeout_hours: Default timeout in hours
             min_reviewers: Minimum reviewers required
             role_weights: Custom weights for reviewer roles in voting
+            notification_manager: Optional notification manager for sending notifications
+            state_dir: Optional state directory for notification manager
         """
         self._default_strategy = default_strategy or self.DEFAULT_STRATEGY
         self._default_timeout_hours = (
@@ -374,6 +384,12 @@ class CollaborativeReview:
         self._min_reviewers = min_reviewers or self.DEFAULT_MIN_REVIEWERS
         self._role_weights = role_weights or self.DEFAULT_ROLE_WEIGHTS.copy()
         self._active_reviews: dict[str, CollaborativeReviewResult] = {}
+
+        # Initialize notification manager
+        self._notification_manager = notification_manager
+        if notification_manager is None and state_dir is not None:
+            self._notification_manager = NotificationManager(state_dir)
+            self._notification_manager.initialize()
 
     @property
     def default_strategy(self) -> ReviewStrategy:
@@ -384,6 +400,29 @@ class CollaborativeReview:
     def min_reviewers(self) -> int:
         """Get minimum reviewers required."""
         return self._min_reviewers
+
+    @property
+    def notification_manager(self) -> Optional[NotificationManager]:
+        """Get notification manager."""
+        return self._notification_manager
+
+    def set_notification_manager(
+        self,
+        notification_manager: NotificationManager,
+    ) -> None:
+        """
+        Set or update the notification manager.
+
+        Args:
+            notification_manager: Notification manager to use
+
+        Example:
+            >>> from autoflow.collaboration.notifications import NotificationManager
+            >>> notification_mgr = NotificationManager(".autoflow")
+            >>> notification_mgr.initialize()
+            >>> review.set_notification_manager(notification_mgr)
+        """
+        self._notification_manager = notification_manager
 
     def get_role_weight(self, role: ReviewerRole) -> float:
         """
@@ -568,6 +607,7 @@ class CollaborativeReview:
         review_id: str,
         reviewer_id: str,
         role: ReviewerRole = ReviewerRole.SECONDARY_REVIEWER,
+        notify: bool = True,
     ) -> CollaborativeReviewResult:
         """
         Add a reviewer to a collaborative review.
@@ -576,6 +616,7 @@ class CollaborativeReview:
             review_id: Review ID
             reviewer_id: User ID of the reviewer
             role: Role of the reviewer
+            notify: Whether to send notification to reviewer
 
         Returns:
             Updated CollaborativeReviewResult
@@ -623,6 +664,21 @@ class CollaborativeReview:
                 result.status = CollaborativeReviewStatus.IN_PROGRESS
                 if not result.started_at:
                     result.started_at = datetime.utcnow()
+
+        # Send notification to reviewer
+        if notify and self._notification_manager:
+            try:
+                self._notification_manager.notify_review_request(
+                    user_id=result.author_id,
+                    reviewer_id=reviewer_id,
+                    task_id=review_id,
+                    task_title=result.request.title if result.request else review_id,
+                    workspace_id=result.workspace_id,
+                    team_id=result.metadata.get("team_id"),
+                )
+            except Exception:
+                # Don't fail review if notification fails
+                pass
 
         return result
 
@@ -759,6 +815,7 @@ class CollaborativeReview:
         # Check for blocking issues
         if result.blocking_issues:
             result.mark_complete(CollaborativeReviewStatus.CHANGES_REQUESTED)
+            await self._notify_review_completed(result, approved=False, changes_needed=True)
             return
 
         # Determine approval based on strategy
@@ -770,8 +827,65 @@ class CollaborativeReview:
 
         if approved:
             result.mark_complete(CollaborativeReviewStatus.APPROVED)
+            await self._notify_review_completed(result, approved=True)
         else:
             result.mark_complete(CollaborativeReviewStatus.REJECTED)
+            await self._notify_review_completed(result, approved=False)
+
+    async def _notify_review_completed(
+        self,
+        result: CollaborativeReviewResult,
+        approved: bool,
+        changes_needed: bool = False,
+    ) -> None:
+        """
+        Notify the author that the review has been completed.
+
+        Args:
+            result: Review result
+            approved: Whether the review was approved
+            changes_needed: Whether changes are needed
+        """
+        if not self._notification_manager:
+            return
+
+        try:
+            # Get reviewers who submitted feedback
+            completed_reviewers = [
+                a.reviewer_id for a in result.assignments if a.is_complete
+            ]
+
+            # Create a summary of feedback
+            if approved and not changes_needed:
+                # Notify author of approval
+                for reviewer_id in completed_reviewers:
+                    self._notification_manager.notify_review_approved(
+                        user_id=result.author_id,
+                        reviewer_id=reviewer_id,
+                        task_id=result.review_id,
+                        task_title=result.request.title if result.request else result.review_id,
+                        workspace_id=result.workspace_id,
+                        team_id=result.metadata.get("team_id"),
+                    )
+            else:
+                # Notify author of rejection/changes requested
+                reason = None
+                if result.blocking_issues:
+                    blocking_count = len(result.blocking_issues)
+                    reason = f"{blocking_count} blocking issue(s) found"
+
+                self._notification_manager.notify_review_rejected(
+                    user_id=result.author_id,
+                    reviewer_id=completed_reviewers[0] if completed_reviewers else "system",
+                    task_id=result.review_id,
+                    task_title=result.request.title if result.request else result.review_id,
+                    reason=reason,
+                    workspace_id=result.workspace_id,
+                    team_id=result.metadata.get("team_id"),
+                )
+        except Exception:
+            # Don't fail review if notification fails
+            pass
 
     def _aggregate_findings(
         self,
@@ -941,12 +1055,14 @@ class CollaborativeReview:
     async def cancel_review(
         self,
         review_id: str,
+        notify: bool = True,
     ) -> CollaborativeReviewResult:
         """
         Cancel an active review.
 
         Args:
             review_id: Review ID to cancel
+            notify: Whether to send notification to reviewers
 
         Returns:
             Updated CollaborativeReviewResult
@@ -962,6 +1078,28 @@ class CollaborativeReview:
             )
 
         result.mark_complete(CollaborativeReviewStatus.CANCELLED)
+
+        # Notify reviewers of cancellation
+        if notify and self._notification_manager:
+            try:
+                for assignment in result.assignments:
+                    if not assignment.is_complete:
+                        # Notify pending reviewers that review was cancelled
+                        self._notification_manager.create_notification(
+                            user_id=assignment.reviewer_id,
+                            notification_type=NotificationType.WORKSPACE_UPDATE,
+                            title="Review Cancelled",
+                            message=f"Review '{result.request.title if result.request else review_id}' has been cancelled",
+                            workspace_id=result.workspace_id,
+                            team_id=result.metadata.get("team_id"),
+                            metadata={
+                                "review_id": review_id,
+                                "cancelled_by": result.author_id,
+                            },
+                        )
+            except Exception:
+                # Don't fail review if notification fails
+                pass
 
         return result
 
@@ -1066,6 +1204,8 @@ def create_collaborative_review(
     strategy: Optional[ReviewStrategy] = None,
     min_reviewers: Optional[int] = None,
     timeout_hours: Optional[int] = None,
+    notification_manager: Optional[NotificationManager] = None,
+    state_dir: Optional[Union[str, Path]] = None,
 ) -> CollaborativeReview:
     """
     Factory function to create a configured collaborative review system.
@@ -1074,6 +1214,8 @@ def create_collaborative_review(
         strategy: Default approval strategy
         min_reviewers: Minimum reviewers required
         timeout_hours: Default timeout in hours
+        notification_manager: Optional notification manager for sending notifications
+        state_dir: Optional state directory for notification manager
 
     Returns:
         Configured CollaborativeReview instance
@@ -1089,4 +1231,6 @@ def create_collaborative_review(
         default_strategy=strategy,
         min_reviewers=min_reviewers,
         default_timeout_hours=timeout_hours,
+        notification_manager=notification_manager,
+        state_dir=state_dir,
     )
