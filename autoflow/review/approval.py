@@ -5,6 +5,40 @@ Autoflow Approval Gate Module
 Provides hash-based approval gates to prevent unverified commits.
 Generates cryptographic approval tokens from verification results and
 ensures that only code passing all quality gates can be committed.
+
+Symphony Integration:
+The approval gate integrates with Symphony's checkpoint system to enable
+approval flows from multi-agent workflows. Symphony agents can execute
+verification tasks (tests, coverage, QA checks) and create checkpoints
+that can be converted to Autoflow approval tokens.
+
+Usage:
+    from autoflow.review.approval import ApprovalGate
+
+    # Create approval gate
+    gate = ApprovalGate(work_dir="/path/to/project")
+
+    # Grant approval from Symphony checkpoint
+    approved, messages = gate.grant_approval_from_checkpoint(
+        checkpoint_id="checkpoint-test-validation-abc123",
+        git_commit="a1b2c3d4"
+    )
+
+    # Verify checkpoint approval
+    is_valid, messages = gate.verify_checkpoint_approval(
+        checkpoint_id="checkpoint-test-validation-abc123"
+    )
+
+    # Create token directly from checkpoint results
+    token = gate.create_token_from_checkpoint_results(
+        test_results={"total": 10, "passed": 10, "failed": 0},
+        coverage_data={"total": 85.0},
+        qa_findings_count={"CRITICAL": 0, "HIGH": 0},
+        checkpoint_id="checkpoint-123",
+        gate_name="Tests",
+        gate_type="test"
+    )
+    gate.save_token(token)
 """
 
 import hashlib
@@ -14,7 +48,7 @@ import sys
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 
 @dataclass
@@ -489,6 +523,324 @@ class ApprovalGate:
             "coverage": token.coverage_data.get("total", 0),
             "qa_findings": token.qa_findings_count
         }
+
+    def _create_symphony_bridge(self):
+        """
+        Create a Symphony bridge instance for checkpoint integration.
+
+        Returns:
+            SymphonyBridge instance or None if Symphony is not available
+
+        Raises:
+            ImportError: If Symphony bridge module is not available
+        """
+        try:
+            from autoflow.skills.symphony_bridge import SymphonyBridge
+            from autoflow.skills.registry import SkillRegistry
+
+            # Create registry
+            registry = SkillRegistry()
+
+            # Create bridge with state directory
+            bridge = SymphonyBridge(
+                registry=registry,
+                state_dir=self.work_dir
+            )
+
+            return bridge
+        except ImportError:
+            return None
+        except Exception:
+            # Return None if bridge creation fails
+            return None
+
+    def load_checkpoint_for_approval(
+        self,
+        checkpoint_id: str
+    ) -> Optional[Dict]:
+        """
+        Load Symphony checkpoint data for approval processing.
+
+        This method retrieves checkpoint information from the Symphony bridge
+        and converts it to a format suitable for approval token generation.
+
+        Args:
+            checkpoint_id: Symphony checkpoint identifier
+
+        Returns:
+            Checkpoint data dictionary with keys:
+            - checkpoint_id: Checkpoint identifier
+            - gate_name: Name of the review gate
+            - gate_type: Type of gate (test, lint, etc.)
+            - status: Checkpoint status (pending, approved, rejected)
+            - test_results: Test execution summary (if available)
+            - coverage_data: Coverage metrics (if available)
+            - qa_findings_count: QA findings count (if available)
+            Returns None if checkpoint not found or bridge unavailable.
+
+        Example:
+            >>> checkpoint_data = approval_gate.load_checkpoint_for_approval(
+            ...     "checkpoint-123"
+            ... )
+            >>> if checkpoint_data:
+            ...     print(f"Gate: {checkpoint_data['gate_name']}")
+            ...     print(f"Status: {checkpoint_data['status']}")
+        """
+        bridge = self._create_symphony_bridge()
+
+        if bridge is None:
+            return None
+
+        try:
+            # Get checkpoint status from bridge
+            checkpoint_status = bridge.get_gate_checkpoint_status(checkpoint_id)
+
+            if not checkpoint_status or checkpoint_status.get("status") == "not_found":
+                return None
+
+            # Extract checkpoint data
+            checkpoint_data = checkpoint_status.get("checkpoint", {})
+
+            # Build approval-friendly data structure
+            approval_data = {
+                "checkpoint_id": checkpoint_id,
+                "gate_name": checkpoint_data.get("gate_name", "unknown"),
+                "gate_type": checkpoint_data.get("gate_type", "unknown"),
+                "status": checkpoint_data.get("status", "pending"),
+            }
+
+            # Add test results if available
+            if "test_results" in checkpoint_data:
+                approval_data["test_results"] = checkpoint_data["test_results"]
+
+            # Add coverage data if available
+            if "coverage_data" in checkpoint_data:
+                approval_data["coverage_data"] = checkpoint_data["coverage_data"]
+
+            # Add QA findings count if available
+            if "qa_findings_count" in checkpoint_data:
+                approval_data["qa_findings_count"] = checkpoint_data["qa_findings_count"]
+
+            return approval_data
+
+        except Exception:
+            return None
+
+    def grant_approval_from_checkpoint(
+        self,
+        checkpoint_id: str,
+        git_commit: Optional[str] = None
+    ) -> Tuple[bool, List[str]]:
+        """
+        Grant approval based on Symphony checkpoint results.
+
+        This method loads checkpoint data from Symphony, extracts verification
+        results (tests, coverage, QA findings), and creates an Autoflow approval
+        token if the checkpoint was approved.
+
+        Args:
+            checkpoint_id: Symphony checkpoint identifier
+            git_commit: Optional associated git commit hash
+
+        Returns:
+            Tuple of (approved, messages)
+            - approved: True if approval granted successfully
+            - messages: List of informational/error messages
+
+        Example:
+            >>> approved, messages = approval_gate.grant_approval_from_checkpoint(
+            ...     "checkpoint-test-validation-abc123",
+            ...     git_commit="a1b2c3d4"
+            ... )
+            >>> if approved:
+            ...     print("Approval granted from checkpoint")
+            ... else:
+            ...     print("\\n".join(messages))
+        """
+        # Load checkpoint data
+        checkpoint_data = self.load_checkpoint_for_approval(checkpoint_id)
+
+        if checkpoint_data is None:
+            return False, [
+                f"Could not load checkpoint data for {checkpoint_id}. "
+                "Ensure Symphony is configured and checkpoint exists."
+            ]
+
+        # Check checkpoint status
+        checkpoint_status = checkpoint_data.get("status", "pending")
+
+        if checkpoint_status != "approved":
+            return False, [
+                f"Checkpoint {checkpoint_id} has status '{checkpoint_status}'. "
+                "Only approved checkpoints can grant Autoflow approval."
+            ]
+
+        # Extract verification results from checkpoint
+        test_results = checkpoint_data.get(
+            "test_results",
+            {"total": 0, "passed": 0, "failed": 0, "skipped": 0}
+        )
+
+        coverage_data = checkpoint_data.get(
+            "coverage_data",
+            {"total": None, "branches": None, "functions": None}
+        )
+
+        qa_findings_count = checkpoint_data.get(
+            "qa_findings_count",
+            {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        )
+
+        # Add checkpoint metadata to approval token
+        metadata = {
+            "source": "symphony_checkpoint",
+            "checkpoint_id": checkpoint_id,
+            "gate_name": checkpoint_data.get("gate_name"),
+            "gate_type": checkpoint_data.get("gate_type"),
+            "approved_at": checkpoint_data.get("approved_at"),
+        }
+
+        # Grant approval using checkpoint results
+        return self.grant_approval(
+            test_results=test_results,
+            coverage_data=coverage_data,
+            qa_findings_count=qa_findings_count,
+            git_commit=git_commit
+        )
+
+    def verify_checkpoint_approval(
+        self,
+        checkpoint_id: str
+    ) -> Tuple[bool, List[str]]:
+        """
+        Verify if a Symphony checkpoint approval translates to valid Autoflow approval.
+
+        This method checks if a checkpoint is approved and verifies that the
+        corresponding Autoflow approval token exists and is valid.
+
+        Args:
+            checkpoint_id: Symphony checkpoint identifier
+
+        Returns:
+            Tuple of (is_valid, messages)
+            - is_valid: True if checkpoint approved and token valid
+            - messages: List of informational/error messages
+
+        Example:
+            >>> is_valid, messages = approval_gate.verify_checkpoint_approval(
+            ...     "checkpoint-test-validation-abc123"
+            ... )
+            >>> if is_valid:
+            ...     print("Checkpoint approval is valid")
+            ... else:
+            ...     print("\\n".join(messages))
+        """
+        # Load checkpoint data
+        checkpoint_data = self.load_checkpoint_for_approval(checkpoint_id)
+
+        if checkpoint_data is None:
+            return False, [
+                f"Could not load checkpoint data for {checkpoint_id}"
+            ]
+
+        # Check checkpoint status
+        checkpoint_status = checkpoint_data.get("status", "pending")
+
+        if checkpoint_status != "approved":
+            return False, [
+                f"Checkpoint {checkpoint_id} has status '{checkpoint_status}'. "
+                "Expected 'approved'."
+            ]
+
+        # Verify we have a valid approval token
+        is_valid, errors = self.verify_token()
+
+        if not is_valid:
+            return False, [
+                f"Checkpoint {checkpoint_id} is approved, but Autoflow approval "
+                f"token is invalid: {errors[0] if errors else 'Unknown error'}"
+            ]
+
+        # Optionally verify token metadata matches checkpoint
+        token = self.load_token()
+        if token and token.metadata.get("source") == "symphony_checkpoint":
+            token_checkpoint_id = token.metadata.get("checkpoint_id")
+            if token_checkpoint_id != checkpoint_id:
+                return False, [
+                    f"Approval token exists but is for different checkpoint: "
+                    f"{token_checkpoint_id}"
+                ]
+
+        return True, [
+            f"Checkpoint {checkpoint_id} is approved and has valid Autoflow token"
+        ]
+
+    def create_token_from_checkpoint_results(
+        self,
+        test_results: Dict[str, int],
+        coverage_data: Dict[str, Optional[float]],
+        qa_findings_count: Dict[str, int],
+        checkpoint_id: str,
+        gate_name: str,
+        gate_type: str,
+        git_commit: Optional[str] = None,
+        approved_at: Optional[str] = None,
+        approver: Optional[str] = None
+    ) -> ApprovalToken:
+        """
+        Create approval token directly from Symphony checkpoint verification results.
+
+        This method allows creating an approval token from raw verification results
+        obtained from a Symphony checkpoint, without requiring the checkpoint to be
+        loaded through the bridge. Useful for integrations where checkpoint data
+        is already available.
+
+        Args:
+            test_results: Test execution summary
+            coverage_data: Coverage metrics
+            qa_findings_count: QA findings by severity
+            checkpoint_id: Symphony checkpoint identifier
+            gate_name: Name of the review gate
+            gate_type: Type of gate (test, lint, etc.)
+            git_commit: Optional associated git commit hash
+            approved_at: Optional approval timestamp
+            approver: Optional approver identifier
+
+        Returns:
+            ApprovalToken with verification hash and checkpoint metadata
+
+        Example:
+            >>> token = approval_gate.create_token_from_checkpoint_results(
+            ...     test_results={"total": 10, "passed": 10, "failed": 0},
+            ...     coverage_data={"total": 85.0},
+            ...     qa_findings_count={"CRITICAL": 0, "HIGH": 0},
+            ...     checkpoint_id="checkpoint-123",
+            ...     gate_name="Tests",
+            ...     gate_type="test"
+            ... )
+        """
+        # Build metadata with checkpoint information
+        metadata = {
+            "source": "symphony_checkpoint",
+            "checkpoint_id": checkpoint_id,
+            "gate_name": gate_name,
+            "gate_type": gate_type,
+        }
+
+        if approved_at:
+            metadata["approved_at"] = approved_at
+
+        if approver:
+            metadata["approver"] = approver
+
+        # Create token with checkpoint metadata
+        return self.create_token(
+            test_results=test_results,
+            coverage_data=coverage_data,
+            qa_findings_count=qa_findings_count,
+            git_commit=git_commit,
+            metadata=metadata
+        )
 
 
 def create_git_commit_message_with_approval(
