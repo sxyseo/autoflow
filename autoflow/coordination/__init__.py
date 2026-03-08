@@ -8,6 +8,14 @@ This module will be expanded with additional exports in later phases.
 """
 
 # Core data models
+from autoflow.coordination.balancer import (
+    AssignmentRecord,
+    BalancerError,
+    LoadBalancer,
+    LoadBalancerStats,
+    LoadBalancingStrategy,
+    create_load_balancer,
+)
 from autoflow.coordination.cluster import (
     ClusterState,
     ClusterStatus,
@@ -40,4 +48,10 @@ __all__ = [
     "DistributedWorkQueue",
     "QueueWorkItem",
     "QueueWorkItemStatus",
+    "LoadBalancer",
+    "LoadBalancingStrategy",
+    "LoadBalancerStats",
+    "AssignmentRecord",
+    "BalancerError",
+    "create_load_balancer",
 ]
