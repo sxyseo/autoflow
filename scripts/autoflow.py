@@ -1128,6 +1128,27 @@ def default_tasks() -> list[dict[str, Any]]:
     ]
 
 
+def validate_spec_repository(repository_id: str) -> None:
+    """
+    Validate that a repository reference exists.
+
+    Args:
+        repository_id: The repository ID to validate
+
+    Raises:
+        SystemExit: If the repository doesn't exist
+    """
+    if not repository_id:
+        return
+
+    repo_manager = RepositoryManager(STATE_DIR)
+    if not repo_manager.repository_exists(repository_id):
+        raise SystemExit(
+            f"repository '{repository_id}' not found. "
+            f"Use 'repo-add' to register it first, or omit --repository to use the default repository."
+        )
+
+
 def create_spec(args: argparse.Namespace) -> None:
     ensure_state()
     slug = slugify(args.slug or args.title)
@@ -1186,6 +1207,7 @@ Describe the problem this system is solving.
         },
     }
     if getattr(args, "repository", None):
+        validate_spec_repository(args.repository)
         metadata["repository"] = args.repository
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
     files["spec"].write_text(spec_markdown, encoding="utf-8")
@@ -1754,6 +1776,8 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
 def create_worktree(args: argparse.Namespace) -> None:
     ensure_state()
     repository = getattr(args, "repository", None)
+    if repository:
+        validate_spec_repository(repository)
     path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
@@ -1796,6 +1820,8 @@ def create_worktree(args: argparse.Namespace) -> None:
 
 def remove_worktree(args: argparse.Namespace) -> None:
     repository = getattr(args, "repository", None)
+    if repository:
+        validate_spec_repository(repository)
     path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     if path.exists():
