@@ -3,23 +3,25 @@
   "spec": "012-automated-error-recovery",
   "state": "building",
   "subtasks": {
-    "completed": 10,
-    "total": 25,
-    "in_progress": 1,
+    "completed": 12,
+    "total": 28,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
     "current": "Adaptive Retry Executor",
-    "id": null,
-    "total": 3
+    "id": "phase-4-adaptive-retry",
+    "total": 3,
+    "completed": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 12,
-    "started_at": "2026-03-08T11:21:37.847708"
+    "number": 14,
+    "started_at": "2026-03-08T12:15:00.000000"
   },
-  "last_update": "2026-03-08T12:00:01.048004"
+  "last_update": "2026-03-08T12:20:00.000000",
+  "last_completed_subtask": "subtask-4-2"
 }
