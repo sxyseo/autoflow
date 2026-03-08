@@ -18,8 +18,12 @@ Usage:
 """
 
 from autoflow.git.operations import (
+    BranchInfo,
+    BranchType,
     GitError,
     GitOperations,
+    RebaseResult,
+    create_git_operations,
 )
 from autoflow.git.pr_manager import (
     PRManager,
@@ -34,6 +38,10 @@ __all__ = [
     # Git Operations
     "GitOperations",
     "GitError",
+    "BranchInfo",
+    "BranchType",
+    "RebaseResult",
+    "create_git_operations",
     # PR Manager
     "PRManager",
     "PRState",
