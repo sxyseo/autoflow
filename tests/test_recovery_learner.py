@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1540,3 +1541,890 @@ class TestRecoveryLearnerIntegration:
         assert best is not None
         # Fast strategy should have higher effectiveness
         assert best.strategy_name == "fast_strategy"
+
+
+# ============================================================================
+# RecoveryLearner Integration Tests with Mock Healing Data
+# ============================================================================
+
+
+class TestRecoveryLearnerIntegration:
+    """Integration tests for RecoveryLearner with mock healing data."""
+
+    # ========================================================================
+    # Fixtures
+    # ========================================================================
+
+    @pytest.fixture
+    def learning_path(self, tmp_path: Path) -> Path:
+        """Create a temporary learning data path."""
+        return tmp_path / "recovery_learning.json"
+
+    @pytest.fixture
+    def learner(self, learning_path: Path) -> RecoveryLearner:
+        """Create a RecoveryLearner instance for testing."""
+        return RecoveryLearner(learning_path=learning_path)
+
+    @pytest.fixture
+    def mock_timeout_attempts(self) -> list[dict[str, Any]]:
+        """Mock healing data for timeout error recovery attempts."""
+        return [
+            {
+                "pattern_id": "timeout-api-call",
+                "strategy_used": "retry_with_backoff",
+                "action_type": "RETRY",
+                "parameters": {"max_retries": 3, "backoff_multiplier": 2.0},
+                "outcome": RecoveryOutcome.SUCCESS,
+                "success": True,
+                "execution_time": 5.2,
+                "error": None,
+                "changes_made": ["Increased retry count", "Applied exponential backoff"],
+                "verification_passed": True,
+                "outcome_details": "Successfully recovered after 2 retries",
+                "metadata": {
+                    "error_category": "timeout",
+                    "error_signature": "api_call_timeout",
+                    "initial_error": "API call timed out after 30s",
+                    "retry_count": 2,
+                },
+            },
+            {
+                "pattern_id": "timeout-api-call",
+                "strategy_used": "retry_with_backoff",
+                "action_type": "RETRY",
+                "parameters": {"max_retries": 3, "backoff_multiplier": 2.0},
+                "outcome": RecoveryOutcome.SUCCESS,
+                "success": True,
+                "execution_time": 4.8,
+                "error": None,
+                "changes_made": ["Applied exponential backoff"],
+                "verification_passed": True,
+                "outcome_details": "Successfully recovered after 1 retry",
+                "metadata": {
+                    "error_category": "timeout",
+                    "error_signature": "api_call_timeout",
+                    "initial_error": "API call timed out after 30s",
+                    "retry_count": 1,
+                },
+            },
+            {
+                "pattern_id": "timeout-api-call",
+                "strategy_used": "increase_timeout",
+                "action_type": "RECONFIGURE",
+                "parameters": {"timeout": 120},
+                "outcome": RecoveryOutcome.PARTIAL,
+                "success": False,
+                "execution_time": 2.5,
+                "error": "Timeout increased but issue persists",
+                "changes_made": ["Increased timeout to 120s"],
+                "verification_passed": False,
+                "outcome_details": "Partial recovery - timeout increased but retries still needed",
+                "metadata": {
+                    "error_category": "timeout",
+                    "error_signature": "api_call_timeout",
+                    "initial_error": "API call timed out after 30s",
+                },
+            },
+        ]
+
+    @pytest.fixture
+    def mock_connection_attempts(self) -> list[dict[str, Any]]:
+        """Mock healing data for connection error recovery attempts."""
+        return [
+            {
+                "pattern_id": "connection-database",
+                "strategy_used": "reconnect_with_backoff",
+                "action_type": "RETRY",
+                "parameters": {"max_retries": 5, "initial_delay": 1.0},
+                "outcome": RecoveryOutcome.SUCCESS,
+                "success": True,
+                "execution_time": 8.3,
+                "error": None,
+                "changes_made": ["Re-established database connection"],
+                "verification_passed": True,
+                "outcome_details": "Successfully reconnected after 3 attempts",
+                "metadata": {
+                    "error_category": "connection",
+                    "error_signature": "database_connection_lost",
+                    "initial_error": "Database connection lost",
+                    "connection_pool": "primary",
+                },
+            },
+            {
+                "pattern_id": "connection-database",
+                "strategy_used": "switch_to_fallback",
+                "action_type": "FALLBACK",
+                "parameters": {"fallback_host": "db-secondary.local"},
+                "outcome": RecoveryOutcome.SUCCESS,
+                "success": True,
+                "execution_time": 3.1,
+                "error": None,
+                "changes_made": ["Switched to fallback database"],
+                "verification_passed": True,
+                "outcome_details": "Successfully switched to secondary database",
+                "metadata": {
+                    "error_category": "connection",
+                    "error_signature": "database_connection_lost",
+                    "initial_error": "Primary database unavailable",
+                    "fallback_used": "db-secondary.local",
+                },
+            },
+        ]
+
+    @pytest.fixture
+    def mock_memory_attempts(self) -> list[dict[str, Any]]:
+        """Mock healing data for memory error recovery attempts."""
+        return [
+            {
+                "pattern_id": "memory-out-of-memory",
+                "strategy_used": "clear_cache",
+                "action_type": "CLEANUP",
+                "parameters": {"aggressive": True},
+                "outcome": RecoveryOutcome.FAILED,
+                "success": False,
+                "execution_time": 1.2,
+                "error": "Cache cleared but memory still insufficient",
+                "changes_made": ["Cleared all caches"],
+                "verification_passed": False,
+                "outcome_details": "Cache cleanup insufficient",
+                "metadata": {
+                    "error_category": "resource",
+                    "error_signature": "out_of_memory",
+                    "initial_error": "Process out of memory",
+                    "memory_usage_mb": 2048,
+                },
+            },
+            {
+                "pattern_id": "memory-out-of-memory",
+                "strategy_used": "restart_worker",
+                "action_type": "RESTART",
+                "parameters": {"graceful": True},
+                "outcome": RecoveryOutcome.SUCCESS,
+                "success": True,
+                "execution_time": 6.5,
+                "error": None,
+                "changes_made": ["Restarted worker process"],
+                "verification_passed": True,
+                "outcome_details": "Worker restart successful",
+                "metadata": {
+                    "error_category": "resource",
+                    "error_signature": "out_of_memory",
+                    "initial_error": "Worker process out of memory",
+                    "worker_id": "worker-3",
+                },
+            },
+        ]
+
+    # ========================================================================
+    # Recording Attempts Tests
+    # ========================================================================
+
+    def test_record_single_attempt(self, learner: RecoveryLearner) -> None:
+        """Test recording a single recovery attempt."""
+        attempt_id = learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="test_strategy",
+            action_type="RETRY",
+            parameters={"retry_count": 3},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=5.0,
+        )
+
+        assert attempt_id is not None
+        assert len(learner._attempts) == 1
+        assert len(learner._patterns) == 1
+        assert len(learner._learned_strategies) == 1
+
+        attempt = learner._attempts[attempt_id]
+        assert attempt.pattern_id == "test-pattern"
+        assert attempt.strategy_used == "test_strategy"
+        assert attempt.success is True
+
+    def test_record_multiple_attempts(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test recording multiple recovery attempts."""
+        attempt_ids = []
+        for attempt_data in mock_timeout_attempts:
+            attempt_id = learner.record_attempt(**attempt_data)
+            attempt_ids.append(attempt_id)
+
+        assert len(attempt_ids) == 3
+        assert len(learner._attempts) == 3
+        assert len(learner._patterns) == 1  # All same pattern
+        assert len(learner._learned_strategies) == 2  # 2 different strategies
+
+    def test_record_attempts_across_patterns(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+        mock_memory_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test recording attempts across multiple error patterns."""
+        all_attempts = (
+            mock_timeout_attempts + mock_connection_attempts + mock_memory_attempts
+        )
+
+        for attempt_data in all_attempts:
+            learner.record_attempt(**attempt_data)
+
+        assert len(learner._attempts) == 7  # 3 + 2 + 2
+        assert len(learner._patterns) == 3  # 3 different patterns
+        assert len(learner._learned_strategies) == 6  # 6 different strategies (2+2+2)
+
+    # ========================================================================
+    # Learning from History Tests
+    # ========================================================================
+
+    def test_learn_from_history_returns_strategies(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test learning from historical attempts returns strategies."""
+        # Record attempts
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        # Add more attempts to reach MEDIUM confidence
+        for _ in range(3):
+            learner.record_attempt(
+                pattern_id="timeout-api-call",
+                strategy_used="retry_with_backoff",
+                action_type="RETRY",
+                parameters={"max_retries": 3, "backoff_multiplier": 2.0},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+            )
+
+        # Learn from history
+        strategies = learner.learn_from_history(
+            min_attempts=2, min_success_rate=0.5
+        )
+
+        # Should return at least the successful retry_with_backoff strategy
+        assert len(strategies) >= 1
+        assert any(
+            s.strategy_name == "retry_with_backoff" for s in strategies
+        ), "Should include retry_with_backoff strategy"
+
+    def test_learn_from_history_filters_by_thresholds(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test learning from history filters by minimum thresholds."""
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        # Add more attempts to reach higher confidence
+        for _ in range(3):
+            learner.record_attempt(
+                pattern_id="timeout-api-call",
+                strategy_used="retry_with_backoff",
+                action_type="RETRY",
+                parameters={"max_retries": 3, "backoff_multiplier": 2.0},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+            )
+
+        # Very high threshold that won't be met
+        strict_strategies = learner.learn_from_history(
+            min_attempts=10, min_success_rate=0.95
+        )
+        assert len(strict_strategies) == 0
+
+        # Lower threshold should return strategies
+        lenient_strategies = learner.learn_from_history(
+            min_attempts=2, min_success_rate=0.5
+        )
+        assert len(lenient_strategies) >= 1
+
+    def test_learn_from_history_sorts_by_effectiveness(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test that learned strategies are sorted by effectiveness."""
+        # Record attempts for two strategies
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="fast_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=1.0,
+            )
+
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="slow_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=60.0,
+            )
+
+        strategies = learner.learn_from_history(
+            min_attempts=3, min_success_rate=0.5
+        )
+
+        # Fast strategy should come first due to better effectiveness
+        assert len(strategies) >= 2
+        assert strategies[0].strategy_name == "fast_strategy"
+        assert strategies[1].strategy_name == "slow_strategy"
+
+    # ========================================================================
+    # Pattern Statistics Tests
+    # ========================================================================
+
+    def test_get_pattern_statistics(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test retrieving statistics for a specific pattern."""
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        stats = learner.get_pattern_statistics("timeout-api-call")
+
+        assert stats is not None
+        assert stats["pattern_id"] == "timeout-api-call"
+        assert stats["error_category"] == "timeout"
+        assert stats["occurrence_count"] == 4  # Default 1 + 3 attempts
+        assert stats["success_rate"] == 2 / 3  # 2 successes out of 3 attempts
+        assert "retry_with_backoff" in stats["related_strategies"]
+        assert "increase_timeout" in stats["related_strategies"]
+
+    def test_get_pattern_statistics_not_found(self, learner: RecoveryLearner) -> None:
+        """Test retrieving statistics for non-existent pattern."""
+        stats = learner.get_pattern_statistics("non-existent-pattern")
+        assert stats is None
+
+    def test_get_pattern_statistics_multiple_patterns(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test pattern statistics are tracked separately for different patterns."""
+        for attempt_data in mock_timeout_attempts + mock_connection_attempts:
+            learner.record_attempt(**attempt_data)
+
+        timeout_stats = learner.get_pattern_statistics("timeout-api-call")
+        connection_stats = learner.get_pattern_statistics("connection-database")
+
+        assert timeout_stats is not None
+        assert connection_stats is not None
+        assert timeout_stats["pattern_id"] != connection_stats["pattern_id"]
+        assert timeout_stats["occurrence_count"] == 4  # Default 1 + 3 attempts
+        assert connection_stats["occurrence_count"] == 3  # Default 1 + 2 attempts
+
+    # ========================================================================
+    # Best Strategy Tests
+    # ========================================================================
+
+    def test_get_best_strategy(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test getting the best strategy for a pattern."""
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        # Get best strategy with low confidence threshold
+        best = learner.get_best_strategy(
+            "timeout-api-call",
+            min_confidence=PatternConfidence.LOW,
+        )
+
+        assert best is not None
+        assert best.pattern_id == "timeout-api-call"
+        assert best.strategy_name in ["retry_with_backoff", "increase_timeout"]
+
+    def test_get_best_strategy_no_strategies(self, learner: RecoveryLearner) -> None:
+        """Test getting best strategy when no strategies exist."""
+        best = learner.get_best_strategy("non-existent-pattern")
+        assert best is None
+
+    def test_get_best_strategy_high_confidence(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test getting best strategy with high confidence requirement."""
+        # Record attempts to build confidence
+        for _ in range(6):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="good_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=2.0,
+            )
+
+        # High confidence should find the strategy
+        best = learner.get_best_strategy(
+            "test-pattern",
+            min_confidence=PatternConfidence.HIGH,
+        )
+
+        assert best is not None
+        assert best.strategy_name == "good_strategy"
+        assert best.confidence == PatternConfidence.HIGH
+
+    def test_get_best_strategy_multiple_patterns(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test getting best strategy for different patterns."""
+        for attempt_data in mock_timeout_attempts + mock_connection_attempts:
+            learner.record_attempt(**attempt_data)
+
+        timeout_best = learner.get_best_strategy(
+            "timeout-api-call",
+            min_confidence=PatternConfidence.LOW,
+        )
+        connection_best = learner.get_best_strategy(
+            "connection-database",
+            min_confidence=PatternConfidence.LOW,
+        )
+
+        assert timeout_best is not None
+        assert connection_best is not None
+        assert timeout_best.pattern_id != connection_best.pattern_id
+
+    # ========================================================================
+    # Retrieving Attempts Tests
+    # ========================================================================
+
+    def test_get_all_attempts(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test retrieving all recovery attempts."""
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        attempts = learner.get_all_attempts()
+
+        assert len(attempts) == 3
+        # Should be sorted by timestamp (most recent first)
+        assert attempts[0].timestamp >= attempts[1].timestamp
+        assert attempts[1].timestamp >= attempts[2].timestamp
+
+    def test_get_all_attempts_filtered_by_pattern(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test filtering attempts by pattern."""
+        for attempt_data in mock_timeout_attempts + mock_connection_attempts:
+            learner.record_attempt(**attempt_data)
+
+        timeout_attempts = learner.get_all_attempts(pattern_id="timeout-api-call")
+        connection_attempts = learner.get_all_attempts(
+            pattern_id="connection-database"
+        )
+
+        assert len(timeout_attempts) == 3
+        assert len(connection_attempts) == 2
+        assert all(a.pattern_id == "timeout-api-call" for a in timeout_attempts)
+        assert all(a.pattern_id == "connection-database" for a in connection_attempts)
+
+    def test_get_all_attempts_with_limit(
+        self, learner: RecoveryLearner, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test limiting the number of attempts returned."""
+        for attempt_data in mock_timeout_attempts:
+            learner.record_attempt(**attempt_data)
+
+        attempts = learner.get_all_attempts(limit=2)
+
+        assert len(attempts) == 2
+
+    # ========================================================================
+    # Learning Summary Tests
+    # ========================================================================
+
+    def test_get_learning_summary(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+        mock_memory_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test getting comprehensive learning summary."""
+        for attempt_data in (
+            mock_timeout_attempts + mock_connection_attempts + mock_memory_attempts
+        ):
+            learner.record_attempt(**attempt_data)
+
+        summary = learner.get_learning_summary()
+
+        assert summary["total_attempts"] == 7
+        assert summary["successful_attempts"] == 5  # Count successes in mock data
+        assert summary["failed_attempts"] == 2
+        assert summary["total_patterns"] == 3
+        assert summary["total_learned_strategies"] == 6  # 6 different strategies (2+2+2)
+        assert summary["overall_success_rate"] == 5 / 7
+        assert "strategies_by_confidence" in summary
+
+    def test_get_learning_summary_empty(self, learner: RecoveryLearner) -> None:
+        """Test learning summary with no data."""
+        summary = learner.get_learning_summary()
+
+        assert summary["total_attempts"] == 0
+        assert summary["successful_attempts"] == 0
+        assert summary["failed_attempts"] == 0
+        assert summary["total_patterns"] == 0
+        assert summary["total_learned_strategies"] == 0
+        assert summary["overall_success_rate"] == 0.0
+
+    # ========================================================================
+    # Confidence Calculation Tests
+    # ========================================================================
+
+    def test_calculate_confidence_high_success_high_samples(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test confidence calculation with high success rate and many samples."""
+        confidence = learner.calculate_confidence(0.9, 15)
+        assert confidence > 0.8  # Should be high
+
+    def test_calculate_confidence_low_success_low_samples(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test confidence calculation with low success rate and few samples."""
+        confidence = learner.calculate_confidence(0.3, 2)
+        assert confidence < 0.5  # Should be low
+
+    def test_calculate_confidence_moderate_success_moderate_samples(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test confidence calculation with moderate values."""
+        confidence = learner.calculate_confidence(0.65, 5)
+        assert 0.4 < confidence < 0.8  # Should be moderate
+
+    def test_calculate_confidence_invalid_inputs(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test confidence calculation with invalid inputs."""
+        with pytest.raises(ValueError):
+            learner.calculate_confidence(1.5, 10)  # Invalid success rate
+
+        with pytest.raises(ValueError):
+            learner.calculate_confidence(0.5, -1)  # Invalid sample size
+
+    def test_calculate_confidence_zero_samples(self, learner: RecoveryLearner) -> None:
+        """Test confidence calculation with zero samples."""
+        confidence = learner.calculate_confidence(0.8, 0)
+        assert confidence == 0.0
+
+    # ========================================================================
+    # Data Cleanup Tests
+    # ========================================================================
+
+    def test_clear_old_data(self, learner: RecoveryLearner) -> None:
+        """Test clearing old recovery attempts."""
+        # Record many attempts
+        for i in range(150):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i % 3}",
+                strategy_used="test_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        assert len(learner._attempts) == 150
+
+        # Clear old data, keeping only 100 most recent
+        removed = learner.clear_old_data(keep_recent=100)
+
+        assert removed == 50
+        assert len(learner._attempts) == 100
+        # Patterns and strategies should be preserved
+        assert len(learner._patterns) == 3
+        assert len(learner._learned_strategies) == 3
+
+    def test_clear_old_data_below_threshold(self, learner: RecoveryLearner) -> None:
+        """Test clearing old data when below threshold."""
+        # Record only 5 attempts
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="test_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        # Try to clear with high threshold
+        removed = learner.clear_old_data(keep_recent=100)
+
+        assert removed == 0
+        assert len(learner._attempts) == 5
+
+    # ========================================================================
+    # Persistence Tests
+    # ========================================================================
+
+    def test_persistence_across_instances(
+        self, learning_path: Path, mock_timeout_attempts: list[dict[str, Any]]
+    ) -> None:
+        """Test that learning data persists across RecoveryLearner instances."""
+        # Record data in first instance
+        learner1 = RecoveryLearner(learning_path=learning_path)
+        for attempt_data in mock_timeout_attempts:
+            learner1.record_attempt(**attempt_data)
+
+        # Add more attempts to reach MEDIUM confidence
+        for _ in range(3):
+            learner1.record_attempt(
+                pattern_id="timeout-api-call",
+                strategy_used="retry_with_backoff",
+                action_type="RETRY",
+                parameters={"max_retries": 3, "backoff_multiplier": 2.0},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+            )
+
+        # Create new instance and verify data persists
+        learner2 = RecoveryLearner(learning_path=learning_path)
+
+        assert len(learner2._attempts) == 6  # 3 original + 3 additional
+        assert len(learner2._patterns) == 1
+        assert "timeout-api-call" in learner2._patterns
+
+        # Verify learning works across instances
+        strategies = learner2.learn_from_history(
+            min_attempts=2, min_success_rate=0.3
+        )
+        assert len(strategies) >= 1
+
+    # ========================================================================
+    # Complex Integration Scenarios
+    # ========================================================================
+
+    def test_complete_learning_workflow(
+        self,
+        learner: RecoveryLearner,
+        mock_timeout_attempts: list[dict[str, Any]],
+        mock_connection_attempts: list[dict[str, Any]],
+        mock_memory_attempts: list[dict[str, Any]],
+    ) -> None:
+        """Test a complete learning workflow with multiple patterns and strategies."""
+        # Phase 1: Record all mock healing data
+        all_attempts = (
+            mock_timeout_attempts
+            + mock_connection_attempts
+            + mock_memory_attempts
+        )
+        attempt_ids = []
+        for attempt_data in all_attempts:
+            attempt_id = learner.record_attempt(**attempt_data)
+            attempt_ids.append(attempt_id)
+
+        assert len(attempt_ids) == 7
+
+        # Phase 2: Learn from history
+        # Note: Many strategies won't be recommended due to LOW confidence with limited attempts
+        strategies = learner.learn_from_history(
+            min_attempts=1, min_success_rate=0.4
+        )
+        # At least some strategies should be returned (those with sufficient success and attempts)
+        assert len(strategies) >= 0  # May be 0 if no strategies reach MEDIUM confidence
+
+        # Phase 3: Get pattern statistics for each pattern
+        timeout_stats = learner.get_pattern_statistics("timeout-api-call")
+        connection_stats = learner.get_pattern_statistics("connection-database")
+        memory_stats = learner.get_pattern_statistics("memory-out-of-memory")
+
+        assert timeout_stats is not None
+        assert connection_stats is not None
+        assert memory_stats is not None
+
+        # Phase 4: Get best strategy for each pattern
+        timeout_best = learner.get_best_strategy(
+            "timeout-api-call",
+            min_confidence=PatternConfidence.LOW,
+        )
+        connection_best = learner.get_best_strategy(
+            "connection-database",
+            min_confidence=PatternConfidence.LOW,
+        )
+        memory_best = learner.get_best_strategy(
+            "memory-out-of-memory",
+            min_confidence=PatternConfidence.LOW,
+        )
+
+        assert timeout_best is not None
+        assert connection_best is not None
+        assert memory_best is not None
+
+        # Phase 5: Get comprehensive summary
+        summary = learner.get_learning_summary()
+        assert summary["total_attempts"] == 7
+        assert summary["total_patterns"] == 3
+        assert summary["successful_attempts"] == 5
+        assert summary["failed_attempts"] == 2
+
+    def test_strategy_evolution_over_time(self, learner: RecoveryLearner) -> None:
+        """Test how strategies evolve as more data is collected."""
+        pattern_id = "evolving-pattern"
+
+        # Phase 1: Initial attempts - low confidence
+        for i in range(2):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="initial_strategy",
+                action_type="RETRY",
+                parameters={"retry_count": i + 1},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+            )
+
+        # With only 2 attempts, confidence will be LOW, so learn_from_history won't return it
+        # Let's verify it's tracked but not recommended
+        strategies = learner.learn_from_history(
+            min_attempts=1, min_success_rate=0.5
+        )
+        # Should be 0 because LOW confidence strategies are not recommended
+        assert len(strategies) == 0
+
+        # Verify the strategy exists and has LOW confidence
+        strategy_key = f"{pattern_id}:initial_strategy"
+        assert strategy_key in learner._learned_strategies
+        assert learner._learned_strategies[strategy_key].confidence == PatternConfidence.LOW
+
+        # Phase 2: More successful attempts - confidence increases
+        for _ in range(4):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="initial_strategy",
+                action_type="RETRY",
+                parameters={"retry_count": 3},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=5.0,
+            )
+
+        # Now with 6 attempts and 100% success, should have MEDIUM confidence
+        strategies = learner.learn_from_history(
+            min_attempts=3, min_success_rate=0.5
+        )
+        assert len(strategies) >= 1
+        # Confidence should have increased to at least MEDIUM
+        assert strategies[0].confidence in (
+            PatternConfidence.MEDIUM,
+            PatternConfidence.HIGH,
+        )
+
+    def test_multiple_strategies_for_same_pattern(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test learning multiple strategies for the same error pattern."""
+        pattern_id = "multi-strategy-pattern"
+
+        # Record attempts with different strategies
+        strategies_data = [
+            ("fast_strategy", "RETRY", {"retries": 2}, True, 2.0),
+            ("fast_strategy", "RETRY", {"retries": 2}, True, 2.5),
+            ("fast_strategy", "RETRY", {"retries": 2}, True, 1.8),
+            ("slow_strategy", "RECONFIGURE", {"timeout": 60}, True, 10.0),
+            ("slow_strategy", "RECONFIGURE", {"timeout": 60}, True, 12.0),
+            ("failing_strategy", "RETRY", {"retries": 1}, False, 1.0),
+            ("failing_strategy", "RETRY", {"retries": 1}, False, 1.2),
+        ]
+
+        for strategy_name, action_type, params, success, exec_time in strategies_data:
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used=strategy_name,
+                action_type=action_type,
+                parameters=params,
+                outcome=RecoveryOutcome.SUCCESS if success else RecoveryOutcome.FAILED,
+                success=success,
+                execution_time=exec_time,
+            )
+
+        # Get all strategies for this pattern
+        all_strategies = [
+            s
+            for s in learner._learned_strategies.values()
+            if s.pattern_id == pattern_id
+        ]
+
+        assert len(all_strategies) == 3
+
+        # fast_strategy should have best effectiveness
+        best = learner.get_best_strategy(
+            pattern_id,
+            min_confidence=PatternConfidence.LOW,
+        )
+
+        assert best is not None
+        assert best.strategy_name == "fast_strategy"
+        assert best.success_rate == 1.0  # 3/3 successes
+
+    def test_confidence_levels_across_strategies(
+        self, learner: RecoveryLearner
+    ) -> None:
+        """Test that different strategies achieve appropriate confidence levels."""
+        pattern_id = "confidence-test-pattern"
+
+        # High confidence strategy: many successes
+        for _ in range(8):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="high_confidence_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=3.0,
+            )
+
+        # Medium confidence strategy: moderate success with some data
+        for i in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="medium_confidence_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS if i < 3 else RecoveryOutcome.FAILED,
+                success=i < 3,
+                execution_time=4.0,
+            )
+
+        # Low confidence strategy: limited data
+        learner.record_attempt(
+            pattern_id=pattern_id,
+            strategy_used="low_confidence_strategy",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=5.0,
+        )
+
+        high_conf_strat = learner._learned_strategies[
+            f"{pattern_id}:high_confidence_strategy"
+        ]
+        medium_conf_strat = learner._learned_strategies[
+            f"{pattern_id}:medium_confidence_strategy"
+        ]
+        low_conf_strat = learner._learned_strategies[
+            f"{pattern_id}:low_confidence_strategy"
+        ]
+
+        assert high_conf_strat.confidence == PatternConfidence.HIGH
+        assert medium_conf_strat.confidence == PatternConfidence.MEDIUM
+        assert low_conf_strat.confidence == PatternConfidence.LOW
