@@ -1,0 +1,137 @@
+{
+  // ===========================================
+  // Autoflow Parallel Execution Configuration
+  // ===========================================
+  // Copy this file to parallel.json5 and customize
+  // for your environment.
+  // ===========================================
+
+  // Enable parallel execution of multiple agents
+  enabled: false,
+
+  // Maximum number of concurrent tasks to execute
+  // Higher values allow more parallelism but consume more resources
+  // Recommended: 3-5 for typical workloads
+  max_concurrent_tasks: 3,
+
+  // Default timeout for each task (in seconds)
+  // Tasks that exceed this timeout will be cancelled
+  // Recommended: 300-600 seconds (5-10 minutes)
+  timeout_seconds: 300,
+
+  // ===========================================
+  // Advanced Configuration (Optional)
+  // ===========================================
+
+  // Conflict detection settings
+  // When enabled, tasks are analyzed for potential conflicts before execution
+  conflict_detection: {
+    // Enable automatic conflict detection
+    enabled: true,
+
+    // Severity threshold for blocking execution
+    // "high" - Only block on high-severity conflicts
+    // "medium" - Block on medium and high-severity conflicts
+    // "low" - Block on all conflicts
+    severity_threshold: "high",
+
+    // Paths to monitor for conflicts
+    // Tasks working in the same path may trigger conflicts
+    monitored_paths: [
+      "./src",
+      "./tests",
+      "./docs",
+    ],
+  },
+
+  // Resource limits
+  // Control system resource usage during parallel execution
+  resources: {
+    // Maximum memory per task (in MB)
+    max_memory_per_task: 1024,
+
+    // Maximum CPU cores per task
+    // Set to 0 for unlimited (not recommended)
+    max_cores_per_task: 2,
+
+    // Nice value for task processes (0-19, higher = lower priority)
+    process_nice: 0,
+  },
+
+  // Retry configuration
+  // Automatic retry behavior for failed tasks
+  retry: {
+    // Maximum number of retry attempts per task
+    max_attempts: 3,
+
+    // Delay between retry attempts (in seconds)
+    delay_seconds: 5,
+
+    // Exponential backoff multiplier
+    // Each retry waits delay * (backoff ^ attempt_number) seconds
+    backoff_multiplier: 2,
+  },
+
+  // Isolation settings
+  // Control how tasks are isolated from each other
+  isolation: {
+    // Use temporary worktrees for task execution
+    // Provides complete isolation but requires more disk space
+    use_worktrees: false,
+
+    // Worktree base directory (relative to project root)
+    worktree_base: ".autoflow/worktrees",
+
+    // Clean up worktrees after task completion
+    cleanup_worktrees: true,
+  },
+
+  // Result aggregation
+  // Control how results from parallel tasks are combined
+  aggregation: {
+    // Include task outputs in aggregated results
+    include_outputs: true,
+
+    // Maximum output size per task (in characters)
+    // Larger outputs are truncated
+    max_output_size: 10000,
+
+    // Include error messages in aggregated results
+    include_errors: true,
+
+    // Create summary report on completion
+    create_summary: true,
+  },
+
+  // Logging and monitoring
+  logging: {
+    // Log level for parallel execution
+    // Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level: "INFO",
+
+    // Log file path (relative to state directory)
+    file: "logs/parallel.log",
+
+    // Include detailed timing information
+    timing: true,
+
+    // Log individual task start/stop events
+    task_events: true,
+  },
+
+  // Notification settings
+  // Notify on specific events during parallel execution
+  notifications: {
+    // Notify on task completion
+    on_task_complete: false,
+
+    // Notify on task failure
+    on_task_failure: true,
+
+    // Notify when all tasks complete
+    on_group_complete: true,
+
+    // Notification method: "log", "desktop", "email"
+    method: "log",
+  },
+}
