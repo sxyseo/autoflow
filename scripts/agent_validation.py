@@ -205,39 +205,41 @@ class AgentSpecValidator(BaseModel):
 
         return v
 
-    def validate_command(self) -> None:
+    def validate_command(self) -> bool:
         """
         Validate that command is in the allowlist.
 
+        Returns:
+            True if command is valid or None, False if command is not in allowlist
+
         Raises:
-            ValidationError: If command is not allowed
+            ValidationError: If command format is invalid
         """
         if self.command is None:
-            return
+            return True
 
         if self.command not in ALLOWED_COMMANDS:
-            raise ValidationError(
-                f"Command '{self.command}' is not in the allowlist of permitted commands. "
-                f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}",
-                field="command",
-            )
+            return False
 
-    def validate_transport_command(self) -> None:
+        return True
+
+    def validate_transport_command(self) -> bool:
         """
         Validate that ACP transport command is in the allowlist.
 
+        Returns:
+            True if transport command is valid or None, False if not in allowlist
+
         Raises:
-            ValidationError: If transport command is not allowed
+            ValidationError: If transport command format is invalid
         """
         if self.transport_command is None:
-            return
+            return True
 
         if self.transport_command not in ALLOWED_COMMANDS:
-            raise ValidationError(
-                f"Transport command '{self.transport_command}' is not in the allowlist. "
-                f"Allowed commands: {', '.join(sorted(ALLOWED_COMMANDS))}",
-                field="transport_command",
-            )
+            return False
+
+        return True
 
     def _check_shell_metacharacters(self, value: str, field_name: str) -> None:
         """
@@ -345,21 +347,30 @@ class AgentSpecValidator(BaseModel):
         if self.resume_args:
             self._validate_args_list(self.resume_args, "resume_args")
 
-    def validate_all(self) -> None:
+    def validate_all(self) -> bool:
         """
         Validate all fields in the agent specification.
 
         This is a convenience method that runs all validation checks.
 
+        Returns:
+            True if all validations pass, False otherwise
+
         Raises:
-            ValidationError: If any validation fails
+            ValidationError: If any validation fails with errors
         """
-        self.validate_command()
+        results = [
+            self.validate_command(),
+            self.validate_transport_command(),
+        ]
+
+        # These methods raise ValidationError on failure
         self.validate_args()
         self.validate_runtime_args()
-        self.validate_transport_command()
         self.validate_transport_args()
         self.validate_resume_args()
+
+        return all(results)
 
 
 def validate_path(
