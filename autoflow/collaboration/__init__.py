@@ -10,6 +10,7 @@ Usage:
     from autoflow.collaboration.permissions import PermissionManager
     from autoflow.collaboration.workspace import WorkspaceManager
     from autoflow.collaboration.activity import ActivityTracker
+    from autoflow.collaboration.notifications import NotificationManager
 
     # Create a user
     user = User(id="user-001", username="alice", email="alice@example.com")
@@ -33,6 +34,18 @@ Usage:
         workspace_id="workspace-001",
         description="Created new task for bug fix"
     )
+
+    # Send notifications
+    notif_manager = NotificationManager(".autoflow")
+    notif_manager.initialize()
+    notification = notif_manager.create_notification(
+        user_id="user-001",
+        notification_type=NotificationType.REVIEW_REQUEST,
+        title="Review Requested",
+        message="Please review task-001",
+        workspace_id="workspace-001"
+    )
+    notif_manager.send_notification(notification.id)
 """
 
 from autoflow.collaboration.activity import ActivityTracker
@@ -40,6 +53,7 @@ from autoflow.collaboration.models import (
     ActivityEvent,
     Notification,
     NotificationStatus,
+    NotificationType,
     Permission,
     Role,
     RoleType,
@@ -47,6 +61,7 @@ from autoflow.collaboration.models import (
     User,
     Workspace,
 )
+from autoflow.collaboration.notifications import NotificationManager
 from autoflow.collaboration.workspace import WorkspaceManager
 
 __all__ = [
@@ -59,6 +74,8 @@ __all__ = [
     "ActivityEvent",
     "Notification",
     "NotificationStatus",
+    "NotificationType",
     "WorkspaceManager",
     "ActivityTracker",
+    "NotificationManager",
 ]

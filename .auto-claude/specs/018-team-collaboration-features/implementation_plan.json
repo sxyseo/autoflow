@@ -366,7 +366,9 @@
             "command": "pytest tests/test_collaboration_activity.py -v",
             "expected": "passed"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Created comprehensive unit tests for ActivityTracker class following test_state.py patterns. Test suite includes: 1) ActivityTracker initialization tests (4 tests) - path/string initialization, directory creation, idempotent initialization, 2) Event ID generation tests (2 tests) - uniqueness and format validation, 3) Event path tests (2 tests) - path structure and different months, 4) Generic event logging tests (4 tests) - minimal/full parameters, file persistence, metadata handling, 5) Task event logging tests (7 tests) - all task events (created, updated, deleted, assigned, completed, failed), 6) Spec event logging tests (3 tests) - created, updated, deleted, 7) Review event logging tests (4 tests) - requested, submitted, approved, rejected, 8) Member and role event logging tests (3 tests) - member added/removed, role changed, 9) Workspace event logging tests (3 tests) - created, updated, deleted, 10) Query method tests (25 tests) - get_recent_activities with filters, query_activities with advanced filters, get_activities_by_user/workspace/type/date_range/entity, get_activity_count, 11) JSON operations tests (6 tests) - write/read JSON, atomic writes, parent directory creation, backup creation, 12) Backup operations tests (3 tests) - backup path generation, backup creation, nonexistent files, 13) Edge cases and error handling tests (7 tests) - multiple events same task, multiple filters, events across month boundaries, unicode support, empty/large metadata, limit zero. Total: 70 tests across 13 test classes, all passing. Tests ensure ActivityTracker correctly logs all event types, persists to date-organized directories, queries with various filters, handles atomic writes with backups, and manages edge cases properly. Also fixed a bug in activity.py where event.model_dump() did not serialize datetime objects to JSON - changed to event.model_dump(mode=\"json\"). All 70 tests passing.",
+          "updated_at": "2026-03-08T14:10:46.872530+00:00"
         }
       ]
     },
@@ -397,7 +399,8 @@
             "command": "python -c \"from autoflow.collaboration.notifications import NotificationManager; print('NotificationManager imported')\"",
             "expected": "NotificationManager imported"
           },
-          "status": "pending"
+          "status": "completed",
+          "completed_at": "2026-03-08T14:13:30.690402"
         },
         {
           "id": "subtask-5-2",
@@ -793,7 +796,7 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-08T14:07:07.167Z",
+  "updated_at": "2026-03-08T14:11:46.151Z",
   "last_updated": "2026-03-08T14:03:02.916167+00:00",
   "recoveryNote": "Task recovered from stuck state at 2026-03-08T13:43:51.783Z"
 }
