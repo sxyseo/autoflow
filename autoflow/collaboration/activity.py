@@ -1117,3 +1117,276 @@ class ActivityTracker:
                 count += len(list(date_dir.glob("*.json")))
 
         return count
+
+    def query_activities(
+        self,
+        user_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        event_type: Optional[ActivityEventType] = None,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None,
+        sort_descending: bool = True,
+    ) -> list[ActivityEvent]:
+        """
+        Query activity events with advanced filters.
+
+        Provides comprehensive filtering capabilities including user, workspace,
+        team, event type, entity, date range, and result limiting.
+
+        Args:
+            user_id: Filter by user ID who performed the action
+            workspace_id: Filter by workspace ID
+            team_id: Filter by team ID
+            event_type: Filter by event type
+            entity_type: Filter by entity type (task, spec, review, etc.)
+            entity_id: Filter by specific entity ID
+            start_date: Filter events after this date (inclusive)
+            end_date: Filter events before this date (inclusive)
+            limit: Maximum number of events to return
+            sort_descending: Sort by created_at descending if True, ascending if False
+
+        Returns:
+            List of ActivityEvent objects matching all filters, sorted by created_at
+
+        Example:
+            >>> activities = tracker.query_activities(
+            ...     workspace_id="workspace-001",
+            ...     event_type=ActivityEventType.TASK_CREATED,
+            ...     start_date=datetime(2026, 1, 1),
+            ...     limit=50
+            ... )
+        """
+        activities = []
+
+        if not self.activities_dir.exists():
+            return activities
+
+        # Walk through date directories
+        for date_dir in sorted(self.activities_dir.iterdir(), reverse=sort_descending):
+            if not date_dir.is_dir():
+                continue
+
+            for event_file in date_dir.glob("*.json"):
+                try:
+                    event_data = self._read_json(event_file)
+                    if event_data is None:
+                        continue
+
+                    # Apply all filters
+                    if user_id and event_data.get("user_id") != user_id:
+                        continue
+                    if workspace_id and event_data.get("workspace_id") != workspace_id:
+                        continue
+                    if team_id and event_data.get("team_id") != team_id:
+                        continue
+                    if event_type and event_data.get("event_type") != event_type.value:
+                        continue
+                    if entity_type and event_data.get("entity_type") != entity_type:
+                        continue
+                    if entity_id and event_data.get("entity_id") != entity_id:
+                        continue
+
+                    # Date range filtering
+                    event_date = datetime.fromisoformat(
+                        event_data.get("created_at", "").replace("Z", "+00:00")
+                    )
+                    if start_date and event_date < start_date:
+                        continue
+                    if end_date and event_date > end_date:
+                        continue
+
+                    # Convert to ActivityEvent
+                    event = ActivityEvent(**event_data)
+                    activities.append(event)
+
+                    # Check if we've reached the limit
+                    if limit is not None and len(activities) >= limit:
+                        return activities
+                except (json.JSONDecodeError, ValidationError, KeyError, ValueError):
+                    continue
+
+        # Sort by created_at
+        activities.sort(key=lambda e: e.created_at, reverse=sort_descending)
+        return activities
+
+    def get_activities_by_user(
+        self,
+        user_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> list[ActivityEvent]:
+        """
+        Get all activity events for a specific user.
+
+        Args:
+            user_id: User ID to filter by
+            start_date: Filter events after this date (inclusive)
+            end_date: Filter events before this date (inclusive)
+            limit: Maximum number of events to return
+
+        Returns:
+            List of ActivityEvent objects for the user, sorted by created_at descending
+
+        Example:
+            >>> activities = tracker.get_activities_by_user(
+            ...     user_id="user-001",
+            ...     limit=20
+            ... )
+        """
+        return self.query_activities(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            sort_descending=True,
+        )
+
+    def get_activities_by_workspace(
+        self,
+        workspace_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> list[ActivityEvent]:
+        """
+        Get all activity events for a specific workspace.
+
+        Args:
+            workspace_id: Workspace ID to filter by
+            start_date: Filter events after this date (inclusive)
+            end_date: Filter events before this date (inclusive)
+            limit: Maximum number of events to return
+
+        Returns:
+            List of ActivityEvent objects for the workspace, sorted by created_at descending
+
+        Example:
+            >>> activities = tracker.get_activities_by_workspace(
+            ...     workspace_id="workspace-001",
+            ...     limit=50
+            ... )
+        """
+        return self.query_activities(
+            workspace_id=workspace_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            sort_descending=True,
+        )
+
+    def get_activities_by_type(
+        self,
+        event_type: ActivityEventType,
+        workspace_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> list[ActivityEvent]:
+        """
+        Get all activity events of a specific type.
+
+        Args:
+            event_type: Event type to filter by
+            workspace_id: Optional workspace ID to further filter
+            start_date: Filter events after this date (inclusive)
+            end_date: Filter events before this date (inclusive)
+            limit: Maximum number of events to return
+
+        Returns:
+            List of ActivityEvent objects of the specified type, sorted by created_at descending
+
+        Example:
+            >>> activities = tracker.get_activities_by_type(
+            ...     event_type=ActivityEventType.TASK_COMPLETED,
+            ...     workspace_id="workspace-001"
+            ... )
+        """
+        return self.query_activities(
+            event_type=event_type,
+            workspace_id=workspace_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            sort_descending=True,
+        )
+
+    def get_activities_in_date_range(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        workspace_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[ActivityEvent]:
+        """
+        Get all activity events within a specific date range.
+
+        Args:
+            start_date: Start of date range (inclusive)
+            end_date: End of date range (inclusive)
+            workspace_id: Optional workspace ID to filter
+            team_id: Optional team ID to filter
+            limit: Maximum number of events to return
+
+        Returns:
+            List of ActivityEvent objects within the date range, sorted by created_at descending
+
+        Example:
+            >>> from datetime import datetime, timedelta
+            >>> end = datetime.utcnow()
+            >>> start = end - timedelta(days=7)
+            >>> activities = tracker.get_activities_in_date_range(
+            ...     start_date=start,
+            ...     end_date=end,
+            ...     workspace_id="workspace-001"
+            ... )
+        """
+        return self.query_activities(
+            start_date=start_date,
+            end_date=end_date,
+            workspace_id=workspace_id,
+            team_id=team_id,
+            limit=limit,
+            sort_descending=True,
+        )
+
+    def get_activities_for_entity(
+        self,
+        entity_type: str,
+        entity_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> list[ActivityEvent]:
+        """
+        Get all activity events for a specific entity (task, spec, etc.).
+
+        Args:
+            entity_type: Type of entity (task, spec, review, etc.)
+            entity_id: ID of the entity
+            start_date: Filter events after this date (inclusive)
+            end_date: Filter events before this date (inclusive)
+            limit: Maximum number of events to return
+
+        Returns:
+            List of ActivityEvent objects for the entity, sorted by created_at descending
+
+        Example:
+            >>> activities = tracker.get_activities_for_entity(
+            ...     entity_type="task",
+            ...     entity_id="task-001"
+            ... )
+        """
+        return self.query_activities(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            sort_descending=True,
+        )
