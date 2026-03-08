@@ -337,6 +337,148 @@ class AgentRunnerTests(unittest.TestCase):
             )
         self.assertIn("Invalid agent specification", str(cm.exception))
 
+    def test_acp_transport_validation(self) -> None:
+        """Test comprehensive ACP transport validation."""
+        # Test valid ACP transport configurations
+        valid_transports = [
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": ["--serve"],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "codex",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": ["--port", "8080", "--verbose"],
+                    "prompt_mode": "argv"
+                },
+            },
+        ]
+        for spec in valid_transports:
+            with self.subTest(transport=spec["transport"]):
+                command = self.module.build_command(
+                    spec,
+                    str(self.prompt_file),
+                    run_metadata=None,
+                )
+                # Should not raise and should return a valid command list
+                self.assertIsInstance(command, list)
+                self.assertGreater(len(command), 0)
+
+        # Test invalid ACP transport commands
+        invalid_transport_commands = [
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "rm -rf /",
+                    "args": [],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "malware",
+                    "args": [],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "evil && pwn",
+                    "args": [],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "",
+                    "args": [],
+                    "prompt_mode": "argv"
+                },
+            },
+        ]
+        for spec in invalid_transport_commands:
+            with self.subTest(transport_command=spec["transport"]["command"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+        # Test invalid ACP transport arguments
+        invalid_transport_args = [
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": ["--exec", "evil()"],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": ["|", "rm", "-rf"],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": ["&&", "malware"],
+                    "prompt_mode": "argv"
+                },
+            },
+            {
+                "command": "claude",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "acp-agent",
+                    "args": [";evil"],
+                    "prompt_mode": "argv"
+                },
+            },
+        ]
+        for spec in invalid_transport_args:
+            with self.subTest(transport_args=spec["transport"]["args"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
     def test_path_traversal_prevented(self) -> None:
         """Test that path traversal attacks are prevented."""
         from scripts.agent_validation import validate_path, ValidationError
