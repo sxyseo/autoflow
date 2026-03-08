@@ -79,16 +79,24 @@ class BMADCheckpoint:
         return [a for a in self.artifacts if not a.required]
 
     def validate(self, root: Optional[Path | str] = None) -> list[str]:
-        """Validate that all required artifacts are present.
+        """Validate checkpoint configuration and required artifacts.
+
+        This performs two levels of validation:
+        1. Checkpoint configuration validation (role names, etc.)
+        2. Artifact validation (files exist on filesystem)
 
         Args:
             root: Root directory for path resolution. Can be Path or string.
                   Defaults to current working directory.
 
         Returns:
-            List of validation errors (empty if all required artifacts present).
+            List of validation errors (empty if valid).
         """
         errors: list[str] = []
+
+        # Validate checkpoint configuration
+        config_errors = self._validate_config()
+        errors.extend(config_errors)
 
         # Convert root to Path if needed
         root_path = Path(root) if root else None
@@ -98,6 +106,31 @@ class BMADCheckpoint:
             artifact_errors = artifact.validate(root_path)
             if artifact_errors:
                 errors.extend(artifact_errors)
+
+        return errors
+
+    def _validate_config(self) -> list[str]:
+        """Validate checkpoint configuration.
+
+        Returns:
+            List of configuration validation errors (empty if valid).
+        """
+        errors: list[str] = []
+
+        # Check that from_role is not empty
+        if not self.from_role or not self.from_role.strip():
+            errors.append("from_role cannot be empty")
+
+        # Check that to_role is not empty
+        if not self.to_role or not self.to_role.strip():
+            errors.append("to_role cannot be empty")
+
+        # Check that from_role and to_role are not the same
+        if self.from_role and self.to_role and self.from_role == self.to_role:
+            errors.append(
+                f"from_role and to_role cannot be the same "
+                f"(both are '{self.from_role}')"
+            )
 
         return errors
 
