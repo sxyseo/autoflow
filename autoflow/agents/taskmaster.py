@@ -515,6 +515,110 @@ class TaskmasterAPIClient:
 
         return tasks
 
+    async def update_task(
+        self,
+        task_id: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        status: Optional[TaskmasterTaskStatus] = None,
+        priority: Optional[int] = None,
+        assigned_to: Optional[str] = None,
+        project_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        labels: Optional[list[str]] = None,
+        dependencies: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> TaskmasterTask:
+        """
+        Update a task in the Taskmaster API.
+
+        Updates the specified task with the provided fields. Only the fields
+        that are explicitly set (not None) will be updated. All other fields
+        will remain unchanged.
+
+        Args:
+            task_id: ID of the task to update
+            title: New title for the task
+            description: New description for the task
+            status: New status for the task
+            priority: New priority level (1-10)
+            assigned_to: ID of the agent/user to assign the task to
+            project_id: New project ID for the task
+            parent_task_id: New parent task ID (for subtasks)
+            labels: New list of labels/tags
+            dependencies: New list of task IDs this task depends on
+            metadata: New metadata dictionary (will be merged)
+
+        Returns:
+            Updated TaskmasterTask object with all current field values
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+            httpx.TimeoutException: If the request times out
+            httpx.HTTPError: For other HTTP-related errors
+            ValueError: If the response data is invalid
+
+        Example:
+            >>> # Update task status
+            >>> task = await client.update_task(
+            ...     task_id="task-123",
+            ...     status=TaskmasterTaskStatus.IN_PROGRESS
+            ... )
+            >>>
+            >>> # Update multiple fields
+            >>> task = await client.update_task(
+            ...     task_id="task-123",
+            ...     title="Updated title",
+            ...     priority=8,
+            ...     labels=["urgent", "bug-fix"]
+            ... )
+        """
+        # Build the endpoint path
+        if self.config.workspace_id:
+            endpoint = f"/workspaces/{self.config.workspace_id}/tasks/{task_id}"
+        else:
+            endpoint = f"/tasks/{task_id}"
+
+        # Build update payload with only non-None fields
+        payload: dict[str, Any] = {}
+
+        if title is not None:
+            payload["title"] = title
+        if description is not None:
+            payload["description"] = description
+        if status is not None:
+            payload["status"] = status.value
+        if priority is not None:
+            payload["priority"] = priority
+        if assigned_to is not None:
+            payload["assigned_to"] = assigned_to
+        if project_id is not None:
+            payload["project_id"] = project_id
+        if parent_task_id is not None:
+            payload["parent_task_id"] = parent_task_id
+        if labels is not None:
+            payload["labels"] = labels
+        if dependencies is not None:
+            payload["dependencies"] = dependencies
+        if metadata is not None:
+            payload["metadata"] = metadata
+
+        # Make the request
+        response_data = await self.put(endpoint, json=payload)
+
+        # Parse the response
+        # The API might return {"task": {...}} or just {...} at the top level
+        if isinstance(response_data, dict):
+            task_data = response_data.get("task", response_data)
+        else:
+            raise ValueError(f"Unexpected response format: {type(response_data)}")
+
+        # Convert to TaskmasterTask object
+        try:
+            return TaskmasterTask(**task_data)
+        except Exception as e:
+            raise ValueError(f"Failed to parse task data: {e}")
+
     async def check_health(self) -> bool:
         """
         Check if the Taskmaster API is accessible.
