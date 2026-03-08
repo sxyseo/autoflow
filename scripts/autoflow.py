@@ -1743,17 +1743,21 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
 
 def create_worktree(args: argparse.Namespace) -> None:
     ensure_state()
-    path = worktree_path(args.spec)
+    repository = getattr(args, "repository", None)
+    path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
 
     if path.exists():
-        metadata["worktree"] = {
+        worktree_metadata = {
             "path": str(path),
             "branch": branch,
             "base_branch": base_branch,
         }
+        if repository:
+            worktree_metadata["repository"] = repository
+        metadata["worktree"] = worktree_metadata
         write_json(spec_files(args.spec)["metadata"], metadata)
         print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
         return
@@ -1767,11 +1771,14 @@ def create_worktree(args: argparse.Namespace) -> None:
     else:
         run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch])
 
-    metadata["worktree"] = {
+    worktree_metadata = {
         "path": str(path),
         "branch": branch,
         "base_branch": base_branch,
     }
+    if repository:
+        worktree_metadata["repository"] = repository
+    metadata["worktree"] = worktree_metadata
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.created", metadata["worktree"])
     print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
@@ -1925,6 +1932,7 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
     worktree_create_cmd.add_argument("--spec", required=True)
     worktree_create_cmd.add_argument("--base-branch", default="")
+    worktree_create_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
     worktree_create_cmd.set_defaults(func=create_worktree)
 
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
