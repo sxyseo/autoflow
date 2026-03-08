@@ -99,6 +99,14 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class DistributedConfig(BaseModel):
+    """Distributed node configuration for multi-node coordination."""
+
+    node_id: Optional[str] = None  # Auto-generated if not provided
+    listen_address: str = "localhost:8080"
+    seed_nodes: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -110,6 +118,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    distributed: DistributedConfig = Field(default_factory=DistributedConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
