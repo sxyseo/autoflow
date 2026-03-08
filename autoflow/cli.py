@@ -31,6 +31,8 @@ import click
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
+from autoflow.collaboration.workspace import WorkspaceManager
+from autoflow.collaboration.models import RoleType
 
 
 # Click context settings
@@ -1098,6 +1100,558 @@ def memory_delete(ctx: click.Context, key: str) -> None:
             click.echo(f"Deleted: {key}")
     else:
         click.echo(f"Error: Memory '{key}' not found.", err=True)
+        ctx.exit(1)
+
+
+# === Workspace Commands ===
+
+@main.group()
+def workspace() -> None:
+    """Manage workspaces for team collaboration."""
+    pass
+
+
+@workspace.command("create")
+@click.argument("workspace_id", type=str)
+@click.argument("name", type=str)
+@click.argument("team_id", type=str)
+@click.option(
+    "--description",
+    "-d",
+    type=str,
+    default="",
+    help="Workspace description.",
+)
+@click.option(
+    "--settings",
+    "-s",
+    type=str,
+    default=None,
+    help="Workspace settings as JSON string.",
+)
+@click.pass_context
+def workspace_create(
+    ctx: click.Context,
+    workspace_id: str,
+    name: str,
+    team_id: str,
+    description: str,
+    settings: Optional[str],
+) -> None:
+    """
+    Create a new workspace.
+
+    Creates a shared workspace for team collaboration with role-based access control.
+
+    \b
+    Examples:
+        autoflow workspace create workspace-001 "Project X" team-001
+        autoflow workspace create workspace-002 "Main Project" team-001 --description "Primary workspace"
+        autoflow workspace create workspace-003 "Dev Team" team-002 --settings '{"private": true}'
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Parse settings if provided
+        settings_dict = {}
+        if settings:
+            try:
+                settings_dict = json.loads(settings)
+            except json.JSONDecodeError as e:
+                click.echo(f"Error: Invalid JSON in settings: {e}", err=True)
+                ctx.exit(1)
+
+        # Create workspace
+        workspace = manager.create_workspace(
+            workspace_id=workspace_id,
+            name=name,
+            team_id=team_id,
+            description=description,
+            settings=settings_dict if settings_dict else None,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "created",
+                "workspace": workspace.model_dump(mode="json"),
+            })
+        else:
+            click.echo(f"Created workspace: {workspace.id}")
+            click.echo(f"  Name: {workspace.name}")
+            click.echo(f"  Team: {workspace.team_id}")
+            if description:
+                click.echo(f"  Description: {description}")
+            click.echo(f"  Created: {_format_datetime(workspace.created_at)}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error creating workspace: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("list")
+@click.option(
+    "--team",
+    "-t",
+    "team_id",
+    type=str,
+    default=None,
+    help="Filter by team ID.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of workspaces to show.",
+)
+@click.pass_context
+def workspace_list(
+    ctx: click.Context,
+    team_id: Optional[str],
+    limit: int,
+) -> None:
+    """
+    List workspaces.
+
+    Shows all workspaces, optionally filtered by team.
+
+    \b
+    Examples:
+        autoflow workspace list
+        autoflow workspace list --team team-001
+        autoflow workspace list --limit 50
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        workspaces = manager.list_workspaces(team_id=team_id, limit=limit)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "workspaces": [ws.model_dump(mode="json") for ws in workspaces],
+                "count": len(workspaces),
+            })
+            return
+
+        click.echo("Workspaces")
+        click.echo("=" * 60)
+
+        if not workspaces:
+            click.echo("No workspaces found.")
+            return
+
+        for workspace in workspaces:
+            click.echo(f"\n[{workspace.id}] {workspace.name}")
+            click.echo(f"  Team: {workspace.team_id}")
+            if workspace.description:
+                click.echo(f"  Description: {workspace.description}")
+            click.echo(f"  Created: {_format_datetime(workspace.created_at)}")
+
+    except Exception as e:
+        click.echo(f"Error listing workspaces: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("show")
+@click.argument("workspace_id", type=str)
+@click.pass_context
+def workspace_show(ctx: click.Context, workspace_id: str) -> None:
+    """
+    Show details of a specific workspace.
+
+    Displays detailed information about a workspace including settings and metadata.
+
+    \b
+    Examples:
+        autoflow workspace show workspace-001
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        workspace = manager.get_workspace(workspace_id)
+
+        if not workspace:
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            _print_json(workspace.model_dump(mode="json"))
+            return
+
+        click.echo(f"Workspace: {workspace.id}")
+        click.echo("=" * 60)
+        click.echo(f"Name: {workspace.name}")
+        click.echo(f"Team: {workspace.team_id}")
+        click.echo(f"Description: {workspace.description or 'N/A'}")
+        click.echo(f"Created: {_format_datetime(workspace.created_at)}")
+        click.echo(f"Updated: {_format_datetime(workspace.updated_at)}")
+
+        if workspace.settings:
+            click.echo("\nSettings:")
+            for key, value in workspace.settings.items():
+                click.echo(f"  {key}: {value}")
+
+        if workspace.metadata:
+            click.echo("\nMetadata:")
+            for key, value in workspace.metadata.items():
+                click.echo(f"  {key}: {value}")
+
+    except Exception as e:
+        click.echo(f"Error showing workspace: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("delete")
+@click.argument("workspace_id", type=str)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force deletion without confirmation.",
+)
+@click.pass_context
+def workspace_delete(ctx: click.Context, workspace_id: str, force: bool) -> None:
+    """
+    Delete a workspace.
+
+    Permanently deletes a workspace and all its associated data.
+
+    \b
+    Examples:
+        autoflow workspace delete workspace-001
+        autoflow workspace delete workspace-001 --force
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Check if workspace exists
+        if not manager.workspace_exists(workspace_id):
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Confirm deletion
+        if not force:
+            click.echo(f"This will delete workspace: {workspace_id}")
+            if not click.confirm("Are you sure?"):
+                click.echo("Deletion cancelled.")
+                ctx.exit(0)
+
+        # Delete workspace
+        deleted = manager.delete_workspace(workspace_id)
+
+        if deleted:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "deleted",
+                    "workspace_id": workspace_id,
+                })
+            else:
+                click.echo(f"Deleted workspace: {workspace_id}")
+        else:
+            click.echo(f"Error: Failed to delete workspace '{workspace_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error deleting workspace: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("members")
+@click.argument("workspace_id", type=str)
+@click.option(
+    "--role",
+    "-r",
+    "role_filter",
+    type=click.Choice([r.value for r in RoleType]),
+    default=None,
+    help="Filter by role type.",
+)
+@click.pass_context
+def workspace_members(
+    ctx: click.Context,
+    workspace_id: str,
+    role_filter: Optional[str],
+) -> None:
+    """
+    List members of a workspace.
+
+    Shows all members with their roles, optionally filtered by role type.
+
+    \b
+    Examples:
+        autoflow workspace members workspace-001
+        autoflow workspace members workspace-001 --role admin
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Check if workspace exists
+        if not manager.workspace_exists(workspace_id):
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Parse role filter
+        role_enum = RoleType(role_filter) if role_filter else None
+
+        # Get members
+        members = manager.list_members(workspace_id, role_type=role_enum)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "workspace_id": workspace_id,
+                "members": [m.model_dump(mode="json") for m in members],
+                "count": len(members),
+            })
+            return
+
+        click.echo(f"Members of {workspace_id}")
+        click.echo("=" * 60)
+
+        if not members:
+            click.echo("No members found.")
+            return
+
+        for member in members:
+            click.echo(f"\n{member.user_id}")
+            click.echo(f"  Role: {member.role_type.value}")
+            if member.granted_by:
+                click.echo(f"  Granted by: {member.granted_by}")
+            click.echo(f"  Granted: {_format_datetime(member.granted_at)}")
+            if member.expires_at:
+                click.echo(f"  Expires: {_format_datetime(member.expires_at)}")
+
+    except Exception as e:
+        click.echo(f"Error listing members: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("add-member")
+@click.argument("workspace_id", type=str)
+@click.argument("user_id", type=str)
+@click.option(
+    "--role",
+    "-r",
+    "role_type",
+    type=click.Choice([r.value for r in RoleType]),
+    default=RoleType.MEMBER.value,
+    help="Role to assign (default: member).",
+)
+@click.option(
+    "--granted-by",
+    "-g",
+    type=str,
+    default=None,
+    help="User ID who is granting this role.",
+)
+@click.pass_context
+def workspace_add_member(
+    ctx: click.Context,
+    workspace_id: str,
+    user_id: str,
+    role_type: str,
+    granted_by: Optional[str],
+) -> None:
+    """
+    Add a member to a workspace.
+
+    Adds a user to a workspace with the specified role.
+
+    \b
+    Examples:
+        autoflow workspace add-member workspace-001 user-001
+        autoflow workspace add-member workspace-001 user-002 --role admin
+        autoflow workspace add-member workspace-001 user-003 --role reviewer --granted-by user-001
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Check if workspace exists
+        if not manager.workspace_exists(workspace_id):
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Add member
+        role = manager.add_member(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role_type=RoleType(role_type),
+            granted_by=granted_by,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "added",
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "role": role.model_dump(mode="json"),
+            })
+        else:
+            click.echo(f"Added member to workspace: {workspace_id}")
+            click.echo(f"  User: {user_id}")
+            click.echo(f"  Role: {role.role_type.value}")
+            click.echo(f"  Granted: {_format_datetime(role.granted_at)}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Error adding member: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("remove-member")
+@click.argument("workspace_id", type=str)
+@click.argument("user_id", type=str)
+@click.pass_context
+def workspace_remove_member(
+    ctx: click.Context,
+    workspace_id: str,
+    user_id: str,
+) -> None:
+    """
+    Remove a member from a workspace.
+
+    Removes a user's membership and all associated permissions from a workspace.
+
+    \b
+    Examples:
+        autoflow workspace remove-member workspace-001 user-001
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Check if workspace exists
+        if not manager.workspace_exists(workspace_id):
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Remove member
+        removed = manager.remove_member(workspace_id, user_id)
+
+        if removed:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "removed",
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                })
+            else:
+                click.echo(f"Removed member from workspace: {workspace_id}")
+                click.echo(f"  User: {user_id}")
+        else:
+            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error removing member: {e}", err=True)
+        ctx.exit(1)
+
+
+@workspace.command("update-member")
+@click.argument("workspace_id", type=str)
+@click.argument("user_id", type=str)
+@click.option(
+    "--role",
+    "-r",
+    "role_type",
+    type=click.Choice([r.value for r in RoleType]),
+    required=True,
+    help="New role type.",
+)
+@click.option(
+    "--granted-by",
+    "-g",
+    type=str,
+    default=None,
+    help="User ID who is granting this role.",
+)
+@click.pass_context
+def workspace_update_member(
+    ctx: click.Context,
+    workspace_id: str,
+    user_id: str,
+    role_type: str,
+    granted_by: Optional[str],
+) -> None:
+    """
+    Update a member's role in a workspace.
+
+    Changes the role of an existing workspace member.
+
+    \b
+    Examples:
+        autoflow workspace update-member workspace-001 user-001 --role admin
+        autoflow workspace update-member workspace-001 user-002 --role reviewer --granted-by user-001
+    """
+    config: Config = ctx.obj["config"]
+    state_dir = get_state_dir(config)
+
+    try:
+        manager = WorkspaceManager(state_dir)
+        manager.initialize()
+
+        # Check if workspace exists
+        if not manager.workspace_exists(workspace_id):
+            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
+            ctx.exit(1)
+
+        # Update member role
+        role = manager.update_member_role(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role_type=RoleType(role_type),
+            granted_by=granted_by,
+        )
+
+        if role:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "updated",
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "role": role.model_dump(mode="json"),
+                })
+            else:
+                click.echo(f"Updated member role in workspace: {workspace_id}")
+                click.echo(f"  User: {user_id}")
+                click.echo(f"  New role: {role.role_type.value}")
+        else:
+            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        click.echo(f"Error updating member: {e}", err=True)
         ctx.exit(1)
 
 
