@@ -8,6 +8,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,11 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# Add ROOT to Python path for imports
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from autoflow.core.repository import RepositoryManager
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -1907,6 +1913,64 @@ def repo_list_cmd(_: argparse.Namespace) -> None:
     print(json.dumps(items, indent=2, ensure_ascii=True))
 
 
+def repo_validate_cmd(args: argparse.Namespace) -> None:
+    """Validate repositories and dependencies."""
+    ensure_state()
+
+    # Create repository manager
+    manager = RepositoryManager(STATE_DIR)
+
+    # Check if validating specific repository or all
+    if args.repo:
+        # Validate single repository
+        errors = manager.validate(args.repo)
+        if errors:
+            print(f"❌ Repository '{args.repo}' validation failed:")
+            for error in errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print(f"✅ Repository '{args.repo}' is valid")
+    else:
+        # Validate all repositories and dependencies
+        print("Validating repositories...")
+        repo_results = manager.validate_all()
+
+        # Count errors
+        total_repos = len(repo_results)
+        invalid_repos = {repo_id: errs for repo_id, errs in repo_results.items() if errs}
+        valid_repos = total_repos - len(invalid_repos)
+
+        # Print repository results
+        if invalid_repos:
+            print(f"\n❌ Found {len(invalid_repos)} invalid repositories:")
+            for repo_id, errors in invalid_repos.items():
+                print(f"\n  {repo_id}:")
+                for error in errors:
+                    print(f"    - {error}")
+        else:
+            if total_repos > 0:
+                print(f"✅ All {total_repos} repositories are valid")
+            else:
+                print("⚠️  No repositories registered")
+
+        # Validate dependencies
+        print("\nValidating dependencies...")
+        dep_errors = manager.validate_dependencies()
+
+        if dep_errors:
+            print(f"❌ Found {len(dep_errors)} dependency errors:")
+            for error in dep_errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print("✅ All dependencies are valid")
+
+        # Exit with error if any repositories are invalid
+        if invalid_repos:
+            raise SystemExit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1998,6 +2062,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     repo_list_cmd_parser = sub.add_parser("repo-list", help="list all registered repositories")
     repo_list_cmd_parser.set_defaults(func=repo_list_cmd)
+
+    repo_validate_cmd_parser = sub.add_parser("repo-validate", help="validate repositories and dependencies")
+    repo_validate_cmd_parser.add_argument("--repo", default="", help="validate specific repository (validates all if not specified)")
+    repo_validate_cmd_parser.set_defaults(func=repo_validate_cmd)
 
     init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
     init_system_cmd.set_defaults(func=init_system_config)
