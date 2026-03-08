@@ -151,6 +151,7 @@ class StateManager:
     Provides atomic file operations with crash safety using the
     write-to-temporary-and-rename pattern. State is organized into:
     - specs/: Specification documents
+    - specs_archive/: Archived specification documents
     - tasks/: Task definitions and state
     - runs/: Agent execution runs
     - memory/: Persistent memory/context
@@ -171,6 +172,7 @@ class StateManager:
 
     # Subdirectories within state directory
     SPECS_DIR = "specs"
+    SPECS_ARCHIVE_DIR = "specs_archive"
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
@@ -191,6 +193,11 @@ class StateManager:
     def specs_dir(self) -> Path:
         """Path to specs directory."""
         return self.state_dir / self.SPECS_DIR
+
+    @property
+    def archive_dir(self) -> Path:
+        """Path to specs archive directory."""
+        return self.state_dir / self.SPECS_ARCHIVE_DIR
 
     @property
     def tasks_dir(self) -> Path:
@@ -222,6 +229,7 @@ class StateManager:
         # Create main directories
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.specs_dir.mkdir(exist_ok=True)
+        self.archive_dir.mkdir(exist_ok=True)
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
