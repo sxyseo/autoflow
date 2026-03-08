@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -23,12 +24,108 @@ from typing import Optional
 
 from autoflow.core.config import Config, load_config
 from autoflow.core.state import StateManager
-from autoflow.git.conflict_resolver import ConflictResolver, ConflictResolutionType
+from autoflow.git.conflict_resolver import (
+    ConflictResolver,
+    ConflictResolutionType,
+)
 from autoflow.git.operations import GitOperations, create_git_operations
 from autoflow.git.pr_manager import PRManager, PRRefreshStatus
 from autoflow.scheduler.jobs import JobResult
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_conflict_task_id(
+    pr_number: int,
+    index: int = 0,
+) -> str:
+    """
+    Generate a unique task ID for a conflict fix task.
+
+    Args:
+        pr_number: Pull request number
+        index: Index of the conflict task for this PR
+
+    Returns:
+        Unique task ID string
+    """
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"fix-conflict-pr{pr_number}-{timestamp}-{index:03d}"
+
+
+def _create_conflict_fix_task(
+    pr_number: int,
+    branch: str,
+    base_branch: str,
+    conflict_context: dict[str, any],
+    task_id: str,
+) -> dict[str, any]:
+    """
+    Create a fix task dictionary from conflict context.
+
+    Args:
+        pr_number: Pull request number
+        branch: PR branch name
+        base_branch: Base branch name
+        conflict_context: Conflict context from resolver
+        task_id: Unique task identifier
+
+    Returns:
+        Task dictionary
+    """
+    # Determine priority based on number of conflicts
+    total_conflicts = conflict_context.get("total_conflicts", 0)
+    if total_conflicts > 10:
+        priority = "critical"
+    elif total_conflicts > 5:
+        priority = "high"
+    elif total_conflicts > 1:
+        priority = "medium"
+    else:
+        priority = "low"
+
+    # Build description
+    conflicted_files = conflict_context.get("conflicted_files", [])
+    files_str = ", ".join(conflicted_files[:3])
+    if len(conflicted_files) > 3:
+        files_str += f" and {len(conflicted_files) - 3} more"
+
+    task = {
+        "task_id": task_id,
+        "type": "fix",
+        "status": "pending",
+        "priority": priority,
+        "agent": "implementation-runner",
+        "created_at": datetime.now().isoformat(),
+        "title": f"Resolve merge conflicts in PR #{pr_number}",
+        "description": (
+            f"PR #{pr_number} ({branch} → {base_branch}) has "
+            f"{total_conflicts} conflict(s) in {len(conflicted_files)} file(s): {files_str}"
+        ),
+        "conflict": {
+            "pr_number": pr_number,
+            "branch": branch,
+            "base_branch": base_branch,
+            "total_conflicts": total_conflicts,
+            "conflicted_files": conflicted_files,
+            "file_details": conflict_context.get("file_details", {}),
+            "suggested_approach": conflict_context.get("suggested_approach", "standard_manual"),
+        },
+        "actions": [
+            {
+                "type": "resolve_conflicts",
+                "description": "Resolve merge conflicts in the affected files",
+                "conflicted_files": conflicted_files,
+            },
+            {
+                "type": "verify",
+                "description": "Run tests and checks to verify the fix",
+                "command": "python scripts/run_tests.py",
+            },
+        ],
+    }
+
+    return task
 
 
 async def refresh_prs(
@@ -95,6 +192,7 @@ async def refresh_prs(
                 "prs_refreshed": 0,
                 "prs_failed": 0,
                 "prs_with_conflicts": 0,
+                "fix_tasks_created": 0,
             }
             logger.info("No PRs need refresh")
             return result
@@ -103,6 +201,7 @@ async def refresh_prs(
         prs_refreshed = 0
         prs_failed = 0
         prs_with_conflicts = 0
+        fix_tasks_created = 0
 
         for pr_state in stale_prs:
             pr_number = pr_state.pr_number
@@ -196,13 +295,49 @@ async def refresh_prs(
                                     pr_number,
                                 )
                             except Exception as e:
-                                # Resolution failed, abort
+                                # Resolution failed, abort - create fix task
                                 git_ops.rebase_abort()
-                                pr_manager.update_pr_refresh_state(
-                                    pr_number,
-                                    PRRefreshStatus.CONFLICT_DETECTED,
-                                    error=str(e),
-                                )
+
+                                # Extract conflict context for fix task
+                                try:
+                                    conflict_context = resolver.extract_conflict_context()
+                                    task_id = _generate_conflict_task_id(pr_number)
+                                    task = _create_conflict_fix_task(
+                                        pr_number=pr_number,
+                                        branch=branch,
+                                        base_branch=base_branch,
+                                        conflict_context=conflict_context,
+                                        task_id=task_id,
+                                    )
+
+                                    # Save fix task
+                                    state = StateManager(state_dir or Path(config.state_dir))
+                                    state.save_task(task_id, task)
+                                    fix_tasks_created += 1
+
+                                    logger.info(
+                                        "Created fix task %s for PR #%d conflicts",
+                                        task_id,
+                                        pr_number,
+                                    )
+
+                                    pr_manager.update_pr_refresh_state(
+                                        pr_number,
+                                        PRRefreshStatus.CONFLICT_DETECTED,
+                                        error=f"Rebase continue failed: {e}. Fix task created: {task_id}",
+                                    )
+                                except Exception as task_error:
+                                    logger.error(
+                                        "Failed to create fix task for PR #%d: %s",
+                                        pr_number,
+                                        task_error,
+                                    )
+                                    pr_manager.update_pr_refresh_state(
+                                        pr_number,
+                                        PRRefreshStatus.CONFLICT_DETECTED,
+                                        error=str(e),
+                                    )
+
                                 prs_with_conflicts += 1
                                 logger.warning(
                                     "Failed to resolve conflicts in PR #%d: %s",
@@ -210,13 +345,49 @@ async def refresh_prs(
                                     e,
                                 )
                         else:
-                            # Automatic resolution failed
+                            # Automatic resolution failed - create fix task
                             git_ops.rebase_abort()
-                            pr_manager.update_pr_refresh_state(
-                                pr_number,
-                                PRRefreshStatus.CONFLICT_DETECTED,
-                                error="Automatic conflict resolution failed",
-                            )
+
+                            # Extract conflict context for fix task
+                            try:
+                                conflict_context = resolver.extract_conflict_context()
+                                task_id = _generate_conflict_task_id(pr_number)
+                                task = _create_conflict_fix_task(
+                                    pr_number=pr_number,
+                                    branch=branch,
+                                    base_branch=base_branch,
+                                    conflict_context=conflict_context,
+                                    task_id=task_id,
+                                )
+
+                                # Save fix task
+                                state = StateManager(state_dir or Path(config.state_dir))
+                                state.save_task(task_id, task)
+                                fix_tasks_created += 1
+
+                                logger.info(
+                                    "Created fix task %s for PR #%d conflicts",
+                                    task_id,
+                                    pr_number,
+                                )
+
+                                pr_manager.update_pr_refresh_state(
+                                    pr_number,
+                                    PRRefreshStatus.CONFLICT_DETECTED,
+                                    error=f"Automatic conflict resolution failed. Fix task created: {task_id}",
+                                )
+                            except Exception as task_error:
+                                logger.error(
+                                    "Failed to create fix task for PR #%d: %s",
+                                    pr_number,
+                                    task_error,
+                                )
+                                pr_manager.update_pr_refresh_state(
+                                    pr_number,
+                                    PRRefreshStatus.CONFLICT_DETECTED,
+                                    error="Automatic conflict resolution failed",
+                                )
+
                             prs_with_conflicts += 1
                             logger.warning(
                                 "Automatic conflict resolution failed for PR #%d",
@@ -268,6 +439,8 @@ async def refresh_prs(
         ]
         if prs_with_conflicts > 0:
             output_parts.append(f"{prs_with_conflicts} with conflicts")
+        if fix_tasks_created > 0:
+            output_parts.append(f"{fix_tasks_created} fix tasks created")
         if prs_failed > 0:
             output_parts.append(f"{prs_failed} failed")
 
@@ -297,13 +470,15 @@ async def refresh_prs(
             "prs_refreshed": prs_refreshed,
             "prs_failed": prs_failed,
             "prs_with_conflicts": prs_with_conflicts,
+            "fix_tasks_created": fix_tasks_created,
         }
 
         logger.info(
-            "PR refresh complete: %d refreshed, %d conflicts, %d failed",
+            "PR refresh complete: %d refreshed, %d conflicts, %d failed, %d fix tasks created",
             prs_refreshed,
             prs_with_conflicts,
             prs_failed,
+            fix_tasks_created,
         )
 
     except Exception as e:
