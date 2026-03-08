@@ -250,6 +250,7 @@ class AutoflowOrchestrator:
         self._work_queue: Optional[DistributedWorkQueue] = None
         self._load_balancer: Optional[LoadBalancer] = None
         self._cluster_enabled: bool = False
+        self._local_node_id: Optional[str] = None
 
         if auto_initialize:
             asyncio.create_task(self.initialize())
@@ -355,6 +356,13 @@ class AutoflowOrchestrator:
         """Check if cluster mode is enabled."""
         return self._cluster_enabled
 
+    @property
+    def local_node(self) -> Optional[Node]:
+        """Get the local node if cluster mode is enabled."""
+        if not self._cluster_enabled or self._local_node_id is None:
+            return None
+        return self.node_registry.lookup(self._local_node_id)
+
     def _get_available_adapters(self) -> dict[str, AgentAdapter]:
         """
         Get dictionary of available agent adapters.
@@ -427,6 +435,103 @@ class AutoflowOrchestrator:
         except Exception as e:
             self._status = OrchestratorStatus.ERROR
             raise OrchestratorError(f"Initialization failed: {e}") from e
+
+    async def initialize_cluster(
+        self,
+        node_id: Optional[str] = None,
+        node_address: Optional[str] = None,
+        capabilities: Optional[list[str]] = None,
+    ) -> Node:
+        """
+        Initialize cluster mode and register the local node.
+
+        This method sets up distributed coordination by:
+        1. Initializing the work queue directory structure
+        2. Creating and registering the local node
+        3. Enabling cluster mode for distributed execution
+        4. Setting up node capabilities based on available adapters
+
+        Args:
+            node_id: Optional node ID. If None, generates a unique ID.
+            node_address: Optional network address (host:port). If None,
+                         uses "localhost:0" to indicate auto-discovery.
+            capabilities: Optional list of capabilities. If None, auto-detects
+                         from available adapters (e.g., "claude-code", "codex").
+
+        Returns:
+            The registered Node object
+
+        Raises:
+            OrchestratorError: If cluster initialization fails
+
+        Example:
+            >>> # Auto-detect capabilities
+            >>> local_node = await orchestrator.initialize_cluster()
+            >>>
+            >>> # Specify custom node configuration
+            >>> node = await orchestrator.initialize_cluster(
+            ...     node_id="worker-001",
+            ...     node_address="192.168.1.100:8080",
+            ...     capabilities=["claude-code", "test-runner"]
+            ... )
+        """
+        if self._cluster_enabled:
+            raise OrchestratorError("Cluster mode is already enabled")
+
+        try:
+            # Initialize work queue directory structure
+            self.work_queue.initialize()
+
+            # Generate node ID if not provided
+            if node_id is None:
+                import socket
+                hostname = socket.gethostname()
+                import uuid
+                unique_suffix = str(uuid.uuid4())[:8]
+                node_id = f"{hostname}-{unique_suffix}"
+
+            # Default address if not provided
+            if node_address is None:
+                node_address = "localhost:0"
+
+            # Auto-detect capabilities from available adapters
+            if capabilities is None:
+                capabilities = []
+                adapters = self._get_available_adapters()
+                if "claude-code" in adapters:
+                    capabilities.append("claude-code")
+                if "codex" in adapters:
+                    capabilities.append("codex")
+                if "openclaw" in adapters:
+                    capabilities.append("openclaw")
+                # Add generic capability if we have any adapters
+                if adapters and not capabilities:
+                    capabilities.append("agent")
+
+            # Create local node
+            from autoflow.coordination.node import Node, NodeStatus
+
+            local_node = Node(
+                id=node_id,
+                address=node_address,
+                capabilities=capabilities,
+                status=NodeStatus.ONLINE,
+            )
+
+            # Register the local node
+            self.node_registry.register(local_node)
+
+            # Store reference to local node
+            self._local_node_id = node_id
+
+            # Enable cluster mode
+            self._cluster_enabled = True
+
+            return local_node
+
+        except Exception as e:
+            self._cluster_enabled = False
+            raise OrchestratorError(f"Cluster initialization failed: {e}") from e
 
     async def run_task(
         self,
