@@ -27,6 +27,7 @@ from autoflow.git.operations import (
 )
 from autoflow.git.pr_manager import (
     PRManager,
+    PRRefreshStatus,
     PRState,
 )
 from autoflow.git.conflict_resolver import (
@@ -44,6 +45,7 @@ __all__ = [
     "create_git_operations",
     # PR Manager
     "PRManager",
+    "PRRefreshStatus",
     "PRState",
     # Conflict Resolver
     "ConflictResolver",
