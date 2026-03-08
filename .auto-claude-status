@@ -3,23 +3,23 @@
   "spec": "014-symphony-framework-integration",
   "state": "building",
   "subtasks": {
-    "completed": 2,
+    "completed": 5,
     "total": 22,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Symphony Agent Adapter",
+    "current": "Symphony Configuration",
     "id": null,
-    "total": 4
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
+    "number": 7,
     "started_at": "2026-03-08T11:21:43.429996"
   },
-  "last_update": "2026-03-08T11:28:49.468662"
+  "last_update": "2026-03-08T11:32:12.169700"
 }

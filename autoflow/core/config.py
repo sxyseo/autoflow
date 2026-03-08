@@ -99,6 +99,18 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class SymphonyConfig(BaseModel):
+    """Symphony integration settings."""
+
+    enabled: bool = True
+    gateway_url: str = "http://localhost:8000"
+    api_key: Optional[str] = None
+    project_id: str = "default"
+    environment: str = "development"
+    timeout_seconds: int = 30
+    max_retries: int = 3
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -110,6 +122,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    symphony: SymphonyConfig = Field(default_factory=SymphonyConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
