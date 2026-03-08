@@ -771,3 +771,84 @@ class TaskmasterAdapter:
             metadata=metadata,
             taskmaster_id=taskmaster_id,
         )
+
+    async def sync_from_taskmaster(
+        self,
+        status: Optional[TaskmasterTaskStatus] = None,
+        project_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[Task]:
+        """
+        Import tasks from Taskmaster AI and convert them to Autoflow tasks.
+
+        Fetches tasks from the Taskmaster API with optional filtering,
+        then converts each task to Autoflow's internal Task format using
+        the mapping logic.
+
+        This is useful for:
+        - Initial import of tasks from Taskmaster
+        - Periodic sync to get latest task updates
+        - Pulling tasks for specific projects or milestones
+
+        Args:
+            status: Optional status filter (e.g., TaskmasterTaskStatus.TODO)
+            project_id: Optional project ID to filter tasks by
+            parent_task_id: Optional parent task ID to filter subtasks by
+            limit: Optional maximum number of tasks to fetch
+
+        Returns:
+            List of Autoflow Task objects imported from Taskmaster
+
+        Raises:
+            ValueError: If config is not properly configured
+            httpx.HTTPStatusError: If the API request fails
+            httpx.TimeoutException: If the request times out
+            httpx.HTTPError: For other HTTP-related errors
+
+        Example:
+            >>> # Import all tasks
+            >>> tasks = await adapter.sync_from_taskmaster()
+            >>>
+            >>> # Import only pending tasks
+            >>> pending_tasks = await adapter.sync_from_taskmaster(
+            ...     status=TaskmasterTaskStatus.TODO
+            ... )
+            >>>
+            >>> # Import tasks for a specific project
+            >>> project_tasks = await adapter.sync_from_taskmaster(
+            ...     project_id="proj-123"
+            ... )
+        """
+        # Validate configuration
+        if not self.config.is_configured:
+            raise ValueError(
+                "TaskmasterConfig must have an api_key to sync from Taskmaster"
+            )
+        if not self.config.enabled:
+            raise ValueError(
+                "TaskmasterConfig must have enabled=True to sync from Taskmaster"
+            )
+
+        # Create API client
+        async with TaskmasterAPIClient(self.config) as client:
+            # Fetch tasks from Taskmaster
+            taskmaster_tasks = await client.fetch_tasks(
+                status=status,
+                project_id=project_id,
+                parent_task_id=parent_task_id,
+                limit=limit,
+            )
+
+        # Convert each TaskmasterTask to Autoflow Task
+        autoflow_tasks = []
+        for taskmaster_task in taskmaster_tasks:
+            try:
+                autoflow_task = self._map_taskmaster_to_autoflow(taskmaster_task)
+                autoflow_tasks.append(autoflow_task)
+            except Exception as e:
+                # Skip tasks that fail to convert but continue processing
+                # In production, you might want to log this error
+                continue
+
+        return autoflow_tasks
