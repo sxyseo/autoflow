@@ -25,6 +25,8 @@ from typing import Any, Optional
 import httpx
 from pydantic import BaseModel, Field, field_validator
 
+from autoflow.core.state import Task, TaskStatus
+
 
 class TaskmasterTaskStatus(str, Enum):
     """Status of a task in Taskmaster AI."""
@@ -486,3 +488,113 @@ class TaskmasterAPIClient:
         Ensures the HTTP client is properly closed.
         """
         await self.close()
+
+
+class TaskmasterAdapter:
+    """
+    Adapter for converting between Taskmaster AI and Autoflow task models.
+
+    Provides bidirectional mapping between TaskmasterTask and Autoflow Task
+    models, handling field name differences, status enum conversions, and
+    metadata preservation.
+
+    Attributes:
+        config: TaskmasterConfig with integration settings
+
+    Example:
+        >>> adapter = TaskmasterAdapter(config)
+        >>> taskmaster_task = TaskmasterTask(id="tm-001", title="Example")
+        >>> autoflow_task = adapter._map_taskmaster_to_autoflow(taskmaster_task)
+    """
+
+    def __init__(
+        self,
+        config: TaskmasterConfig,
+    ) -> None:
+        """
+        Initialize the Taskmaster adapter.
+
+        Args:
+            config: TaskmasterConfig with integration settings
+        """
+        self.config = config
+
+    def _map_taskmaster_to_autoflow(
+        self,
+        taskmaster_task: TaskmasterTask,
+    ) -> Task:
+        """
+        Map a TaskmasterTask to an Autoflow Task.
+
+        Converts task data from Taskmaster AI's format to Autoflow's internal
+        Task model, handling field mappings and status enum conversions.
+
+        Field mappings:
+        - assigned_to → assigned_agent
+        - status: TaskmasterTaskStatus → TaskStatus
+        - project_id, parent_task_id, taskmaster_id → metadata
+        - completed_at → metadata
+
+        Status mapping:
+        - todo → pending
+        - in_progress → in_progress
+        - in_review → in_progress
+        - done → completed
+        - cancelled → cancelled
+        - blocked → failed
+
+        Args:
+            taskmaster_task: TaskmasterTask instance to convert
+
+        Returns:
+            Autoflow Task instance with mapped data
+
+        Example:
+            >>> tm_task = TaskmasterTask(
+            ...     id="tm-123",
+            ...     title="Fix bug",
+            ...     status=TaskmasterTaskStatus.TODO
+            ... )
+            >>> af_task = adapter._map_taskmaster_to_autoflow(tm_task)
+            >>> assert af_task.status == TaskStatus.PENDING
+        """
+        # Map status from TaskmasterTaskStatus to TaskStatus
+        status_mapping = {
+            TaskmasterTaskStatus.TODO: TaskStatus.PENDING,
+            TaskmasterTaskStatus.IN_PROGRESS: TaskStatus.IN_PROGRESS,
+            TaskmasterTaskStatus.IN_REVIEW: TaskStatus.IN_PROGRESS,
+            TaskmasterTaskStatus.DONE: TaskStatus.COMPLETED,
+            TaskmasterTaskStatus.CANCELLED: TaskStatus.CANCELLED,
+            TaskmasterTaskStatus.BLOCKED: TaskStatus.FAILED,
+        }
+
+        autoflow_status = status_mapping.get(
+            taskmaster_task.status,
+            TaskStatus.PENDING,
+        )
+
+        # Build metadata with Taskmaster-specific fields
+        metadata = dict(taskmaster_task.metadata)
+        if taskmaster_task.taskmaster_id:
+            metadata["taskmaster_id"] = taskmaster_task.taskmaster_id
+        if taskmaster_task.project_id:
+            metadata["project_id"] = taskmaster_task.project_id
+        if taskmaster_task.parent_task_id:
+            metadata["parent_task_id"] = taskmaster_task.parent_task_id
+        if taskmaster_task.completed_at:
+            metadata["completed_at"] = taskmaster_task.completed_at.isoformat()
+
+        # Create the Autoflow Task
+        return Task(
+            id=taskmaster_task.id,
+            title=taskmaster_task.title,
+            description=taskmaster_task.description,
+            status=autoflow_status,
+            priority=taskmaster_task.priority,
+            created_at=taskmaster_task.created_at,
+            updated_at=taskmaster_task.updated_at,
+            assigned_agent=taskmaster_task.assigned_to,
+            labels=list(taskmaster_task.labels),
+            dependencies=list(taskmaster_task.dependencies),
+            metadata=metadata,
+        )
