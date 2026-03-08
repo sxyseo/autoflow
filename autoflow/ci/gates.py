@@ -241,7 +241,7 @@ class BaseGate(ABC):
         """
         self._config = config or GateConfig()
         self._workdir = Path(workdir) if workdir else None
-        self._verifier = CIVerifier(parallel=self._config.parallel)
+        self._verifier = CIVerifier(checks=[], parallel=self._config.parallel)
 
         # Register checks
         self._checks = checks if checks is not None else self.default_checks
