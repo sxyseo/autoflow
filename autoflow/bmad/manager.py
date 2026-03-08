@@ -23,6 +23,7 @@ Example:
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -294,7 +295,165 @@ class BMADManager:
 
         return checkpoint.validate(validation_root)
 
+    def _get_handoff_path(self, handoff_id: str) -> Path:
+        """Get the file path for a handoff.
+
+        Args:
+            handoff_id: Unique handoff identifier.
+
+        Returns:
+            Path to the handoff file.
+        """
+        filename = f"{handoff_id}.json"
+        return self.handoffs_dir / filename
+
+    def _save_handoff(self, handoff: Any) -> None:
+        """Save handoff to file.
+
+        Args:
+            handoff: Handoff object to save.
+
+        Raises:
+            OSError: If unable to write handoff file.
+        """
+        handoff_path = self._get_handoff_path(handoff.handoff_id)
+
+        try:
+            with handoff_path.open("w") as f:
+                json.dump(handoff.to_dict(), f, indent=2)
+        except OSError as e:
+            raise OSError(f"Failed to write handoff file: {e}") from e
+
+    def create_handoff(
+        self,
+        from_role: str,
+        to_role: str,
+        task_description: str = "",
+        artifacts: Optional[list] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        validate: bool = True,
+    ) -> Any:
+        """Create and optionally validate a handoff.
+
+        Creates a new handoff for a role transition, optionally validating
+        that required artifacts are present.
+
+        Args:
+            from_role: Source role for the transition (e.g., 'writer').
+            to_role: Destination role for the transition (e.g., 'reviewer').
+            task_description: Description of the task being handed off.
+            artifacts: List of ArtifactSpec objects to include in handoff.
+            metadata: Additional handoff metadata.
+            validate: Whether to validate artifacts against checkpoint.
+
+        Returns:
+            Handoff object.
+
+        Raises:
+            ValueError: If validation fails and validate=True.
+            OSError: If unable to write handoff file.
+        """
+        from autoflow.bmad.handoff import Handoff
+
+        # Get checkpoint for this transition if it exists
+        checkpoint = self.get_checkpoint(from_role, to_role)
+
+        # Create handoff
+        handoff = Handoff(
+            role=from_role,
+            next_role=to_role,
+            checkpoint=checkpoint,
+            metadata=metadata or {},
+        )
+
+        # Set task description if provided
+        if task_description:
+            handoff.set_task_description(task_description)
+
+        # Add artifacts if provided
+        if artifacts:
+            for artifact in artifacts:
+                handoff.context.artifacts.add_artifact(artifact)
+
+        # Validate if requested
+        if validate:
+            errors = handoff.validate_artifacts(self.root)
+            if errors and (checkpoint and checkpoint.required):
+                raise ValueError(
+                    f"Handoff validation failed for {from_role} → {to_role}: "
+                    f"{', '.join(errors)}"
+                )
+
+        # Save handoff to file
+        self._save_handoff(handoff)
+
+        return handoff
+
+    def get_handoff(self, handoff_id: str) -> Any | None:
+        """Retrieve a handoff by ID.
+
+        Args:
+            handoff_id: Unique handoff identifier.
+
+        Returns:
+            Handoff if found, None otherwise.
+        """
+        from autoflow.bmad.handoff import Handoff
+
+        handoff_path = self._get_handoff_path(handoff_id)
+
+        if not handoff_path.exists():
+            return None
+
+        try:
+            with handoff_path.open("r") as f:
+                data = json.load(f)
+            return Handoff.from_dict(data)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def list_handoffs(
+        self,
+        from_role: Optional[str] = None,
+        to_role: Optional[str] = None,
+    ) -> list[Any]:
+        """List handoffs, optionally filtered by roles.
+
+        Args:
+            from_role: Optional source role filter.
+            to_role: Optional destination role filter.
+
+        Returns:
+            List of Handoff objects, sorted by created_at (newest first).
+        """
+        from autoflow.bmad.handoff import Handoff
+
+        handoffs = []
+
+        for handoff_file in self.handoffs_dir.glob("*.json"):
+            try:
+                with handoff_file.open("r") as f:
+                    data = json.load(f)
+                handoff = Handoff.from_dict(data)
+
+                # Apply filters if specified
+                if from_role and handoff.role != from_role:
+                    continue
+                if to_role and handoff.next_role != to_role:
+                    continue
+
+                handoffs.append(handoff)
+            except (OSError, json.JSONDecodeError):
+                # Skip invalid handoff files
+                continue
+
+        # Sort by created_at (newest first)
+        handoffs.sort(key=lambda h: h.created_at or datetime.min, reverse=True)
+
+        return handoffs
+
     def __repr__(self) -> str:
         """Return string representation of the manager."""
         checkpoint_count = len(self.list_checkpoints())
-        return f"BMADManager(root='{self.root}', checkpoints={checkpoint_count})"
+        handoff_count = len(self.list_handoffs())
+        return f"BMADManager(root='{self.root}', checkpoints={checkpoint_count}, handoffs={handoff_count})"
