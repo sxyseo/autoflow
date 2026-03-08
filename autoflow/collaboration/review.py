@@ -343,11 +343,20 @@ class CollaborativeReview:
     DEFAULT_TIMEOUT_HOURS = 72
     DEFAULT_MIN_REVIEWERS = 1
 
+    # Default role weights for voting
+    DEFAULT_ROLE_WEIGHTS: dict[ReviewerRole, float] = {
+        ReviewerRole.APPROVER: 3.0,
+        ReviewerRole.PRIMARY_REVIEWER: 2.0,
+        ReviewerRole.SECONDARY_REVIEWER: 1.0,
+        ReviewerRole.OBSERVER: 0.0,  # Cannot vote
+    }
+
     def __init__(
         self,
         default_strategy: Optional[ReviewStrategy] = None,
         default_timeout_hours: Optional[int] = None,
         min_reviewers: Optional[int] = None,
+        role_weights: Optional[dict[ReviewerRole, float]] = None,
     ):
         """
         Initialize the collaborative review system.
@@ -356,12 +365,14 @@ class CollaborativeReview:
             default_strategy: Default approval strategy
             default_timeout_hours: Default timeout in hours
             min_reviewers: Minimum reviewers required
+            role_weights: Custom weights for reviewer roles in voting
         """
         self._default_strategy = default_strategy or self.DEFAULT_STRATEGY
         self._default_timeout_hours = (
             default_timeout_hours or self.DEFAULT_TIMEOUT_HOURS
         )
         self._min_reviewers = min_reviewers or self.DEFAULT_MIN_REVIEWERS
+        self._role_weights = role_weights or self.DEFAULT_ROLE_WEIGHTS.copy()
         self._active_reviews: dict[str, CollaborativeReviewResult] = {}
 
     @property
@@ -373,6 +384,30 @@ class CollaborativeReview:
     def min_reviewers(self) -> int:
         """Get minimum reviewers required."""
         return self._min_reviewers
+
+    def get_role_weight(self, role: ReviewerRole) -> float:
+        """
+        Get the voting weight for a reviewer role.
+
+        Args:
+            role: The reviewer role
+
+        Returns:
+            Voting weight (0.0 to 3.0+)
+        """
+        return self._role_weights.get(role, 1.0)
+
+    def set_role_weight(self, role: ReviewerRole, weight: float) -> None:
+        """
+        Set the voting weight for a reviewer role.
+
+        Args:
+            role: The reviewer role
+            weight: Voting weight (0.0 to disable voting, higher for more influence)
+        """
+        if weight < 0:
+            raise ValueError("Role weight must be non-negative")
+        self._role_weights[role] = weight
 
     def get_review(
         self, review_id: str
@@ -796,6 +831,8 @@ class CollaborativeReview:
         """
         Calculate consensus score among reviewers.
 
+        Uses role-based weighting to calculate a weighted consensus score.
+
         Args:
             assignments: List of reviewer assignments
 
@@ -805,24 +842,30 @@ class CollaborativeReview:
         if not assignments:
             return 0.0
 
-        # Only count completed reviews
-        completed = [a for a in assignments if a.is_complete]
+        # Only count completed reviews with non-zero weight
+        completed = [
+            a for a in assignments
+            if a.is_complete and self.get_role_weight(a.role) > 0
+        ]
         if not completed:
             return 0.0
 
-        approvals = sum(1 for a in completed if a.has_approved)
-        total = len(completed)
+        # Calculate weighted approvals
+        weighted_approvals = sum(
+            self.get_role_weight(a.role) * a.confidence
+            for a in completed
+            if a.has_approved
+        )
+        weighted_total = sum(
+            self.get_role_weight(a.role) * a.confidence
+            for a in completed
+        )
 
-        if total == 0:
+        if weighted_total == 0:
             return 0.0
 
-        # Simple ratio-based consensus
-        ratio = approvals / total
-
-        # Weight by average confidence
-        avg_confidence = sum(a.confidence for a in completed) / total
-
-        return ratio * avg_confidence
+        # Weighted ratio-based consensus
+        return weighted_approvals / weighted_total
 
     def _determine_approval(
         self,
@@ -831,7 +874,10 @@ class CollaborativeReview:
         findings: list[ReviewFinding],
     ) -> bool:
         """
-        Determine if changes should be approved based on strategy.
+        Determine if changes should be approved based on strategy and roles.
+
+        This method implements role-based voting where different reviewer roles
+        have different weights in the approval decision.
 
         Args:
             assignments: List of reviewer assignments
@@ -850,8 +896,11 @@ class CollaborativeReview:
         if blocking:
             return False
 
-        # Only count completed reviews
-        completed = [a for a in assignments if a.is_complete]
+        # Filter to completed reviews with non-zero weight
+        completed = [
+            a for a in assignments
+            if a.is_complete and self.get_role_weight(a.role) > 0
+        ]
         if not completed:
             return False
 
@@ -862,20 +911,29 @@ class CollaborativeReview:
             return False
 
         if strategy == ReviewStrategy.CONSENSUS:
+            # All voting reviewers must approve
             return approvals == total
 
         if strategy == ReviewStrategy.MAJORITY:
+            # Simple majority (counts each vote equally)
             return approvals > total / 2
 
         if strategy == ReviewStrategy.SINGLE:
+            # Any single approval is sufficient
             return approvals >= 1
 
         if strategy == ReviewStrategy.WEIGHTED:
-            # Weight by reviewer confidence
+            # Role-based and confidence-weighted voting
+            # Combines role weight with reviewer confidence
             weighted_approvals = sum(
-                a.confidence for a in completed if a.has_approved
+                self.get_role_weight(a.role) * a.confidence
+                for a in completed
+                if a.has_approved
             )
-            weighted_total = sum(a.confidence for a in completed)
+            weighted_total = sum(
+                self.get_role_weight(a.role) * a.confidence
+                for a in completed
+            )
             return weighted_approvals > weighted_total / 2 if weighted_total > 0 else False
 
         return False
@@ -925,6 +983,73 @@ class CollaborativeReview:
                 CollaborativeReviewStatus.EXPIRED,
             )
         ]
+
+    def get_voting_power(
+        self,
+        assignment: ReviewerAssignment,
+    ) -> float:
+        """
+        Get the effective voting power of a reviewer assignment.
+
+        Combines role weight with reviewer confidence.
+
+        Args:
+            assignment: Reviewer assignment
+
+        Returns:
+            Voting power (0.0 to 3.0+)
+        """
+        role_weight = self.get_role_weight(assignment.role)
+        return role_weight * assignment.confidence
+
+    def can_reviewer_vote(
+        self,
+        assignment: ReviewerAssignment,
+    ) -> bool:
+        """
+        Check if a reviewer can vote (has non-zero role weight).
+
+        Args:
+            assignment: Reviewer assignment
+
+        Returns:
+            True if reviewer can vote, False otherwise
+        """
+        return self.get_role_weight(assignment.role) > 0
+
+    def get_approval_breakdown(
+        self,
+        result: CollaborativeReviewResult,
+    ) -> dict[str, Any]:
+        """
+        Get a breakdown of approval status by role.
+
+        Args:
+            result: Collaborative review result
+
+        Returns:
+            Dictionary with approval breakdown by role
+        """
+        breakdown: dict[str, Any] = {
+            "total_reviewers": result.reviewer_count,
+            "completed_reviewers": result.completed_reviewer_count,
+            "by_role": {},
+        }
+
+        for role in ReviewerRole:
+            role_assignments = [a for a in result.assignments if a.role == role]
+            completed = [a for a in role_assignments if a.is_complete]
+            approved = [a for a in role_assignments if a.has_approved]
+
+            breakdown["by_role"][role.value] = {
+                "total": len(role_assignments),
+                "completed": len(completed),
+                "approved": len(approved),
+                "weight": self.get_role_weight(role),
+                "can_vote": self.get_role_weight(role) > 0,
+            }
+
+        return breakdown
 
     def __repr__(self) -> str:
         """Return string representation."""
