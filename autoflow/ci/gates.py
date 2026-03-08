@@ -849,9 +849,13 @@ class SymphonyCheckpointGate(BaseGate):
             raise RuntimeError("Symphony bridge is not available for checkpoint creation")
 
         # Create checkpoint via Symphony bridge
-        # Note: This is a simplified implementation
-        # In practice, you would call SymphonyBridge methods to create checkpoints
-        checkpoint_id = f"checkpoint-{self._checkpoint_name}-{id(self)}"
+        checkpoint_id = self._symphony_bridge.create_gate_checkpoint(
+            gate_name=self._wrapped_gate.gate_name,
+            gate_type=self._wrapped_gate.gate_type,
+            workdir=workdir or Path("."),
+            require_approval=self._require_approval,
+            checkpoint_name=self._checkpoint_name,
+        )
 
         return checkpoint_id
 
@@ -869,31 +873,77 @@ class SymphonyCheckpointGate(BaseGate):
             raise RuntimeError("Symphony bridge is not available for approval waiting")
 
         # Wait for approval via Symphony bridge
-        # Note: This is a simplified implementation
-        # In practice, you would call SymphonyBridge methods to wait for approval
-        self._approval_received = True
+        # Use a reasonable timeout - can be configured via gate config if needed
+        timeout = self._config.timeout_seconds if self._config else 300
 
-    def approve_checkpoint(self) -> None:
+        approved = self._symphony_bridge.wait_for_gate_checkpoint_approval(
+            checkpoint_id=self._checkpoint_id,
+            timeout_seconds=timeout,
+        )
+
+        self._approval_received = approved
+
+        if not approved:
+            # Checkpoint was rejected or timed out
+            status_info = self._symphony_bridge.get_gate_checkpoint_status(
+                self._checkpoint_id
+            )
+            if status_info["status"] == "rejected":
+                raise RuntimeError(
+                    f"Checkpoint {self._checkpoint_id} was rejected. "
+                    f"Reason: {status_info.get('rejection_reason', 'No reason provided')}"
+                )
+            else:
+                raise RuntimeError(
+                    f"Checkpoint {self._checkpoint_id} approval timed out after {timeout} seconds"
+                )
+
+    def approve_checkpoint(
+        self,
+        approver: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
         """
         Approve the checkpoint (external approval callback).
 
         This method can be called externally to approve the checkpoint
         and allow the workflow to continue.
+
+        Args:
+            approver: Optional identifier for the approver
+            notes: Optional approval notes
         """
+        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+            self._symphony_bridge.approve_gate_checkpoint(
+                checkpoint_id=self._checkpoint_id,
+                approver=approver,
+                notes=notes,
+            )
+
         self._approval_received = True
 
-    def reject_checkpoint(self, reason: str = "") -> None:
+    def reject_checkpoint(
+        self,
+        reason: str,
+        rejecter: Optional[str] = None,
+    ) -> None:
         """
         Reject the checkpoint (external rejection callback).
 
         This method can be called externally to reject the checkpoint.
 
         Args:
-            reason: Optional reason for rejection
+            reason: Reason for rejection
+            rejecter: Optional identifier for the rejecter
         """
+        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+            self._symphony_bridge.reject_gate_checkpoint(
+                checkpoint_id=self._checkpoint_id,
+                reason=reason,
+                rejecter=rejecter,
+            )
+
         self._approval_received = False
-        # Note: In practice, you might want to store the rejection reason
-        # and potentially update checkpoint state via Symphony bridge
 
     def add_check(
         self,

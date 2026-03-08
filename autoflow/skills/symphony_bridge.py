@@ -6,6 +6,12 @@ The bridge enables bidirectional execution: Symphony workflows can be
 invoked as Autoflow skills, and Autoflow skills can be executed within
 Symphony workflows with proper context translation and state synchronization.
 
+Review Gate Integration:
+The bridge also integrates Autoflow's CI review gates with Symphony's checkpoint
+system, enabling pause-and-resume workflows at gate boundaries. This allows
+multi-agent Symphony workflows to pause at review points (tests, linting, security)
+and wait for approval before continuing.
+
 Usage:
     from autoflow.skills.symphony_bridge import SymphonyBridge
     from autoflow.skills.registry import SkillRegistry
@@ -14,7 +20,8 @@ Usage:
     registry = SkillRegistry()
     registry.load_skills()
 
-    bridge = SymphonyBridge(registry=registry)
+    # Initialize bridge with state_dir for checkpoint support
+    bridge = SymphonyBridge(registry=registry, state_dir=".autoflow")
     bridge.register_adapter("symphony", SymphonyAdapter())
 
     # Execute Symphony workflow as a skill
@@ -24,13 +31,33 @@ Usage:
         workdir="/path/to/project"
     )
 
-    # Execute Autoflow skill within Symphony workflow
-    result = await bridge.execute_skill_in_workflow(
-        skill_name="IMPLEMENTER",
-        workflow_session_id="symphony-session-123",
-        task="Implement the feature",
-        workdir="/path/to/project"
+    # Create a review gate checkpoint
+    checkpoint_id = bridge.create_gate_checkpoint(
+        gate_name="Tests",
+        gate_type="test",
+        workdir="/path/to/project",
+        require_approval=True
     )
+
+    # Wait for checkpoint approval
+    approved = bridge.wait_for_gate_checkpoint_approval(
+        checkpoint_id=checkpoint_id,
+        timeout_seconds=300
+    )
+
+    # Approve or reject checkpoint
+    if approved:
+        bridge.approve_gate_checkpoint(
+            checkpoint_id=checkpoint_id,
+            approver="code-reviewer",
+            notes="All tests passed"
+        )
+    else:
+        bridge.reject_gate_checkpoint(
+            checkpoint_id=checkpoint_id,
+            reason="Tests failed",
+            rejecter="code-reviewer"
+        )
 """
 
 from __future__ import annotations
@@ -207,6 +234,7 @@ class SymphonyBridge:
     2. Executing Autoflow skills within Symphony workflow contexts
     3. Translating between workflow and skill execution contexts
     4. Synchronizing state between Symphony checkpoints and Autoflow runs
+    5. Integrating review gates with Symphony checkpoint system for pause-and-resume
 
     The bridge uses the SkillExecutor for skill execution and registered
     agent adapters for Symphony workflow execution.
@@ -218,6 +246,17 @@ class SymphonyBridge:
     - Checkpoint discovery from runs and vice versa
     - Persistent checkpoint state storage in run metadata
     - Status mapping between checkpoint and run states
+
+    Review Gate Checkpoint Integration:
+    The bridge integrates Autoflow's CI review gates with Symphony's checkpoint
+    system, enabling workflows to pause at gate boundaries (tests, linting, security)
+    and wait for approval before continuing:
+    - create_gate_checkpoint(): Create checkpoints at review gates
+    - wait_for_gate_checkpoint_approval(): Wait for approval at checkpoints
+    - approve_gate_checkpoint(): Approve checkpoint and continue workflow
+    - reject_gate_checkpoint(): Reject checkpoint and block workflow
+    - get_gate_checkpoint_status(): Query checkpoint status
+    - list_gate_checkpoints(): List all gate checkpoints with filtering
 
     Example:
         >>> from autoflow.skills.symphony_bridge import SymphonyBridge
@@ -237,12 +276,16 @@ class SymphonyBridge:
         ...     workdir="/path/to/project"
         ... )
         >>>
-        >>> # Sync checkpoint state to run
-        >>> bridge.sync_checkpoint_to_run(
-        ...     checkpoint_id="checkpoint-123",
-        ...     run_id=result.session_id,
-        ...     checkpoint_data={"status": "complete"}
+        >>> # Create review gate checkpoint
+        >>> checkpoint_id = bridge.create_gate_checkpoint(
+        ...     gate_name="Tests",
+        ...     gate_type="test",
+        ...     workdir="/path/to/project"
         ... )
+        >>>
+        >>> # Wait for and approve checkpoint
+        >>> if bridge.wait_for_gate_checkpoint_approval(checkpoint_id):
+        ...     bridge.approve_gate_checkpoint(checkpoint_id, approver="reviewer")
 
     Attributes:
         executor: SkillExecutor instance for skill execution
@@ -1335,6 +1378,422 @@ class SymphonyBridge:
         except Exception as e:
             raise SymphonyBridgeError(
                 f"Failed to load checkpoint state: {e}"
+            ) from e
+
+    # === Review Gate Checkpoint Integration ===
+
+    def create_gate_checkpoint(
+        self,
+        gate_name: str,
+        gate_type: str,
+        workdir: Union[str, Path],
+        require_approval: bool = True,
+        checkpoint_name: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> str:
+        """
+        Create a Symphony checkpoint for a review gate.
+
+        This method integrates Autoflow's CI review gates with Symphony's checkpoint
+        system, enabling pause-and-resume workflows at gate boundaries.
+
+        Args:
+            gate_name: Name of the review gate (e.g., "Tests", "Lint")
+            gate_type: Type of gate (e.g., "test", "lint", "security")
+            workdir: Working directory for the checkpoint
+            require_approval: Whether checkpoint requires approval before continuing
+            checkpoint_name: Optional custom checkpoint name
+            metadata: Optional additional metadata to attach to checkpoint
+
+        Returns:
+            Checkpoint ID
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or creation fails
+
+        Example:
+            >>> checkpoint_id = bridge.create_gate_checkpoint(
+            ...     gate_name="Tests",
+            ...     gate_type="test",
+            ...     workdir="/path/to/project",
+            ...     require_approval=True
+            ... )
+            >>> print(f"Created checkpoint: {checkpoint_id}")
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Generate checkpoint ID
+            checkpoint_name = checkpoint_name or f"gate-{gate_type}-{gate_name.lower()}"
+            checkpoint_id = f"checkpoint-{checkpoint_name}-{uuid.uuid4().hex[:8]}"
+
+            # Create checkpoint data structure
+            checkpoint_data = {
+                "checkpoint_id": checkpoint_id,
+                "checkpoint_name": checkpoint_name,
+                "gate_name": gate_name,
+                "gate_type": gate_type,
+                "require_approval": require_approval,
+                "created_at": datetime.utcnow().isoformat(),
+                "status": "pending",  # pending, approved, rejected
+                "workdir": str(workdir),
+            }
+
+            # Add optional metadata
+            if metadata:
+                checkpoint_data["metadata"] = metadata
+
+            # Store checkpoint in state manager
+            # We use a special run ID for gate checkpoints
+            gate_checkpoint_run_id = f"gate-checkpoint-{checkpoint_id}"
+
+            # Create run record for the checkpoint
+            run_data = {
+                "id": gate_checkpoint_run_id,
+                "status": RunStatus.RUNNING.value,  # Running/waiting at checkpoint
+                "agent": "symphony",
+                "started_at": datetime.utcnow().isoformat(),
+                "metadata": {
+                    "symphony_checkpoint": checkpoint_data,
+                    "checkpoint_type": "review_gate",
+                },
+            }
+
+            # Save checkpoint run
+            self._state_manager.save_run(gate_checkpoint_run_id, run_data)
+
+            return checkpoint_id
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to create gate checkpoint: {e}"
+            ) from e
+
+    def get_gate_checkpoint_status(
+        self,
+        checkpoint_id: str,
+    ) -> dict[str, Any]:
+        """
+        Get the status of a review gate checkpoint.
+
+        Args:
+            checkpoint_id: Checkpoint identifier
+
+        Returns:
+            Dictionary with checkpoint status information
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or checkpoint not found
+
+        Example:
+            >>> status = bridge.get_gate_checkpoint_status("checkpoint-123")
+            >>> print(status["status"])  # "pending", "approved", or "rejected"
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Find checkpoint run
+            gate_checkpoint_run_id = f"gate-checkpoint-{checkpoint_id}"
+            run_data = self._state_manager.load_run(gate_checkpoint_run_id)
+
+            if run_data is None:
+                raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
+
+            # Extract checkpoint info
+            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+
+            return {
+                "checkpoint_id": checkpoint_id,
+                "status": checkpoint_info.get("status", "unknown"),
+                "gate_name": checkpoint_info.get("gate_name"),
+                "gate_type": checkpoint_info.get("gate_type"),
+                "require_approval": checkpoint_info.get("require_approval", True),
+                "created_at": checkpoint_info.get("created_at"),
+                "approved_at": checkpoint_info.get("approved_at"),
+                "rejected_at": checkpoint_info.get("rejected_at"),
+            }
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to get checkpoint status: {e}"
+            ) from e
+
+    def approve_gate_checkpoint(
+        self,
+        checkpoint_id: str,
+        approver: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> bool:
+        """
+        Approve a review gate checkpoint, allowing the workflow to continue.
+
+        Args:
+            checkpoint_id: Checkpoint identifier
+            approver: Optional identifier for the approver
+            notes: Optional approval notes
+
+        Returns:
+            True if approval successful, False otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or approval fails
+
+        Example:
+            >>> success = bridge.approve_gate_checkpoint(
+            ...     checkpoint_id="checkpoint-123",
+            ...     approver="code-reviewer",
+            ...     notes="All tests passed, approved"
+            ... )
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Find checkpoint run
+            gate_checkpoint_run_id = f"gate-checkpoint-{checkpoint_id}"
+            run_data = self._state_manager.load_run(gate_checkpoint_run_id)
+
+            if run_data is None:
+                raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
+
+            # Update checkpoint status
+            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+            checkpoint_info["status"] = "approved"
+            checkpoint_info["approved_at"] = datetime.utcnow().isoformat()
+
+            if approver:
+                checkpoint_info["approver"] = approver
+
+            if notes:
+                checkpoint_info["approval_notes"] = notes
+
+            # Save updated run
+            run_data["metadata"]["symphony_checkpoint"] = checkpoint_info
+            run_data["status"] = RunStatus.COMPLETED.value  # Checkpoint completed
+            self._state_manager.save_run(gate_checkpoint_run_id, run_data)
+
+            return True
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to approve checkpoint: {e}"
+            ) from e
+
+    def reject_gate_checkpoint(
+        self,
+        checkpoint_id: str,
+        reason: str,
+        rejecter: Optional[str] = None,
+    ) -> bool:
+        """
+        Reject a review gate checkpoint, blocking workflow continuation.
+
+        Args:
+            checkpoint_id: Checkpoint identifier
+            reason: Reason for rejection
+            rejecter: Optional identifier for the rejecter
+
+        Returns:
+            True if rejection successful, False otherwise
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or rejection fails
+
+        Example:
+            >>> success = bridge.reject_gate_checkpoint(
+            ...     checkpoint_id="checkpoint-123",
+            ...     reason="Tests failed",
+            ...     rejecter="code-reviewer"
+            ... )
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # Find checkpoint run
+            gate_checkpoint_run_id = f"gate-checkpoint-{checkpoint_id}"
+            run_data = self._state_manager.load_run(gate_checkpoint_run_id)
+
+            if run_data is None:
+                raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
+
+            # Update checkpoint status
+            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+            checkpoint_info["status"] = "rejected"
+            checkpoint_info["rejected_at"] = datetime.utcnow().isoformat()
+            checkpoint_info["rejection_reason"] = reason
+
+            if rejecter:
+                checkpoint_info["rejecter"] = rejecter
+
+            # Save updated run
+            run_data["metadata"]["symphony_checkpoint"] = checkpoint_info
+            run_data["status"] = RunStatus.FAILED.value  # Checkpoint failed
+            self._state_manager.save_run(gate_checkpoint_run_id, run_data)
+
+            return True
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to reject checkpoint: {e}"
+            ) from e
+
+    def wait_for_gate_checkpoint_approval(
+        self,
+        checkpoint_id: str,
+        timeout_seconds: Optional[int] = None,
+    ) -> bool:
+        """
+        Wait for approval at a review gate checkpoint.
+
+        This method polls the checkpoint status until it is either approved
+        or rejected. In a real Symphony integration, this would use Symphony's
+        event system for efficient waiting.
+
+        Args:
+            checkpoint_id: Checkpoint identifier
+            timeout_seconds: Optional timeout for waiting (None = wait indefinitely)
+
+        Returns:
+            True if approved, False if rejected or timed out
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized or wait fails
+
+        Example:
+            >>> approved = bridge.wait_for_gate_checkpoint_approval(
+            ...     checkpoint_id="checkpoint-123",
+            ...     timeout_seconds=300
+            ... )
+            >>> if approved:
+            ...     print("Checkpoint approved, continuing workflow")
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        import time
+
+        start_time = time.time()
+        poll_interval = 1.0  # Poll every second
+
+        try:
+            while True:
+                # Check timeout
+                if timeout_seconds is not None:
+                    elapsed = time.time() - start_time
+                    if elapsed >= timeout_seconds:
+                        return False
+
+                # Get checkpoint status
+                status_info = self.get_gate_checkpoint_status(checkpoint_id)
+                status = status_info["status"]
+
+                # Check if approved or rejected
+                if status == "approved":
+                    return True
+                elif status == "rejected":
+                    return False
+
+                # Wait before next poll
+                time.sleep(poll_interval)
+
+        except SymphonyBridgeError:
+            raise
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to wait for checkpoint approval: {e}"
+            ) from e
+
+    def list_gate_checkpoints(
+        self,
+        gate_name: Optional[str] = None,
+        gate_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        List review gate checkpoints with optional filtering.
+
+        Args:
+            gate_name: Optional filter by gate name
+            gate_type: Optional filter by gate type
+            status: Optional filter by status (pending, approved, rejected)
+
+        Returns:
+            List of checkpoint information dictionaries
+
+        Raises:
+            SymphonyBridgeError: If state manager not initialized
+
+        Example:
+            >>> # List all pending checkpoints
+            >>> pending = bridge.list_gate_checkpoints(status="pending")
+            >>>
+            >>> # List all test gate checkpoints
+            >>> test_checkpoints = bridge.list_gate_checkpoints(gate_type="test")
+        """
+        if self._state_manager is None:
+            raise SymphonyBridgeError(
+                "State manager not initialized. Provide state_dir parameter."
+            )
+
+        try:
+            # List all runs and filter for gate checkpoints
+            runs = self._state_manager.list_runs()
+            checkpoints: list[dict[str, Any]] = []
+
+            for run in runs:
+                metadata = run.get("metadata", {})
+                checkpoint_info = metadata.get("symphony_checkpoint", {})
+
+                # Check if this is a gate checkpoint
+                if metadata.get("checkpoint_type") != "review_gate":
+                    continue
+
+                # Apply filters
+                if gate_name and checkpoint_info.get("gate_name") != gate_name:
+                    continue
+
+                if gate_type and checkpoint_info.get("gate_type") != gate_type:
+                    continue
+
+                if status and checkpoint_info.get("status") != status:
+                    continue
+
+                # Add checkpoint info to results
+                checkpoints.append({
+                    "checkpoint_id": checkpoint_info.get("checkpoint_id"),
+                    "checkpoint_name": checkpoint_info.get("checkpoint_name"),
+                    "gate_name": checkpoint_info.get("gate_name"),
+                    "gate_type": checkpoint_info.get("gate_type"),
+                    "status": checkpoint_info.get("status"),
+                    "require_approval": checkpoint_info.get("require_approval"),
+                    "created_at": checkpoint_info.get("created_at"),
+                    "run_id": run.get("id"),
+                })
+
+            return checkpoints
+
+        except Exception as e:
+            raise SymphonyBridgeError(
+                f"Failed to list gate checkpoints: {e}"
             ) from e
 
     def __repr__(self) -> str:
