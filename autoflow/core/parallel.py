@@ -154,7 +154,7 @@ class ParallelExecutionResult:
         success: bool,
         error: Optional[str] = None,
     ) -> None:
-        """Mark the execution as complete."""
+        """Mark the execution as complete and aggregate results."""
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
@@ -162,6 +162,16 @@ class ParallelExecutionResult:
             self.completed_at - self.started_at
         ).total_seconds()
 
+        # Aggregate task results
+        self._aggregate_results()
+
+    def _aggregate_results(self) -> None:
+        """
+        Aggregate results from all tasks.
+
+        Counts successful/failed tasks, collects all outputs and errors,
+        and builds aggregated metadata.
+        """
         # Count successful and failed tasks
         self.successful_tasks = sum(
             1 for result in self.task_results.values() if result.success
@@ -169,6 +179,121 @@ class ParallelExecutionResult:
         self.failed_tasks = sum(
             1 for result in self.task_results.values() if not result.success
         )
+
+        # Collect all outputs
+        all_outputs = []
+        for task_id, result in self.task_results.items():
+            if result.output:
+                all_outputs.append(f"[{task_id}] {result.output}")
+
+        # Collect all errors
+        all_errors = []
+        for task_id, result in self.task_results.items():
+            if result.error:
+                all_errors.append(f"[{task_id}] {result.error}")
+
+        # Store aggregated data in metadata
+        self.metadata.update({
+            "all_outputs": all_outputs,
+            "all_errors": all_errors,
+            "output_summary": self._create_output_summary(),
+            "error_summary": self._create_error_summary(),
+        })
+
+    def _create_output_summary(self) -> str:
+        """Create a summary of all task outputs."""
+        if not self.task_results:
+            return "No tasks executed"
+
+        summaries = []
+        for task_id, result in self.task_results.items():
+            if result.success and result.output:
+                # Truncate long outputs
+                output_preview = result.output[:200]
+                if len(result.output) > 200:
+                    output_preview += "..."
+                summaries.append(f"{task_id}: {output_preview}")
+
+        return "\n".join(summaries) if summaries else "No successful outputs"
+
+    def _create_error_summary(self) -> str:
+        """Create a summary of all task errors."""
+        if not self.task_results:
+            return "No tasks executed"
+
+        error_summaries = []
+        for task_id, result in self.task_results.items():
+            if not result.success and result.error:
+                error_summaries.append(f"{task_id}: {result.error}")
+
+        return "\n".join(error_summaries) if error_summaries else "No errors"
+
+    def get_aggregated_output(self) -> str:
+        """
+        Get all task outputs aggregated into a single string.
+
+        Returns:
+            Combined output from all tasks with task ID prefixes
+        """
+        if not self.task_results:
+            return ""
+
+        outputs = []
+        for task_id, result in self.task_results.items():
+            if result.output:
+                outputs.append(f"=== Task {task_id} ===\n{result.output}")
+
+        return "\n\n".join(outputs)
+
+    def get_aggregated_errors(self) -> list[str]:
+        """
+        Get all errors from failed tasks.
+
+        Returns:
+            List of error messages with task ID context
+        """
+        errors = []
+        for task_id, result in self.task_results.items():
+            if not result.success and result.error:
+                errors.append(f"Task {task_id}: {result.error}")
+        return errors
+
+    def get_summary(self) -> dict[str, Any]:
+        """
+        Get a comprehensive summary of the parallel execution.
+
+        Returns:
+            Dictionary with execution summary including:
+            - total_tasks: Total number of tasks
+            - successful_tasks: Number of successful tasks
+            - failed_tasks: Number of failed tasks
+            - duration_seconds: Total execution duration
+            - success_rate: Percentage of successful tasks
+            - has_errors: Whether any errors occurred
+            - error_count: Number of errors
+        """
+        success_rate = (
+            (self.successful_tasks / self.total_tasks * 100)
+            if self.total_tasks > 0
+            else 0
+        )
+
+        return {
+            "group_id": self.group_id,
+            "total_tasks": self.total_tasks,
+            "successful_tasks": self.successful_tasks,
+            "failed_tasks": self.failed_tasks,
+            "duration_seconds": self.duration_seconds,
+            "success_rate": round(success_rate, 2),
+            "has_errors": self.failed_tasks > 0,
+            "error_count": self.failed_tasks,
+            "conflicts_detected": self.conflict_report is not None,
+            "high_severity_conflicts": (
+                len(self.conflict_report.get_high_severity())
+                if self.conflict_report
+                else 0
+            ),
+        }
 
 
 class ParallelCoordinatorStats(BaseModel):
