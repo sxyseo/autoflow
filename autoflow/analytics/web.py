@@ -19,7 +19,7 @@ Usage:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -538,7 +538,7 @@ async def get_roi_metrics(
         calculator = get_roi_calculator()
 
         # Calculate time range
-        end_time = datetime.now()
+        end_time = datetime.now(UTC)
         start_time = end_time - timedelta(days=period_days)
 
         # Get ROI summary
