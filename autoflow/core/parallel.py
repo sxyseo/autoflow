@@ -182,6 +182,8 @@ class ParallelCoordinatorStats(BaseModel):
     failed_tasks: int = 0
     average_group_duration: float = 0.0
     last_execution_at: Optional[datetime] = None
+    max_parallel: int = 3
+    active_tasks: int = 0
     started_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -296,9 +298,16 @@ class ParallelCoordinator:
         """Get current coordinator status."""
         return self._status
 
+    def _update_stats(self) -> None:
+        """Update coordinator statistics."""
+        self._stats.max_parallel = self.max_parallel
+        # Active tasks is tracked during execution
+        # This is called when tasks start/complete
+
     @property
     def stats(self) -> ParallelCoordinatorStats:
         """Get coordinator statistics."""
+        self._update_stats()
         return self._stats
 
     async def initialize(self) -> None:
@@ -324,6 +333,24 @@ class ParallelCoordinator:
         except Exception as e:
             self._status = CoordinatorStatus.ERROR
             raise ParallelExecutionError(f"Initialization failed: {e}") from e
+
+    def check_capacity_available(self, required_slots: int = 1) -> bool:
+        """
+        Check if there's capacity for additional concurrent tasks.
+
+        Args:
+            required_slots: Number of concurrent slots required
+
+        Returns:
+            True if capacity is available, False otherwise
+
+        Example:
+            >>> if coordinator.check_capacity_available(3):
+            ...     # Can run 3 tasks concurrently
+            ...     await coordinator.execute_parallel(tasks=[...])
+        """
+        available = self._stats.max_parallel - self._stats.active_tasks
+        return available >= required_slots
 
     async def execute_parallel(
         self,
@@ -468,9 +495,13 @@ class ParallelCoordinator:
             """Execute a single task with error isolation."""
             task_result = ParallelTaskResult(task_id=task_id)
 
-            try:
-                # Use semaphore to limit concurrency
-                async with self.semaphore:
+            # Use semaphore to limit concurrency
+            async with self.semaphore:
+                # Increment active tasks counter
+                self._stats.active_tasks += 1
+                self._update_stats()
+
+                try:
                     # If an agent adapter is provided, use it
                     if agent_adapter:
                         execution_result = await agent_adapter.execute(
@@ -492,12 +523,17 @@ class ParallelCoordinator:
                             output=f"Task completed: {task_data.get('task', '')}",
                         )
 
-            except Exception as e:
-                # Error isolation: catch exceptions per task
-                task_result.mark_complete(
-                    success=False,
-                    error=str(e),
-                )
+                except Exception as e:
+                    # Error isolation: catch exceptions per task
+                    task_result.mark_complete(
+                        success=False,
+                        error=str(e),
+                    )
+
+                finally:
+                    # Decrement active tasks counter
+                    self._stats.active_tasks -= 1
+                    self._update_stats()
 
             return (task_id, task_result)
 
@@ -533,6 +569,29 @@ class ParallelCoordinator:
         self._stats.average_group_duration = (
             (current_avg * (total - 1) + duration) / total
         )
+
+    def get_stats_summary(self) -> dict[str, Any]:
+        """
+        Get a summary of coordinator statistics.
+
+        Returns:
+            Dictionary with stats summary including available slots
+        """
+        self._update_stats()
+        return {
+            "total_groups": self._stats.total_groups,
+            "successful_groups": self._stats.successful_groups,
+            "failed_groups": self._stats.failed_groups,
+            "total_tasks": self._stats.total_tasks,
+            "completed_tasks": self._stats.completed_tasks,
+            "failed_tasks": self._stats.failed_tasks,
+            "average_group_duration": self._stats.average_group_duration,
+            "max_parallel": self._stats.max_parallel,
+            "active_tasks": self._stats.active_tasks,
+            "available_slots": self._stats.max_parallel - self._stats.active_tasks,
+            "last_execution_at": self._stats.last_execution_at.isoformat() if self._stats.last_execution_at else None,
+            "started_at": self._stats.started_at.isoformat(),
+        }
 
     async def cleanup(self) -> None:
         """
