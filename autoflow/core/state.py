@@ -650,6 +650,38 @@ class StateManager:
 
         return True
 
+    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+        """
+        List archived specifications, optionally filtered by tags.
+
+        Args:
+            tags: Filter by tags (specs must have all tags)
+
+        Returns:
+            List of archived spec dictionaries
+
+        Example:
+            >>> archived = state.list_archived_specs()
+        """
+        specs = []
+        if not self.archive_dir.exists():
+            return specs
+
+        for spec_file in self.archive_dir.glob("*.json"):
+            try:
+                spec = self.read_json(spec_file)
+                if tags:
+                    spec_tags = set(spec.get("tags", []))
+                    if not set(tags).issubset(spec_tags):
+                        continue
+                specs.append(spec)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        # Sort by created_at descending
+        specs.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+        return specs
+
     # === Memory Operations ===
 
     def save_memory(
