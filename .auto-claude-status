@@ -3,25 +3,23 @@
   "spec": "012-automated-error-recovery",
   "state": "building",
   "subtasks": {
-    "completed": 12,
-    "total": 28,
-    "in_progress": 0,
+    "completed": 13,
+    "total": 25,
+    "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Adaptive Retry Executor",
-    "id": "phase-4-adaptive-retry",
-    "total": 3,
-    "completed": 2
+    "current": "Healing System Integration",
+    "id": null,
+    "total": 5
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 14,
-    "started_at": "2026-03-08T12:15:00.000000"
+    "number": 15,
+    "started_at": "2026-03-08T11:21:37.847708"
   },
-  "last_update": "2026-03-08T12:20:00.000000",
-  "last_completed_subtask": "subtask-4-2"
+  "last_update": "2026-03-08T12:06:32.059054"
 }
