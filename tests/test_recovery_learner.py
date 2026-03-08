@@ -10,6 +10,8 @@ for the recovery learning system.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, UTC
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -17,6 +19,7 @@ from autoflow.healing.recovery_learner import (
     LearnedStrategy,
     PatternConfidence,
     RecoveryAttempt,
+    RecoveryLearner,
     RecoveryOutcome,
     RecoveryPattern,
 )
@@ -871,3 +874,669 @@ class TestRecoveryLearnerEdgeCases:
         assert pattern1.metadata["key"] == "value1"
         assert pattern2.metadata["key"] == "value2"
         assert pattern1.metadata is not pattern2.metadata
+
+
+# ============================================================================
+# RecoveryLearner Persistence Tests
+# ============================================================================
+
+
+class TestRecoveryLearnerPersistence:
+    """Tests for RecoveryLearner data persistence."""
+
+    def test_recovery_learner_init_creates_storage(self, tmp_path: Path) -> None:
+        """Test RecoveryLearner initialization creates storage file."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        assert learning_path.exists()
+        assert learner.learning_path == learning_path
+
+    def test_recovery_learner_init_with_existing_data(self, tmp_path: Path) -> None:
+        """Test RecoveryLearner initialization loads existing data."""
+        learning_path = tmp_path / "recovery_learning.json"
+
+        # Create initial learner and add data
+        learner1 = RecoveryLearner(learning_path=learning_path)
+        attempt_id = learner1.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="retry_strategy",
+            action_type="RETRY",
+            parameters={"max_retries": 3},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+        )
+
+        # Create new learner instance - should load existing data
+        learner2 = RecoveryLearner(learning_path=learning_path)
+        assert attempt_id in learner2._attempts
+        assert "test-pattern" in learner2._patterns
+        assert len(learner2._attempts) == 1
+
+    def test_recovery_learner_save_persists_attempts(self, tmp_path: Path) -> None:
+        """Test that recording an attempt persists to disk."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record an attempt
+        learner.record_attempt(
+            pattern_id="timeout-error",
+            strategy_used="retry_with_backoff",
+            action_type="RETRY",
+            parameters={"max_retries": 3},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=5.2,
+            metadata={"error_category": "TIMEOUT"},
+        )
+
+        # Verify file was updated
+        import json
+
+        data = json.loads(learning_path.read_text(encoding="utf-8"))
+        assert "attempts" in data
+        assert len(data["attempts"]) == 1
+        assert "patterns" in data
+        assert "timeout-error" in data["patterns"]
+
+    def test_recovery_learner_load_reconstructs_patterns(self, tmp_path: Path) -> None:
+        """Test that loading reconstructs pattern data correctly."""
+        learning_path = tmp_path / "recovery_learning.json"
+
+        # Create learner with pattern data
+        learner1 = RecoveryLearner(learning_path=learning_path)
+        learner1.record_attempt(
+            pattern_id="network-error",
+            strategy_used="retry",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            metadata={"error_category": "NETWORK", "error_signature": "conn_refused"},
+        )
+
+        # Load in new instance
+        learner2 = RecoveryLearner(learning_path=learning_path)
+        pattern = learner2._patterns["network-error"]
+
+        assert pattern.pattern_id == "network-error"
+        assert pattern.error_category == "NETWORK"
+        assert pattern.occurrence_count == 2  # Default 1 + 1 increment
+        assert pattern.success_count == 1
+
+    def test_recovery_learner_load_reconstructs_strategies(self, tmp_path: Path) -> None:
+        """Test that loading reconstructs learned strategies correctly."""
+        learning_path = tmp_path / "recovery_learning.json"
+
+        # Create learner with strategy data
+        learner1 = RecoveryLearner(learning_path=learning_path)
+        learner1.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="test_strategy",
+            action_type="TEST",
+            parameters={"param": "value"},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+        )
+
+        # Load in new instance
+        learner2 = RecoveryLearner(learning_path=learning_path)
+        strategy_key = "test-pattern:test_strategy"
+        assert strategy_key in learner2._learned_strategies
+
+        strategy = learner2._learned_strategies[strategy_key]
+        assert strategy.strategy_name == "test_strategy"
+        assert strategy.total_attempts == 1
+        assert strategy.successful_attempts == 1
+
+    def test_recovery_learner_atomic_write_prevents_data_loss(self, tmp_path: Path) -> None:
+        """Test that atomic write prevents data corruption."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record multiple attempts
+        for i in range(5):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i}",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        # Verify data integrity
+        import json
+
+        data = json.loads(learning_path.read_text(encoding="utf-8"))
+        assert len(data["attempts"]) == 5
+        assert len(data["patterns"]) == 5
+
+    def test_recovery_learner_handles_corrupted_file(self, tmp_path: Path) -> None:
+        """Test RecoveryLearner handles corrupted JSON gracefully."""
+        learning_path = tmp_path / "recovery_learning.json"
+
+        # Write corrupted JSON
+        learning_path.write_text("{invalid json", encoding="utf-8")
+
+        # Should start fresh without crashing
+        learner = RecoveryLearner(learning_path=learning_path)
+        assert len(learner._attempts) == 0
+        assert len(learner._patterns) == 0
+        assert len(learner._learned_strategies) == 0
+
+    def test_recovery_learner_handles_empty_file(self, tmp_path: Path) -> None:
+        """Test RecoveryLearner handles empty file gracefully."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learning_path.write_text("", encoding="utf-8")
+
+        # Should initialize empty state
+        learner = RecoveryLearner(learning_path=learning_path)
+        assert len(learner._attempts) == 0
+
+    def test_recovery_learner_metadata_in_saved_file(self, tmp_path: Path) -> None:
+        """Test that metadata is correctly saved in learning file."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="test_strategy",
+            action_type="TEST",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+        )
+
+        import json
+
+        data = json.loads(learning_path.read_text(encoding="utf-8"))
+        assert "metadata" in data
+        assert data["metadata"]["total_attempts"] == 1
+        assert data["metadata"]["total_patterns"] == 1
+        assert "last_updated" in data["metadata"]
+
+
+# ============================================================================
+# RecoveryLearner Lookup Tests
+# ============================================================================
+
+
+class TestRecoveryLearnerLookup:
+    """Tests for RecoveryLearner query and lookup methods."""
+
+    def test_get_pattern_statistics_exists(self, tmp_path: Path) -> None:
+        """Test get_pattern_statistics returns correct data for existing pattern."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record attempts for a pattern
+        learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="strategy1",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            metadata={"error_category": "TIMEOUT", "error_signature": "timeout_sig"},
+        )
+
+        stats = learner.get_pattern_statistics("test-pattern")
+
+        assert stats is not None
+        assert stats["pattern_id"] == "test-pattern"
+        assert stats["error_category"] == "TIMEOUT"
+        assert stats["occurrence_count"] == 2  # Default 1 + 1 increment
+        assert stats["success_rate"] == 1.0
+        assert stats["confidence"] == "low"  # Low confidence initially
+        assert "first_seen" in stats
+        assert "last_seen" in stats
+
+    def test_get_pattern_statistics_not_exists(self, tmp_path: Path) -> None:
+        """Test get_pattern_statistics returns None for non-existent pattern."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        stats = learner.get_pattern_statistics("non-existent-pattern")
+
+        assert stats is None
+
+    def test_get_pattern_statistics_multiple_attempts(self, tmp_path: Path) -> None:
+        """Test get_pattern_statistics with multiple attempts."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record multiple attempts with mixed results
+        for i in range(3):
+            learner.record_attempt(
+                pattern_id="mixed-pattern",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS if i < 2 else RecoveryOutcome.FAILED,
+                success=i < 2,
+            )
+
+        stats = learner.get_pattern_statistics("mixed-pattern")
+
+        assert stats["occurrence_count"] == 4  # Default 1 + 3 increments
+        assert stats["success_rate"] == 2/3  # 2 successes out of 3 attempts
+
+    def test_get_best_strategy_exists(self, tmp_path: Path) -> None:
+        """Test get_best_strategy returns best strategy for pattern."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record attempts with different strategies
+        learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="good_strategy",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=1.0,
+        )
+        learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="bad_strategy",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.FAILED,
+            success=False,
+            execution_time=10.0,
+        )
+
+        # Need more attempts to meet minimum thresholds
+        for _ in range(3):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="good_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=1.0,
+            )
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="bad_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.FAILED,
+                success=False,
+                execution_time=10.0,
+            )
+
+        strategy = learner.get_best_strategy("test-pattern")
+
+        assert strategy is not None
+        assert strategy.strategy_name == "good_strategy"  # Higher effectiveness
+        assert strategy.success_rate == 1.0
+
+    def test_get_best_strategy_not_exists(self, tmp_path: Path) -> None:
+        """Test get_best_strategy returns None for non-existent pattern."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        strategy = learner.get_best_strategy("non-existent-pattern")
+
+        assert strategy is None
+
+    def test_get_best_strategy_respects_min_confidence(self, tmp_path: Path) -> None:
+        """Test get_best_strategy respects minimum confidence threshold."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record attempts for low confidence strategy
+        learner.record_attempt(
+            pattern_id="test-pattern",
+            strategy_used="low_conf_strategy",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+        )
+
+        # With MEDIUM confidence requirement, LOW confidence strategy should not be returned
+        strategy = learner.get_best_strategy(
+            "test-pattern",
+            min_confidence=PatternConfidence.MEDIUM,
+        )
+
+        assert strategy is None
+
+    def test_get_best_strategy_high_confidence(self, tmp_path: Path) -> None:
+        """Test get_best_strategy returns HIGH confidence strategies."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record multiple successful attempts to build high confidence
+        for i in range(10):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="high_conf_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS if i < 9 else RecoveryOutcome.FAILED,
+                success=i < 9,
+                execution_time=1.0,
+            )
+
+        strategy = learner.get_best_strategy(
+            "test-pattern",
+            min_confidence=PatternConfidence.HIGH,
+        )
+
+        assert strategy is not None
+        assert strategy.strategy_name == "high_conf_strategy"
+        assert strategy.confidence == PatternConfidence.HIGH
+
+    def test_get_all_attempts_unfiltered(self, tmp_path: Path) -> None:
+        """Test get_all_attempts returns all attempts unfiltered."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record multiple attempts
+        for i in range(5):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i % 2}",  # Alternate between two patterns
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        attempts = learner.get_all_attempts()
+
+        assert len(attempts) == 5
+        # Should be sorted by timestamp (most recent first)
+        for i in range(len(attempts) - 1):
+            assert attempts[i].timestamp >= attempts[i + 1].timestamp
+
+    def test_get_all_attempts_filtered_by_pattern(self, tmp_path: Path) -> None:
+        """Test get_all_attempts filters by pattern_id."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record attempts for different patterns
+        for i in range(3):
+            learner.record_attempt(
+                pattern_id="pattern-A",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+        for i in range(2):
+            learner.record_attempt(
+                pattern_id="pattern-B",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        attempts_a = learner.get_all_attempts(pattern_id="pattern-A")
+        attempts_b = learner.get_all_attempts(pattern_id="pattern-B")
+
+        assert len(attempts_a) == 3
+        assert len(attempts_b) == 2
+        assert all(a.pattern_id == "pattern-A" for a in attempts_a)
+        assert all(a.pattern_id == "pattern-B" for a in attempts_b)
+
+    def test_get_all_attempts_with_limit(self, tmp_path: Path) -> None:
+        """Test get_all_attempts respects limit parameter."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record multiple attempts
+        for i in range(10):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        attempts = learner.get_all_attempts(limit=5)
+
+        assert len(attempts) == 5
+        # Should return the 5 most recent attempts
+        # (they're already sorted by timestamp descending)
+
+    def test_get_learning_summary(self, tmp_path: Path) -> None:
+        """Test get_learning_summary returns comprehensive statistics."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record mixed results
+        for i in range(7):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i % 3}",  # 3 different patterns
+                strategy_used=f"strategy-{i % 2}",  # 2 different strategies
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS if i < 5 else RecoveryOutcome.FAILED,
+                success=i < 5,
+            )
+
+        summary = learner.get_learning_summary()
+
+        assert summary["total_attempts"] == 7
+        assert summary["successful_attempts"] == 5
+        assert summary["failed_attempts"] == 2
+        assert summary["overall_success_rate"] == 5/7
+        assert summary["total_patterns"] == 3
+        assert summary["total_learned_strategies"] == 6  # 3 patterns * 2 strategies
+        assert "strategies_by_confidence" in summary
+        assert "high" in summary["strategies_by_confidence"]
+        assert "medium" in summary["strategies_by_confidence"]
+        assert "low" in summary["strategies_by_confidence"]
+
+    def test_get_learning_summary_empty(self, tmp_path: Path) -> None:
+        """Test get_learning_summary with no data."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        summary = learner.get_learning_summary()
+
+        assert summary["total_attempts"] == 0
+        assert summary["successful_attempts"] == 0
+        assert summary["failed_attempts"] == 0
+        assert summary["overall_success_rate"] == 0.0
+        assert summary["total_patterns"] == 0
+        assert summary["total_learned_strategies"] == 0
+
+    def test_clear_old_data(self, tmp_path: Path) -> None:
+        """Test clear_old_data removes old attempts."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record 20 attempts
+        for i in range(20):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i}",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        assert len(learner._attempts) == 20
+
+        # Keep only 10 most recent
+        removed = learner.clear_old_data(keep_recent=10)
+
+        assert removed == 10
+        assert len(learner._attempts) == 10
+
+        # Patterns should still exist (they're learned knowledge)
+        assert len(learner._patterns) == 20
+
+    def test_clear_old_data_below_threshold(self, tmp_path: Path) -> None:
+        """Test clear_old_data when attempts below threshold."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Record only 5 attempts
+        for i in range(5):
+            learner.record_attempt(
+                pattern_id=f"pattern-{i}",
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        # Try to keep 10 (we have fewer than that)
+        removed = learner.clear_old_data(keep_recent=10)
+
+        assert removed == 0
+        assert len(learner._attempts) == 5
+
+
+# ============================================================================
+# RecoveryLearner Integration Tests
+# ============================================================================
+
+
+class TestRecoveryLearnerIntegration:
+    """Integration tests for RecoveryLearner workflows."""
+
+    def test_learning_workflow_end_to_end(self, tmp_path: Path) -> None:
+        """Test complete learning workflow: record, persist, load, query."""
+        learning_path = tmp_path / "recovery_learning.json"
+
+        # Phase 1: Record learning data
+        learner1 = RecoveryLearner(learning_path=learning_path)
+        learner1.record_attempt(
+            pattern_id="timeout-api-call",
+            strategy_used="retry_with_backoff",
+            action_type="RETRY",
+            parameters={"max_retries": 3, "backoff": "exponential"},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=5.2,
+            metadata={"error_category": "TIMEOUT", "error_signature": "api_timeout"},
+        )
+        learner1.record_attempt(
+            pattern_id="timeout-api-call",
+            strategy_used="retry_with_backoff",
+            action_type="RETRY",
+            parameters={"max_retries": 3, "backoff": "exponential"},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+            execution_time=4.8,
+        )
+        learner1.record_attempt(
+            pattern_id="timeout-api-call",
+            strategy_used="increase_timeout",
+            action_type="RECONFIGURE",
+            parameters={"timeout": 60},
+            outcome=RecoveryOutcome.PARTIAL,
+            success=False,
+            execution_time=2.0,
+        )
+
+        # Phase 2: Load in new instance
+        learner2 = RecoveryLearner(learning_path=learning_path)
+
+        # Phase 3: Query learned knowledge
+        stats = learner2.get_pattern_statistics("timeout-api-call")
+        assert stats is not None
+        assert stats["occurrence_count"] == 4  # Default 1 + 3 attempts
+
+        best_strategy = learner2.get_best_strategy(
+            "timeout-api-call",
+            min_confidence=PatternConfidence.LOW,  # Use LOW due to limited attempts
+        )
+        assert best_strategy is not None
+        assert best_strategy.strategy_name == "retry_with_backoff"
+        assert best_strategy.success_rate == 1.0  # 2/2 successes
+
+        attempts = learner2.get_all_attempts(pattern_id="timeout-api-call")
+        assert len(attempts) == 3
+
+        summary = learner2.get_learning_summary()
+        assert summary["total_attempts"] == 3
+        assert summary["total_patterns"] == 1
+
+    def test_pattern_confidence_evolution(self, tmp_path: Path) -> None:
+        """Test pattern confidence evolves as data accumulates."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        pattern_id = "evolving-pattern"
+
+        # Initial attempts - LOW confidence
+        learner.record_attempt(
+            pattern_id=pattern_id,
+            strategy_used="strategy",
+            action_type="RETRY",
+            parameters={},
+            outcome=RecoveryOutcome.SUCCESS,
+            success=True,
+        )
+
+        stats = learner.get_pattern_statistics(pattern_id)
+        assert stats["confidence"] == "low"
+
+        # More successful attempts - confidence should increase
+        for _ in range(5):
+            learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used="strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+            )
+
+        stats = learner.get_pattern_statistics(pattern_id)
+        # With 6 successes, confidence should be at least MEDIUM
+        assert stats["confidence"] in ["medium", "high"]
+
+    def test_strategy_ranking_by_effectiveness(self, tmp_path: Path) -> None:
+        """Test that strategies are ranked by effectiveness score."""
+        learning_path = tmp_path / "recovery_learning.json"
+        learner = RecoveryLearner(learning_path=learning_path)
+
+        # Fast and successful strategy (4 attempts = MEDIUM confidence)
+        for _ in range(4):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="fast_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=1.0,
+            )
+
+        # Slow but successful strategy (4 attempts = MEDIUM confidence)
+        for _ in range(4):
+            learner.record_attempt(
+                pattern_id="test-pattern",
+                strategy_used="slow_strategy",
+                action_type="RETRY",
+                parameters={},
+                outcome=RecoveryOutcome.SUCCESS,
+                success=True,
+                execution_time=60.0,
+            )
+
+        best = learner.get_best_strategy(
+            "test-pattern",
+            min_confidence=PatternConfidence.MEDIUM,  # Both strategies have MEDIUM confidence
+        )
+        assert best is not None
+        # Fast strategy should have higher effectiveness
+        assert best.strategy_name == "fast_strategy"
