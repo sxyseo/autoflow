@@ -179,7 +179,7 @@ class PRManager:
             pr_key = f"{self.PR_STATE_PREFIX}_{pr_state.pr_number}"
             self.state.save_memory(
                 key=pr_key,
-                value=pr_state.model_dump(),
+                value=pr_state.model_dump(mode="json"),
                 category="pr_state",
             )
 
