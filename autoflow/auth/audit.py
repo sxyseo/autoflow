@@ -674,3 +674,369 @@ def get_compliance_export(
     audit.initialize()
     start_date = datetime.utcnow() - timedelta(days=days)
     return audit.export_logs(output_path, start_date=start_date)
+
+
+def track_login(
+    user_id: str,
+    success: bool = True,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    method: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a login attempt.
+
+    Logs either a successful or failed login attempt with comprehensive
+    context for security monitoring.
+
+    Args:
+        user_id: ID of the user attempting to log in
+        success: Whether the login attempt was successful
+        ip_address: IP address of the request source
+        user_agent: Client user agent string
+        method: Authentication method (e.g., "password", "saml", "oidc")
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_login(
+        ...     user_id="user-123",
+        ...     success=True,
+        ...     ip_address="192.168.1.1",
+        ...     method="saml"
+        ... )
+        AuditLog(event_type=<AuditEvent.LOGIN_SUCCESS: 'login_success'>, ...)
+    """
+    event_type = AuditEvent.LOGIN_SUCCESS if success else AuditEvent.LOGIN_FAILURE
+    severity = AuditSeverity.INFO if success else AuditSeverity.WARNING
+
+    event_details = details or {}
+    if method:
+        event_details["method"] = method
+
+    return log_auth_event(
+        event_type=event_type,
+        user_id=user_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        severity=severity,
+        details=event_details,
+    )
+
+
+def track_logout(
+    user_id: str,
+    session_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a logout event.
+
+    Logs when a user explicitly logs out or their session is terminated.
+
+    Args:
+        user_id: ID of the user logging out
+        session_id: Optional session identifier being terminated
+        ip_address: IP address of the request source
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_logout(user_id="user-123", session_id="sess-456")
+        AuditLog(event_type=<AuditEvent.LOGOUT: 'logout'>, ...)
+    """
+    return log_auth_event(
+        event_type=AuditEvent.LOGOUT,
+        user_id=user_id,
+        session_id=session_id,
+        ip_address=ip_address,
+        details=details or {},
+    )
+
+
+def track_permission_check(
+    user_id: str,
+    permission: str,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    granted: bool = True,
+    ip_address: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a permission check.
+
+    Logs authorization checks for auditing access decisions.
+    This helps with compliance monitoring and security analysis.
+
+    Args:
+        user_id: ID of the user whose permission is being checked
+        permission: The permission being checked (e.g., "spec:write")
+        resource_type: Type of resource being accessed
+        resource_id: ID of the resource being accessed
+        granted: Whether the permission was granted
+        ip_address: IP address of the request source
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_permission_check(
+        ...     user_id="user-123",
+        ...     permission="spec:write",
+        ...     resource_type="spec",
+        ...     resource_id="spec-456",
+        ...     granted=True
+        ... )
+        AuditLog(event_type=<AuditEvent.PERMISSION_GRANTED: 'permission_granted'>, ...)
+    """
+    event_type = (
+        AuditEvent.PERMISSION_GRANTED
+        if granted
+        else AuditEvent.PERMISSION_DENIED
+    )
+    severity = AuditSeverity.INFO if granted else AuditSeverity.WARNING
+
+    event_details = details or {}
+    event_details["permission"] = permission
+
+    return log_auth_event(
+        event_type=event_type,
+        user_id=user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        ip_address=ip_address,
+        severity=severity,
+        details=event_details,
+    )
+
+
+def track_role_assignment(
+    user_id: str,
+    role: str,
+    assigned_by: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a role assignment.
+
+    Logs when a role is assigned to a user for audit trails
+    and compliance monitoring.
+
+    Args:
+        user_id: ID of the user receiving the role
+        role: The role being assigned
+        assigned_by: ID of the user/admin performing the assignment
+        ip_address: IP address of the request source
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_role_assignment(
+        ...     user_id="user-123",
+        ...     role="admin",
+        ...     assigned_by="admin-456"
+        ... )
+        AuditLog(event_type=<AuditEvent.ROLE_ASSIGNED: 'role_assigned'>, ...)
+    """
+    event_details = details or {}
+    event_details["role"] = role
+    if assigned_by:
+        event_details["assigned_by"] = assigned_by
+
+    return log_auth_event(
+        event_type=AuditEvent.ROLE_ASSIGNED,
+        user_id=user_id,
+        ip_address=ip_address,
+        details=event_details,
+    )
+
+
+def track_role_removal(
+    user_id: str,
+    role: str,
+    removed_by: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a role removal.
+
+    Logs when a role is removed from a user for audit trails
+    and compliance monitoring.
+
+    Args:
+        user_id: ID of the user losing the role
+        role: The role being removed
+        removed_by: ID of the user/admin performing the removal
+        ip_address: IP address of the request source
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_role_removal(
+        ...     user_id="user-123",
+        ...     role="admin",
+        ...     removed_by="admin-456"
+        ... )
+        AuditLog(event_type=<AuditEvent.ROLE_REMOVED: 'role_removed'>, ...)
+    """
+    event_details = details or {}
+    event_details["role"] = role
+    if removed_by:
+        event_details["removed_by"] = removed_by
+
+    return log_auth_event(
+        event_type=AuditEvent.ROLE_REMOVED,
+        user_id=user_id,
+        ip_address=ip_address,
+        details=event_details,
+    )
+
+
+def track_sso_login(
+    user_id: str,
+    provider: str,
+    success: bool = True,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track an SSO login attempt.
+
+    Logs SSO authentication events for security monitoring
+    and compliance tracking.
+
+    Args:
+        user_id: ID of the user attempting SSO login
+        provider: SSO provider (e.g., "saml", "oidc")
+        success: Whether the SSO login was successful
+        ip_address: IP address of the request source
+        user_agent: Client user agent string
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_sso_login(
+        ...     user_id="user-123",
+        ...     provider="saml",
+        ...     success=True
+        ... )
+        AuditLog(event_type=<AuditEvent.SSO_LOGIN_SUCCESS: 'sso_login_success'>, ...)
+    """
+    if success:
+        event_type = AuditEvent.SSO_LOGIN_SUCCESS
+        severity = AuditSeverity.INFO
+    else:
+        event_type = AuditEvent.SSO_LOGIN_FAILURE
+        severity = AuditSeverity.WARNING
+
+    event_details = details or {}
+    event_details["provider"] = provider
+
+    return log_auth_event(
+        event_type=event_type,
+        user_id=user_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        severity=severity,
+        details=event_details,
+    )
+
+
+def track_session_created(
+    user_id: str,
+    session_id: str,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a session creation.
+
+    Logs when a new session is created for a user.
+
+    Args:
+        user_id: ID of the user
+        session_id: The new session identifier
+        ip_address: IP address of the request source
+        user_agent: Client user agent string
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_session_created(
+        ...     user_id="user-123",
+        ...     session_id="sess-789",
+        ...     ip_address="192.168.1.1"
+        ... )
+        AuditLog(event_type=<AuditEvent.SESSION_CREATED: 'session_created'>, ...)
+    """
+    return log_auth_event(
+        event_type=AuditEvent.SESSION_CREATED,
+        user_id=user_id,
+        session_id=session_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details=details or {},
+    )
+
+
+def track_session_revoked(
+    user_id: str,
+    session_id: str,
+    revoked_by: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    details: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+    """
+    Track a session revocation.
+
+    Logs when a session is explicitly revoked (e.g., by admin or user).
+
+    Args:
+        user_id: ID of the user whose session is being revoked
+        session_id: The session identifier being revoked
+        revoked_by: ID of the user/admin revoking the session
+        ip_address: IP address of the request source
+        details: Additional event details
+
+    Returns:
+        The created AuditLog instance
+
+    Example:
+        >>> track_session_revoked(
+        ...     user_id="user-123",
+        ...     session_id="sess-789",
+        ...     revoked_by="admin-456"
+        ... )
+        AuditLog(event_type=<AuditEvent.SESSION_REVOKED: 'session_revoked'>, ...)
+    """
+    event_details = details or {}
+    if revoked_by:
+        event_details["revoked_by"] = revoked_by
+
+    return log_auth_event(
+        event_type=AuditEvent.SESSION_REVOKED,
+        user_id=user_id,
+        session_id=session_id,
+        ip_address=ip_address,
+        details=event_details,
+    )
