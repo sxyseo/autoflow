@@ -30,6 +30,115 @@ class PatternConfidence(Enum):
     LOW = "low"  # <50% success rate or very limited samples
 
 
+class RecoveryOutcome(str, Enum):
+    """Possible outcomes of a recovery attempt.
+
+    Attributes:
+        SUCCESS: Recovery attempt fully resolved the issue.
+        PARTIAL: Recovery attempt partially resolved the issue.
+        FAILED: Recovery attempt failed to resolve the issue.
+        ESCALATED: Recovery attempt was escalated to human operator.
+    """
+
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    ESCALATED = "escalated"
+
+
+@dataclass
+class RecoveryAttempt:
+    """Record of a single recovery attempt with outcome and context.
+
+    A RecoveryAttempt captures the details of an individual healing action
+    that was executed in response to an error. It tracks what strategy was used,
+    the parameters applied, the outcome achieved, and timing information.
+    This data is used to build knowledge about which recovery strategies work
+    best for specific error patterns.
+
+    Attributes:
+        attempt_id: Unique identifier for this recovery attempt.
+        pattern_id: Reference to the error pattern this attempt addressed.
+        timestamp: When this recovery attempt was executed (ISO format).
+        strategy_used: The healing strategy that was applied.
+        action_type: Type of healing action executed (e.g., RETRY, RECONFIGURE).
+        parameters: Parameters used for this recovery attempt.
+        outcome: Final outcome of the recovery attempt.
+        success: Whether the recovery attempt was successful.
+        error: Error message if the recovery attempt failed.
+        execution_time: Time taken to execute the recovery in seconds.
+        changes_made: List of changes made during this recovery attempt.
+        verification_passed: Whether post-recovery verification passed.
+        outcome_details: Human-readable details about the outcome.
+        metadata: Additional context and diagnostic information.
+    """
+
+    attempt_id: str
+    pattern_id: str
+    timestamp: datetime
+    strategy_used: str
+    action_type: str
+    parameters: dict[str, Any]
+    outcome: RecoveryOutcome
+    success: bool
+    error: str | None = None
+    execution_time: float = 0.0
+    changes_made: list[str] = field(default_factory=list)
+    verification_passed: bool = False
+    outcome_details: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert recovery attempt to dictionary for JSON serialization.
+
+        Returns:
+            Dictionary representation of the recovery attempt.
+        """
+        return {
+            "attempt_id": self.attempt_id,
+            "pattern_id": self.pattern_id,
+            "timestamp": self.timestamp.isoformat(),
+            "strategy_used": self.strategy_used,
+            "action_type": self.action_type,
+            "parameters": self.parameters,
+            "outcome": self.outcome.value,
+            "success": self.success,
+            "error": self.error,
+            "execution_time": self.execution_time,
+            "changes_made": self.changes_made,
+            "verification_passed": self.verification_passed,
+            "outcome_details": self.outcome_details,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RecoveryAttempt":
+        """Create recovery attempt from dictionary for JSON deserialization.
+
+        Args:
+            data: Dictionary containing recovery attempt data.
+
+        Returns:
+            RecoveryAttempt instance.
+        """
+        return cls(
+            attempt_id=data["attempt_id"],
+            pattern_id=data["pattern_id"],
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            strategy_used=data["strategy_used"],
+            action_type=data["action_type"],
+            parameters=data["parameters"],
+            outcome=RecoveryOutcome(data["outcome"]),
+            success=data["success"],
+            error=data.get("error"),
+            execution_time=data.get("execution_time", 0.0),
+            changes_made=data.get("changes_made", []),
+            verification_passed=data.get("verification_passed", False),
+            outcome_details=data.get("outcome_details", ""),
+            metadata=data.get("metadata", {}),
+        )
+
+
 @dataclass
 class RecoveryPattern:
     """Represents an error pattern with features for recovery learning.
