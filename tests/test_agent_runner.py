@@ -152,6 +152,191 @@ class AgentRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_malicious_command_rejected(self) -> None:
+        """Test that commands not in the allowlist are rejected."""
+        with self.assertRaises(SystemExit) as cm:
+            self.module.build_command(
+                {"command": "rm", "args": ["-rf", "/"]},
+                str(self.prompt_file),
+                run_metadata=None,
+            )
+        self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_shell_metacharacters_in_args_rejected(self) -> None:
+        """Test that shell metacharacters in arguments are rejected."""
+        malicious_args = [
+            ["evil", "|", "rm", "-rf", "/"],
+            ["evil", "&&", "malware"],
+            ["evil", ";", "cat", "/etc/passwd"],
+            ["evil", "$HOME"],
+            ["evil", "`whoami`"],
+            ["evil\n", "malicious"],
+            ["evil\r", "malicious"],
+            ["evil", "(", "malicious", ")"],
+            ["evil", "<", "/etc/passwd"],
+            ["evil", ">", "/tmp/pwned"],
+            ["evil", "\\x", "malicious"],
+        ]
+        for args in malicious_args:
+            with self.subTest(args=args):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        {"command": "claude", "args": args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_dangerous_flags_rejected(self) -> None:
+        """Test that dangerous command execution flags are rejected."""
+        dangerous_args = [
+            ["--exec", "evil()"],
+            ["--execute", "malware"],
+            ["--eval", "malicious()"],
+            ["--evaluate", "pwn()"],
+            ["-e", "evil()"],
+            ["-c", "malware"],
+            ["-x", "pwn()"],
+        ]
+        for args in dangerous_args:
+            with self.subTest(args=args):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        {"command": "claude", "args": args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_invalid_command_format_rejected(self) -> None:
+        """Test that commands with invalid format are rejected."""
+        invalid_commands = [
+            {"command": "claude; rm -rf /", "args": []},
+            {"command": "claude && malware", "args": []},
+            {"command": "claude|evil", "args": []},
+            {"command": "", "args": []},
+            {"command": "   ", "args": []},
+            {"command": "claude evil", "args": []},  # Space in command
+        ]
+        for spec in invalid_commands:
+            with self.subTest(command=spec["command"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_invalid_model_identifier_rejected(self) -> None:
+        """Test that model identifiers with invalid characters are rejected."""
+        invalid_models = [
+            {"command": "claude", "args": [], "model": "claude; rm -rf /"},
+            {"command": "claude", "args": [], "model": "claude && malware"},
+            {"command": "claude", "args": [], "model": "claude|evil"},
+            {"command": "claude", "args": [], "model": "claude model"},  # Space
+        ]
+        for spec in invalid_models:
+            with self.subTest(model=spec["model"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_invalid_tool_names_rejected(self) -> None:
+        """Test that tool names with invalid characters are rejected."""
+        invalid_tools = [
+            {"command": "claude", "args": [], "tools": ["Read; rm -rf /"]},
+            {"command": "claude", "args": [], "tools": ["Read&&malware"]},
+            {"command": "claude", "args": [], "tools": ["Read|evil"]},
+            {"command": "claude", "args": [], "tools": ["Read Write"]},  # Space
+            {"command": "claude", "args": [], "tools": ["Read,Bash(evil)"]},  # Comma
+        ]
+        for spec in invalid_tools:
+            with self.subTest(tools=spec["tools"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_malicious_runtime_args_rejected(self) -> None:
+        """Test that malicious runtime arguments are rejected."""
+        malicious_runtime_args = [
+            ["--exec", "evil()"],
+            ["|", "rm", "-rf"],
+            ["&&", "malware"],
+            [";evil"],
+        ]
+        for runtime_args in malicious_runtime_args:
+            with self.subTest(runtime_args=runtime_args):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        {"command": "claude", "args": [], "runtime_args": runtime_args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_malicious_resume_args_rejected(self) -> None:
+        """Test that malicious resume arguments are rejected."""
+        malicious_resume_args = [
+            {"mode": "args", "args": ["--exec", "evil()"]},
+            {"mode": "args", "args": ["|", "rm", "-rf"]},
+            {"mode": "args", "args": ["&&malware"]},
+        ]
+        for resume in malicious_resume_args:
+            with self.subTest(resume=resume):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        {"command": "claude", "args": [], "resume": resume},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_malicious_acp_transport_command_rejected(self) -> None:
+        """Test that malicious ACP transport commands are rejected."""
+        malicious_transports = [
+            {"command": "placeholder", "protocol": "acp", "transport": {"type": "stdio", "command": "rm -rf /", "args": [], "prompt_mode": "argv"}},
+            {"command": "placeholder", "protocol": "acp", "transport": {"type": "stdio", "command": "malware", "args": [], "prompt_mode": "argv"}},
+            {"command": "placeholder", "protocol": "acp", "transport": {"type": "stdio", "command": "evil && pwn", "args": [], "prompt_mode": "argv"}},
+        ]
+        for spec in malicious_transports:
+            with self.subTest(transport_command=spec["transport"]["command"]):
+                with self.assertRaises(SystemExit) as cm:
+                    self.module.build_command(
+                        spec,
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+                self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_malicious_acp_transport_args_rejected(self) -> None:
+        """Test that malicious ACP transport arguments are rejected."""
+        malicious_transport = {
+            "command": "placeholder",
+            "protocol": "acp",
+            "transport": {
+                "type": "stdio",
+                "command": "acp-agent",
+                "args": ["--exec", "evil()"],
+                "prompt_mode": "argv"
+            },
+        }
+        with self.assertRaises(SystemExit) as cm:
+            self.module.build_command(
+                malicious_transport,
+                str(self.prompt_file),
+                run_metadata=None,
+            )
+        self.assertIn("Invalid agent specification", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
