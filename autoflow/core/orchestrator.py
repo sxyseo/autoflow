@@ -43,6 +43,7 @@ from autoflow.agents.base import (
 from autoflow.agents.claude_code import ClaudeCodeAdapter
 from autoflow.agents.codex import CodexAdapter
 from autoflow.agents.openclaw import OpenClawAdapter, SpawnResult
+from autoflow.agents.symphony import SymphonyAdapter
 from autoflow.core.config import Config, load_config
 from autoflow.core.state import (
     Run,
@@ -168,6 +169,7 @@ class AutoflowOrchestrator:
 
     The orchestrator integrates:
     - OpenClaw for sub-agent spawning via sessions_spawn
+    - Symphony for multi-agent orchestration
     - SkillExecutor for skill-based task execution
     - TmuxManager for background session management
     - StateManager for persistent state
@@ -340,6 +342,14 @@ class AutoflowOrchestrator:
             except Exception:
                 pass
 
+            # Symphony adapter
+            try:
+                self._adapters["symphony"] = SymphonyAdapter(
+                    default_timeout=self.config.symphony.timeout_seconds,
+                )
+            except Exception:
+                pass
+
         return self._adapters
 
     async def initialize(self) -> None:
@@ -369,7 +379,7 @@ class AutoflowOrchestrator:
             if not adapters:
                 raise OrchestratorError(
                     "No agent adapters available. "
-                    "Please ensure Claude Code, Codex, or OpenClaw is installed."
+                    "Please ensure Claude Code, Codex, OpenClaw, or Symphony is installed."
                 )
 
             # Check tmux availability (non-blocking)
