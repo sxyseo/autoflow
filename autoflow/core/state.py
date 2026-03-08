@@ -662,6 +662,17 @@ class StateManager:
         # Create backup before moving
         self._create_backup(source_path)
 
+        # Read spec to update metadata
+        spec_data = self.read_json(source_path)
+
+        # Add archived flag to metadata
+        if "metadata" not in spec_data:
+            spec_data["metadata"] = {}
+        spec_data["metadata"]["archived"] = True
+
+        # Write updated spec back to source before moving
+        self.write_json(source_path, spec_data)
+
         # Move to archive directory
         target_path = self.archive_dir / f"{spec_id}.json"
         shutil.move(str(source_path), str(target_path))
