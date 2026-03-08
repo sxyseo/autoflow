@@ -619,6 +619,61 @@ class AuditLogger:
 
 # === Convenience functions ===
 
+
+def query_audit_logs(
+    event_type: Optional[AuditEvent] = None,
+    user_id: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    severity: Optional[AuditSeverity] = None,
+    status: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    limit: int = 1000,
+) -> list[AuditLog]:
+    """
+    Query audit logs with optional filters.
+
+    Convenience function that creates a default AuditLogger
+    and queries logs based on the provided filters.
+
+    Args:
+        event_type: Filter by event type
+        user_id: Filter by user ID
+        resource_type: Filter by resource type
+        resource_id: Filter by resource ID
+        severity: Filter by severity level
+        status: Filter by status
+        start_date: Start of date range (inclusive)
+        end_date: End of date range (inclusive)
+        limit: Maximum number of logs to return
+
+    Returns:
+        List of matching AuditLog instances
+
+    Example:
+        >>> logs = query_audit_logs(
+        ...     event_type=AuditEvent.LOGIN_SUCCESS,
+        ...     start_date=datetime.utcnow() - timedelta(days=7)
+        ... )
+        >>> len(logs)
+        42
+    """
+    audit = AuditLogger(".autoflow/audit")
+    audit.initialize()
+    return audit.query_logs(
+        event_type=event_type,
+        user_id=user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        severity=severity,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+
+
 def log_auth_event(
     event_type: AuditEvent,
     user_id: Optional[str] = None,
