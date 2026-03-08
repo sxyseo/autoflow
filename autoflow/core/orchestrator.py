@@ -598,6 +598,143 @@ class AutoflowOrchestrator:
         except Exception as e:
             raise OrchestratorError(f"Failed to spawn ACP agent: {e}") from e
 
+    async def run_symphony_workflow(
+        self,
+        task: str,
+        workdir: Optional[Union[str, Path]] = None,
+        timeout_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        resume_session_id: Optional[str] = None,
+    ) -> ExecutionResult:
+        """
+        Run a Symphony multi-agent workflow.
+
+        Executes a task using Symphony's multi-agent orchestration framework.
+        This allows coordinating multiple specialized agents to work on complex
+        tasks collaboratively or independently.
+
+        Args:
+            task: Task description or workflow prompt
+            workdir: Working directory (defaults to current)
+            timeout_seconds: Execution timeout (defaults to config)
+            metadata: Additional metadata for tracking
+            resume_session_id: Optional session ID to resume previous workflow
+
+        Returns:
+            ExecutionResult with status, output, and session info
+
+        Raises:
+            OrchestratorError: If workflow execution fails
+
+        Example:
+            >>> result = await orchestrator.run_symphony_workflow(
+            ...     task="Implement the login feature with tests",
+            ...     timeout_seconds=600
+            ... )
+            >>> if result.success:
+            ...     print(f"Workflow completed: {result.session_id}")
+        """
+        self._status = OrchestratorStatus.SYMPHONY_WORKFLOW
+
+        # Create task record
+        task_id = str(uuid.uuid4())[:8]
+        task_record = Task(
+            id=task_id,
+            title=task[:100],  # Truncate for title
+            description=task,
+            status=TaskStatus.IN_PROGRESS,
+            metadata=metadata or {},
+        )
+
+        # Create run record
+        run_id = str(uuid.uuid4())[:8]
+        run_record = Run(
+            id=run_id,
+            task_id=task_id,
+            agent="symphony",
+            status=RunStatus.STARTED,
+            workdir=str(workdir or Path.cwd()),
+        )
+
+        # Save initial state
+        self.state.save_task(task_id, task_record.model_dump())
+        self.state.save_run(run_id, run_record.model_dump())
+
+        self._current_task = task_record
+        self._stats.total_tasks += 1
+
+        try:
+            # Get Symphony adapter
+            adapters = self._get_available_adapters()
+            if "symphony" not in adapters:
+                raise OrchestratorError(
+                    "Symphony adapter not available. "
+                    "Please ensure Symphony CLI is installed."
+                )
+
+            symphony_adapter = adapters["symphony"]
+
+            # Create agent config
+            config = AgentConfig(
+                command="symphony",
+                args=["agent", "run"],
+                timeout_seconds=timeout_seconds or self.config.symphony.timeout_seconds,
+                metadata=metadata or {},
+            )
+
+            # Execute or resume workflow
+            if resume_session_id:
+                # Resume existing session
+                result = await symphony_adapter.resume(
+                    session_id=resume_session_id,
+                    new_prompt=task,
+                    config=config,
+                )
+            else:
+                # Start new workflow
+                result = await symphony_adapter.execute(
+                    prompt=task,
+                    workdir=workdir or Path.cwd(),
+                    config=config,
+                )
+
+            # Update task and run status based on result
+            if result.success:
+                task_record.status = TaskStatus.COMPLETED
+                run_record.complete(
+                    status=RunStatus.COMPLETED,
+                    output=result.output,
+                )
+                self._stats.completed_tasks += 1
+            else:
+                task_record.status = TaskStatus.FAILED
+                run_record.complete(
+                    status=RunStatus.FAILED,
+                    error=result.error,
+                )
+                self._stats.failed_tasks += 1
+
+            # Update state
+            self.state.save_task(task_id, task_record.model_dump())
+            self.state.save_run(run_id, run_record.model_dump())
+
+            return result
+
+        except Exception as e:
+            task_record.status = TaskStatus.FAILED
+            run_record.complete(
+                status=RunStatus.FAILED,
+                error=str(e),
+            )
+            self.state.save_task(task_id, task_record.model_dump())
+            self.state.save_run(run_id, run_record.model_dump())
+            self._stats.failed_tasks += 1
+            raise OrchestratorError(f"Symphony workflow execution failed: {e}") from e
+
+        finally:
+            self._status = OrchestratorStatus.IDLE
+            self._current_task = None
+
     async def run_cycle(
         self,
         task: str,
