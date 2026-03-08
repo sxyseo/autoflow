@@ -45,6 +45,14 @@ def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: di
         if transport.get("type", "stdio") != "stdio":
             raise SystemExit("only stdio ACP transport is supported in the local runner")
         entrypoint = transport.get("command") or agent_spec.get("command")
+
+        # Security: Validate that entrypoint is present for ACP protocol
+        if not entrypoint:
+            raise SystemExit(
+                "ACP protocol requires a command. "
+                "Set transport.command or agent_spec.command"
+            )
+
         args = list(transport.get("args", []))
         prompt_mode = transport.get("prompt_mode", "argv")
         if prompt_mode == "argv":
