@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 
 class ArtifactType(str, Enum):
@@ -67,7 +67,7 @@ class ArtifactSpec:
     content_check: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def exists(self, root: Optional[Path] = None) -> bool:
+    def exists(self, root: Optional[Union[Path, str]] = None) -> bool:
         """
         Check if the artifact exists.
 
@@ -77,7 +77,14 @@ class ArtifactSpec:
         Returns:
             True if artifact exists, False otherwise.
         """
-        base_path = root or Path.cwd()
+        # Convert root to Path if it's a string
+        if isinstance(root, str):
+            base_path = Path(root)
+        elif root is None:
+            base_path = Path.cwd()
+        else:
+            base_path = root
+
         artifact_path = base_path / self.path
 
         if self.type == ArtifactType.FILE:
@@ -88,7 +95,7 @@ class ArtifactSpec:
             # For other types, check if path exists (file or dir)
             return artifact_path.exists()
 
-    def validate(self, root: Optional[Path] = None) -> list[str]:
+    def validate(self, root: Optional[Union[Path, str]] = None) -> list[str]:
         """
         Validate the artifact specification.
 
@@ -100,7 +107,14 @@ class ArtifactSpec:
         """
         errors: list[str] = []
 
-        base_path = root or Path.cwd()
+        # Convert root to Path if it's a string
+        if isinstance(root, str):
+            base_path = Path(root)
+        elif root is None:
+            base_path = Path.cwd()
+        else:
+            base_path = root
+
         artifact_path = base_path / self.path
 
         # Check if artifact exists
