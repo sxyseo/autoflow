@@ -1,10 +1,10 @@
 {
   "active": true,
   "spec": "014-symphony-framework-integration",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 2,
+    "total": 22,
     "in_progress": 1,
     "failed": 0
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 4,
     "started_at": "2026-03-08T11:21:43.429996"
   },
-  "last_update": "2026-03-08T11:25:42.074958"
+  "last_update": "2026-03-08T11:28:49.468662"
 }

@@ -291,7 +291,8 @@ class SymphonyAdapter(AgentAdapter):
         """
         Resume an existing session with a new prompt.
 
-        Uses Symphony's native session resume capability.
+        Uses Symphony's native session resume capability via checkpoint-based
+        state management. Sessions can be continued using their session IDs.
 
         Args:
             session_id: ID of the session to resume
@@ -301,6 +302,9 @@ class SymphonyAdapter(AgentAdapter):
         Returns:
             ExecutionResult with status and output
 
+        Raises:
+            ValueError: If session_id is not found or workdir doesn't exist
+
         Example:
             >>> result = await adapter.resume(
             ...     session_id="abc123",
@@ -309,9 +313,29 @@ class SymphonyAdapter(AgentAdapter):
         """
         result = ExecutionResult()
 
+        # Validate session_id exists in active sessions
+        if session_id not in self._active_sessions:
+            result.mark_complete(
+                status=ExecutionStatus.ERROR,
+                exit_code=-1,
+                error=f"Session ID not found: {session_id}. "
+                f"Session may have been cleaned up or never created.",
+            )
+            return result
+
         # Get stored session info
         session_info = self._active_sessions.get(session_id, {})
         workdir = session_info.get("workdir", ".")
+
+        # Validate workdir exists
+        workdir_path = Path(workdir)
+        if not workdir_path.exists():
+            result.mark_complete(
+                status=ExecutionStatus.ERROR,
+                exit_code=-1,
+                error=f"Session work directory does not exist: {workdir}",
+            )
+            return result
 
         # Use provided config or create default
         if config is None:
@@ -329,7 +353,7 @@ class SymphonyAdapter(AgentAdapter):
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                cwd=workdir,
+                cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=config.env or None,
