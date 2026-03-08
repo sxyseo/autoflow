@@ -22,6 +22,14 @@ from autoflow.coordination.cluster import (
     WorkItem,
     WorkItemStatus,
 )
+from autoflow.coordination.health import (
+    HealthCheckError,
+    HealthConfig,
+    HealthMonitor,
+    HealthMonitorStats,
+    HealthStatus,
+    NodeHealthInfo,
+)
 from autoflow.coordination.client import NodeClient, NodeClientError
 from autoflow.coordination.node import Node, NodeStatus
 from autoflow.coordination.registry import NodeRegistry, RegistryStats
@@ -54,4 +62,10 @@ __all__ = [
     "AssignmentRecord",
     "BalancerError",
     "create_load_balancer",
+    "HealthMonitor",
+    "HealthConfig",
+    "HealthStatus",
+    "NodeHealthInfo",
+    "HealthMonitorStats",
+    "HealthCheckError",
 ]
