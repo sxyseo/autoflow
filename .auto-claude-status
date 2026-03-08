@@ -1,25 +1,25 @@
 {
   "active": true,
   "spec": "027-add-cancel-run-cli-command-for-run-lifecycle-manag",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 3,
+    "total": 5,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Implement cancel-run CLI Command",
+    "current": "Integration Testing",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 4,
     "started_at": "2026-03-08T10:59:39.382293"
   },
-  "last_update": "2026-03-08T11:02:38.619130"
+  "last_update": "2026-03-08T11:08:13.121732"
 }
