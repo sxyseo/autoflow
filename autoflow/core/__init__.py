@@ -10,6 +10,8 @@ This module provides the core functionality for Autoflow:
 from autoflow.core.config import (
     Config,
     SystemConfig,
+    RepositoryConfig,
+    RepositoriesConfig,
     load_config,
     load_system_config,
     get_state_dir,
@@ -43,6 +45,8 @@ __all__ = [
     # Config
     "Config",
     "SystemConfig",
+    "RepositoryConfig",
+    "RepositoriesConfig",
     "load_config",
     "load_system_config",
     "get_state_dir",

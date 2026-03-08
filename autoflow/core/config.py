@@ -5,10 +5,11 @@ Provides configuration loading with JSON5 support, allowing comments,
 trailing commas, and unquoted keys in configuration files.
 
 Usage:
-    from autoflow.core.config import load_config, load_system_config
+    from autoflow.core.config import load_config, load_system_config, RepositoryConfig
 
     config = load_config("config/settings.json5")
     system_config = load_system_config()
+    repo_config = RepositoryConfig(id="main", name="Main Repo", path=".")
 """
 
 from __future__ import annotations
@@ -99,6 +100,31 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class RepositoryConfig(BaseModel):
+    """Configuration for a single repository in multi-repository setup."""
+
+    id: str
+    name: str
+    path: str
+    url: str | None = None
+    branch: str = "main"
+    enabled: bool = True
+    priority: int = 0  # Higher priority repositories are processed first
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def expand_path(cls, v: str) -> str:
+        """Expand environment variables and user home in path."""
+        return os.path.expandvars(os.path.expanduser(v))
+
+
+class RepositoriesConfig(BaseModel):
+    """Multi-repository configuration."""
+
+    repositories: list[RepositoryConfig] = Field(default_factory=list)
+    default_repository_id: str | None = None
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -110,6 +136,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    repositories: RepositoriesConfig = Field(default_factory=RepositoriesConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
