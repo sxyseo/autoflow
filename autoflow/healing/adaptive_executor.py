@@ -76,7 +76,8 @@ class AdaptiveRetryExecutor:
         This method enhances the base retry execution by:
         1. Querying the learning system for optimal parameters
         2. Adjusting retry configuration based on learned patterns
-        3. Recording the attempt for future learning
+        3. Falling back to learned strategies when default retry fails
+        4. Recording the attempt for future learning
 
         Args:
             action: The retry action to execute.
@@ -130,6 +131,25 @@ class AdaptiveRetryExecutor:
             except Exception as e:
                 # Don't fail the retry if learning recording fails
                 logger.warning(f"Failed to record retry attempt for learning: {e}")
+
+        # Fallback to learned strategies if default retry failed
+        if not result.success and self._learner and root_cause:
+            logger.info("Default retry failed, attempting fallback to learned strategies")
+            fallback_result = await self.try_learned_strategy(
+                action=action,
+                root_cause=root_cause,
+                context=context,
+            )
+
+            if fallback_result and fallback_result.success:
+                logger.info("Fallback to learned strategy succeeded")
+                return fallback_result
+            elif fallback_result:
+                logger.info("Fallback to learned strategy also failed")
+                # Return the fallback result even if it failed, as it has more context
+                result = fallback_result
+            else:
+                logger.info("No suitable learned strategy found for fallback")
 
         return result
 
