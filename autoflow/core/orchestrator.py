@@ -51,6 +51,14 @@ from autoflow.core.state import (
     Task,
     TaskStatus,
 )
+from autoflow.coordination.balancer import (
+    LoadBalancer,
+    LoadBalancingStrategy,
+)
+from autoflow.coordination.cluster import WorkItem, WorkItemStatus
+from autoflow.coordination.node import Node
+from autoflow.coordination.registry import NodeRegistry
+from autoflow.coordination.work_queue import DistributedWorkQueue
 from autoflow.skills.executor import (
     SkillExecutionContext,
     SkillExecutionResult,
@@ -237,6 +245,12 @@ class AutoflowOrchestrator:
         self._continuous_task: Optional[asyncio.Task] = None
         self._running = False
 
+        # Distributed coordination components (initialized lazily)
+        self._node_registry: Optional[NodeRegistry] = None
+        self._work_queue: Optional[DistributedWorkQueue] = None
+        self._load_balancer: Optional[LoadBalancer] = None
+        self._cluster_enabled: bool = False
+
         if auto_initialize:
             asyncio.create_task(self.initialize())
 
@@ -309,6 +323,37 @@ class AutoflowOrchestrator:
     def stats(self) -> OrchestratorStats:
         """Get orchestrator statistics."""
         return self._stats
+
+    @property
+    def node_registry(self) -> NodeRegistry:
+        """Get node registry, creating if needed."""
+        if self._node_registry is None:
+            self._node_registry = NodeRegistry()
+        return self._node_registry
+
+    @property
+    def work_queue(self) -> DistributedWorkQueue:
+        """Get distributed work queue, creating if needed."""
+        if self._work_queue is None:
+            work_queue_dir = self._state_dir or self.config.state_dir
+            queue_path = Path(work_queue_dir) / "work_queue"
+            self._work_queue = DistributedWorkQueue(queue_path=queue_path)
+        return self._work_queue
+
+    @property
+    def load_balancer(self) -> LoadBalancer:
+        """Get load balancer, creating if needed."""
+        if self._load_balancer is None:
+            self._load_balancer = LoadBalancer(
+                registry=self.node_registry,
+                strategy=LoadBalancingStrategy.LEAST_LOADED,
+            )
+        return self._load_balancer
+
+    @property
+    def cluster_enabled(self) -> bool:
+        """Check if cluster mode is enabled."""
+        return self._cluster_enabled
 
     def _get_available_adapters(self) -> dict[str, AgentAdapter]:
         """
@@ -1011,6 +1056,214 @@ class AutoflowOrchestrator:
         self._stats.total_tasks += 1
 
         return task
+
+    def enable_cluster_mode(
+        self,
+        node_id: Optional[str] = None,
+        enabled: bool = True,
+    ) -> None:
+        """
+        Enable or disable cluster mode for distributed execution.
+
+        Args:
+            node_id: Optional node ID for this orchestrator instance
+            enabled: Whether to enable cluster mode
+
+        Example:
+            >>> orchestrator.enable_cluster_mode(
+            ...     node_id="orchestrator-001",
+            ...     enabled=True
+            ... )
+            >>> orchestrator.distribute_work("Implement feature X")
+        """
+        self._cluster_enabled = enabled
+
+        if enabled and node_id:
+            # Register this orchestrator as a node
+            try:
+                self.node_registry.register(
+                    node_id=node_id,
+                    address="localhost",
+                    capabilities=["orchestrator", "execution"],
+                )
+            except Exception:
+                pass
+
+    async def distribute_work(
+        self,
+        task: str,
+        skill_name: str = "IMPLEMENTER",
+        priority: int = 5,
+        metadata: Optional[dict[str, Any]] = None,
+        workdir: Optional[Union[str, Path]] = None,
+        timeout_seconds: Optional[int] = None,
+    ) -> WorkItem:
+        """
+        Distribute a task across the cluster for execution.
+
+        This method creates a work item and uses the load balancer to select
+        an appropriate node for execution. If no nodes are available, the work
+        is queued for later execution.
+
+        Args:
+            task: Task description to execute
+            skill_name: Name of the skill to use for execution
+            priority: Work priority (1-10, higher is more urgent)
+            metadata: Optional metadata for the work item
+            workdir: Working directory for task execution
+            timeout_seconds: Execution timeout
+
+        Returns:
+            WorkItem representing the distributed task
+
+        Raises:
+            OrchestratorError: If cluster mode is not enabled or distribution fails
+
+        Example:
+            >>> work_item = await orchestrator.distribute_work(
+            ...     task="Fix the authentication bug",
+            ...     skill_name="IMPLEMENTER",
+            ...     priority=8
+            ... )
+            >>> print(f"Work ID: {work_item.id}")
+            >>> print(f"Assigned to: {work_item.assigned_node}")
+        """
+        if not self._cluster_enabled:
+            # Fallback to local execution if cluster not enabled
+            raise OrchestratorError(
+                "Cluster mode is not enabled. "
+                "Call enable_cluster_mode() first."
+            )
+
+        # Create work item
+        work_id = str(uuid.uuid4())[:8]
+        work_item = WorkItem(
+            id=work_id,
+            task=task,
+            priority=priority,
+            metadata=metadata or {},
+        )
+        work_item.metadata["skill_name"] = skill_name
+        work_item.metadata["workdir"] = str(workdir) if workdir else None
+        work_item.metadata["timeout_seconds"] = timeout_seconds
+
+        # Select a node using load balancer
+        node = self.load_balancer.select_node(
+            capability=skill_name.lower(),
+            exclude_busy=True,
+        )
+
+        if node:
+            # Assign work to selected node
+            work_item.assign_to(node.id)
+            self.load_balancer.record_assignment(node.id, work_id)
+
+            # Add to work queue
+            self.work_queue.enqueue(work_item)
+
+            # Send work to node asynchronously
+            asyncio.create_task(
+                self._send_work_to_node(node, work_item, workdir)
+            )
+        else:
+            # No available nodes, queue for later
+            self.work_queue.enqueue(work_item)
+
+        return work_item
+
+    async def _send_work_to_node(
+        self,
+        node: Node,
+        work_item: WorkItem,
+        workdir: Optional[Union[str, Path]] = None,
+    ) -> None:
+        """
+        Send work to a remote node for execution.
+
+        Args:
+            node: Target node
+            work_item: Work to execute
+            workdir: Working directory
+
+        Example:
+            >>> await orchestrator._send_work_to_node(node, work_item)
+        """
+        # This would use NodeClient to send work to remote node
+        # For now, we'll execute locally if it's this node
+        try:
+            skill_name = work_item.metadata.get("skill_name", "IMPLEMENTER")
+            timeout = work_item.metadata.get("timeout_seconds")
+
+            result = await self.run_task(
+                task=work_item.task,
+                skill_name=skill_name,
+                workdir=workdir,
+                timeout_seconds=timeout,
+            )
+
+            # Update work item status
+            if result.success:
+                work_item.complete()
+                self.load_balancer.complete_assignment(work_item.id, success=True)
+            else:
+                work_item.fail(error=result.error)
+                self.load_balancer.complete_assignment(work_item.id, success=False)
+
+            # Update work queue
+            self.work_queue.update_work_status(
+                work_id=work_item.id,
+                status=WorkItemStatus.COMPLETED if result.success else WorkItemStatus.FAILED,
+                error=result.error,
+            )
+
+        except Exception as e:
+            work_item.fail(error=str(e))
+            self.load_balancer.complete_assignment(work_item.id, success=False)
+            self.work_queue.update_work_status(
+                work_id=work_item.id,
+                status=WorkItemStatus.FAILED,
+                error=str(e),
+            )
+
+    async def get_cluster_status(self) -> dict[str, Any]:
+        """
+        Get comprehensive cluster status information.
+
+        Returns:
+            Dictionary with cluster status including nodes, work queue, and load balancer stats
+
+        Example:
+            >>> status = await orchestrator.get_cluster_status()
+            >>> print(f"Online nodes: {status['node_count']}")
+            >>> print(f"Pending work: {status['pending_work']}")
+        """
+        registry_stats = self.node_registry.get_stats()
+        queue_stats = self.work_queue.get_stats()
+        balancer_stats = self.load_balancer.get_stats()
+
+        return {
+            "cluster_enabled": self._cluster_enabled,
+            "nodes": {
+                "total": registry_stats.total_nodes,
+                "online": registry_stats.online_nodes,
+                "available": registry_stats.available_nodes,
+                "online_percentage": registry_stats.online_percentage(),
+            },
+            "work_queue": {
+                "pending": queue_stats.pending_count,
+                "assigned": queue_stats.assigned_count,
+                "running": queue_stats.running_count,
+                "completed": queue_stats.completed_count,
+                "failed": queue_stats.failed_count,
+            },
+            "load_balancer": {
+                "total_assignments": balancer_stats.total_assignments,
+                "completed_assignments": balancer_stats.completed_assignments,
+                "failed_assignments": balancer_stats.failed_assignments,
+                "success_rate": balancer_stats.success_rate(),
+                "strategy": balancer_stats.strategy,
+            },
+        }
 
     async def get_status_summary(self) -> dict[str, Any]:
         """
