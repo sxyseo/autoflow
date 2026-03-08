@@ -364,6 +364,86 @@ class PRManager:
         except Exception:
             return []
 
+    def detect_stale_prs(self) -> list[PRState]:
+        """
+        Detect PRs that need refresh due to base branch changes.
+
+        Checks each tracked PR to determine if the base branch has advanced
+        since the last refresh. Updates the needs_refresh flag and returns
+        the list of PRs that need refresh.
+
+        Returns:
+            List of PR states that need refresh
+
+        Example:
+            >>> pr_manager = PRManager(repo_path="/path/to/repo")
+            >>> stale_prs = pr_manager.detect_stale_prs()
+            >>> for pr in stale_prs:
+            ...     print(f"PR #{pr.pr_number} needs refresh")
+        """
+        try:
+            all_prs = self.list_prs()
+            stale_prs: list[PRState] = []
+
+            for pr_state in all_prs:
+                try:
+                    # Get current HEAD commit of base branch
+                    base_info = self.git_ops.get_branch_info(pr_state.base_branch)
+                    if not base_info or not base_info.commit_sha:
+                        logger.warning(
+                            "Could not get HEAD for base branch %s of PR #%d",
+                            pr_state.base_branch,
+                            pr_state.pr_number,
+                        )
+                        continue
+
+                    base_head = base_info.commit_sha
+
+                    # Check if base branch has advanced since last refresh
+                    needs_update = False
+                    if pr_state.last_refresh_commit is None:
+                        # Never refreshed, needs refresh
+                        needs_update = True
+                    elif base_head != pr_state.last_refresh_commit:
+                        # Base branch has moved forward
+                        needs_update = True
+
+                    # Update state if needed
+                    if needs_update != pr_state.needs_refresh:
+                        pr_state.needs_refresh = needs_update
+                        self.track_pr(pr_state)
+
+                    # Track as stale if needs refresh
+                    if needs_update:
+                        stale_prs.append(pr_state)
+                        logger.debug(
+                            "PR #%d needs refresh (base %s advanced from %s to %s)",
+                            pr_state.pr_number,
+                            pr_state.base_branch,
+                            pr_state.last_refresh_commit,
+                            base_head,
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        "Failed to check staleness for PR #%d: %s",
+                        pr_state.pr_number,
+                        e,
+                    )
+                    continue
+
+            logger.info(
+                "Detected %d stale PRs out of %d tracked",
+                len(stale_prs),
+                len(all_prs),
+            )
+
+            return stale_prs
+
+        except Exception as e:
+            logger.error("Failed to detect stale PRs: %s", e)
+            return []
+
     def get_status(self) -> dict[str, Any]:
         """
         Get status summary of tracked PRs.
