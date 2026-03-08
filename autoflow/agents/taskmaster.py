@@ -18,10 +18,104 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 import httpx
 from pydantic import BaseModel, Field, field_validator
+
+
+class TaskmasterTaskStatus(str, Enum):
+    """Status of a task in Taskmaster AI."""
+
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    IN_REVIEW = "in_review"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+
+
+class TaskmasterTask(BaseModel):
+    """
+    Represents a task from Taskmaster AI.
+
+    Contains all task-related data including status, priority,
+    relationships, and metadata. Designed to map directly to
+    Taskmaster AI's task schema while maintaining compatibility
+    with Autoflow's task system.
+
+    Attributes:
+        id: Unique identifier for the task
+        title: Brief title describing the task
+        description: Detailed description of the task
+        status: Current status of the task
+        priority: Priority level (1-10, higher is more urgent)
+        created_at: Timestamp when the task was created
+        updated_at: Timestamp when the task was last updated
+        completed_at: Timestamp when the task was completed
+        assigned_to: ID of the agent/user assigned to the task
+        project_id: Optional project ID for project-based organization
+        parent_task_id: ID of the parent task (if this is a subtask)
+        labels: List of labels/tags for categorization
+        dependencies: List of task IDs this task depends on
+        metadata: Additional custom data
+        taskmaster_id: Original Taskmaster AI task ID (if different)
+    """
+
+    id: str
+    title: str
+    description: str = ""
+    status: TaskmasterTaskStatus = TaskmasterTaskStatus.TODO
+    priority: int = 5
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    assigned_to: Optional[str] = None
+    project_id: Optional[str] = None
+    parent_task_id: Optional[str] = None
+    labels: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    taskmaster_id: Optional[str] = None
+
+    def touch(self) -> None:
+        """
+        Update the updated_at timestamp.
+
+        Call this method whenever the task is modified to
+        keep the updated_at timestamp current.
+        """
+        self.updated_at = datetime.utcnow()
+
+    def mark_completed(self) -> None:
+        """
+        Mark the task as completed.
+
+        Sets status to DONE and records the completion timestamp.
+        """
+        self.status = TaskmasterTaskStatus.DONE
+        self.completed_at = datetime.utcnow()
+        self.touch()
+
+    def is_completed(self) -> bool:
+        """
+        Check if the task is completed.
+
+        Returns:
+            True if the task status is DONE
+        """
+        return self.status == TaskmasterTaskStatus.DONE
+
+    def is_blocked(self) -> bool:
+        """
+        Check if the task is blocked.
+
+        Returns:
+            True if the task status is BLOCKED
+        """
+        return self.status == TaskmasterTaskStatus.BLOCKED
 
 
 class TaskmasterConfig(BaseModel):
