@@ -807,3 +807,112 @@ class DistributedWorkQueue:
                         removed += 1
 
         return removed
+
+    def get_work_for_node(
+        self,
+        node_id: str,
+        status: Optional[WorkItemStatus] = None,
+    ) -> list[WorkItem]:
+        """
+        Get all work items assigned to a specific node.
+
+        Args:
+            node_id: ID of the node to get work for
+            status: Optional filter by work status. If None, returns all
+                   work assigned to the node regardless of status.
+
+        Returns:
+            List of work items assigned to the node
+
+        Example:
+            >>> # Get all work for a failed node
+            >>> work_items = queue.get_work_for_node("node-001")
+            >>> for work in work_items:
+            ...     print(f"Work: {work.task} (status: {work.status})")
+        """
+        return self.list_work(status=status, node_id=node_id)
+
+    def reassign_work(
+        self,
+        work_id: str,
+        new_node_id: str,
+    ) -> Optional[WorkItem]:
+        """
+        Reassign a work item to a different node.
+
+        Moves the work item from its current node to a new node.
+        This is useful for failover scenarios when a node fails.
+
+        Args:
+            work_id: ID of the work item to reassign
+            new_node_id: ID of the node to reassign work to
+
+        Returns:
+            Updated work item if found and reassigned, None otherwise
+
+        Example:
+            >>> # Reassign work from failed node to healthy node
+            >>> work = queue.reassign_work("work-001", "node-002")
+            >>> if work:
+            ...     print(f"Reassigned to {work.assigned_node}")
+        """
+        # Find the work item
+        work = self.get_work_item(work_id)
+        if not work:
+            return None
+
+        # Get old path
+        old_path = self._get_work_path(work_id, work.status)
+
+        # Update assignment
+        work.assign_to(new_node_id)
+
+        # Move to assigned directory
+        new_path = self._get_work_path(work_id, WorkItemStatus.ASSIGNED)
+        self._write_work_item(work, new_path)
+
+        # Remove from old location if different
+        if old_path != new_path and old_path.exists():
+            old_path.unlink()
+
+        return work
+
+    def reassign_all_work_for_node(
+        self,
+        old_node_id: str,
+        new_node_id: str,
+        status_filter: Optional[WorkItemStatus] = None,
+    ) -> list[WorkItem]:
+        """
+        Reassign all work items from one node to another.
+
+        Bulk reassignment of all work items from a failed node to a
+        healthy node. Useful for failover scenarios.
+
+        Args:
+            old_node_id: ID of the node to reassign work from
+            new_node_id: ID of the node to reassign work to
+            status_filter: Optional filter by work status. If None, reassigns
+                          all work assigned to the old node.
+
+        Returns:
+            List of reassigned work items
+
+        Example:
+            >>> # Reassign all work from failed node
+            >>> reassigned = queue.reassign_all_work_for_node(
+            ...     "node-001",
+            ...     "node-002"
+            ... )
+            >>> print(f"Reassigned {len(reassigned)} work items")
+        """
+        # Get all work for the old node
+        work_items = self.get_work_for_node(old_node_id, status=status_filter)
+
+        reassigned = []
+        for work in work_items:
+            result = self.reassign_work(work.id, new_node_id)
+            if result:
+                reassigned.append(result)
+
+        return reassigned

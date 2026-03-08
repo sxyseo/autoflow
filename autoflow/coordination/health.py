@@ -35,8 +35,13 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from autoflow.coordination.balancer import LoadBalancer
 from autoflow.coordination.node import Node, NodeStatus
 from autoflow.coordination.registry import NodeRegistry
+from autoflow.coordination.work_queue import (
+    DistributedWorkQueue,
+    WorkItemStatus,
+)
 
 
 class HealthStatus(str, Enum):
@@ -292,6 +297,8 @@ class HealthMonitor:
         self,
         registry: Optional[NodeRegistry] = None,
         config: Optional[HealthConfig] = None,
+        work_queue: Optional[DistributedWorkQueue] = None,
+        load_balancer: Optional[LoadBalancer] = None,
     ) -> None:
         """
         Initialize the HealthMonitor.
@@ -299,6 +306,8 @@ class HealthMonitor:
         Args:
             registry: NodeRegistry instance (creates new if None)
             config: Health configuration (uses defaults if None)
+            work_queue: Optional DistributedWorkQueue for failover operations
+            load_balancer: Optional LoadBalancer for selecting replacement nodes
 
         Example:
             >>> monitor = HealthMonitor()
@@ -312,6 +321,8 @@ class HealthMonitor:
         self.is_running = False
         self._monitor_task: Optional[asyncio.Task[None]] = None
         self.stats = HealthMonitorStats()
+        self.work_queue = work_queue
+        self.load_balancer = load_balancer
 
     async def start(self) -> None:
         """
@@ -708,3 +719,172 @@ class HealthMonitor:
             for node_id, health_info in failures.items()
             if health_info.status == HealthStatus.UNHEALTHY
         ]
+
+    async def handle_failover(
+        self,
+        failed_node_ids: Optional[list[str]] = None,
+        force_check: bool = True,
+    ) -> dict[str, list[str]]:
+        """
+        Handle failover by reassigning work from failed nodes to healthy nodes.
+
+        When nodes fail, their assigned work items need to be reassigned to
+        healthy nodes to ensure work continues. This method detects failures,
+        finds work assigned to failed nodes, and reassigns it to healthy nodes
+        using the load balancer.
+
+        Args:
+            failed_node_ids: Optional list of specific failed node IDs to handle.
+                           If None, detects failures automatically.
+            force_check: If True, perform health checks before failover. Ignored
+                        if failed_node_ids is provided.
+
+        Returns:
+            Dictionary mapping old node IDs to lists of reassigned work item IDs
+
+        Raises:
+            HealthCheckError: If work queue or load balancer not configured
+
+        Example:
+            >>> # Automatic failover for detected failures
+            >>> reassigned = await monitor.handle_failover()
+            >>> for old_node, work_ids in reassigned.items():
+            ...     print(f"Reassigned {len(work_ids)} items from {old_node}")
+
+            >>> # Manual failover for specific nodes
+            >>> reassigned = await monitor.handle_failover(
+            ...     failed_node_ids=["node-001"]
+            ... )
+        """
+        if not self.work_queue:
+            raise HealthCheckError(
+                "Work queue not configured. Cannot perform failover."
+            )
+
+        if not self.load_balancer:
+            raise HealthCheckError(
+                "Load balancer not configured. Cannot perform failover."
+            )
+
+        # Detect failures if not provided
+        if failed_node_ids is None:
+            failures = await self.detect_failures(force_check=force_check)
+            failed_node_ids = list(failures.keys())
+
+        if not failed_node_ids:
+            return {}
+
+        reassigned_work: dict[str, list[str]] = {}
+
+        # Handle failover for each failed node
+        for failed_node_id in failed_node_ids:
+            # Get work items assigned to the failed node
+            # Only reassign work that is ASSIGNED or RUNNING
+            work_items = self.work_queue.get_work_for_node(
+                failed_node_id,
+                status_filter=None,  # Get all work for this node
+            )
+
+            # Filter to only active work (ASSIGNED or RUNNING)
+            active_work = [
+                w
+                for w in work_items
+                if w.status in (WorkItemStatus.ASSIGNED, WorkItemStatus.RUNNING)
+            ]
+
+            if not active_work:
+                reassigned_work[failed_node_id] = []
+                continue
+
+            # Get all available nodes except the failed one
+            available_nodes = [
+                node
+                for node in self.registry.get_available_nodes()
+                if node.id != failed_node_id
+            ]
+
+            if not available_nodes:
+                # No healthy nodes available for failover
+                reassigned_work[failed_node_id] = []
+                continue
+
+            # Select a replacement node using the load balancer
+            # We manually filter nodes to exclude the failed node
+            replacement_node = self.load_balancer.select_node(
+                exclude_busy=True,
+            )
+
+            # Verify the selected node is not the failed node
+            if not replacement_node or replacement_node.id == failed_node_id:
+                # Manually select the first available node as fallback
+                replacement_node = available_nodes[0]
+
+            if not replacement_node:
+                # No healthy nodes available for failover
+                reassigned_work[failed_node_id] = []
+                continue
+
+            # Reassign all work from failed node to replacement node
+            reassigned_ids = []
+            for work in active_work:
+                result = self.work_queue.reassign_work(
+                    work.id,
+                    replacement_node.id,
+                )
+                if result:
+                    reassigned_ids.append(work.id)
+
+                    # Update load balancer assignment records
+                    # Mark old assignment as failed
+                    self.load_balancer.complete_assignment(
+                        work.id,
+                        success=False,
+                    )
+                    # Record new assignment
+                    self.load_balancer.record_assignment(
+                        replacement_node.id,
+                        work_id=work.id,
+                    )
+
+            reassigned_work[failed_node_id] = reassigned_ids
+
+        return reassigned_work
+
+    async def auto_failover(
+        self,
+        check_interval: Optional[int] = None,
+    ) -> None:
+        """
+        Continuously monitor for failures and automatically handle failover.
+
+        Runs in the background, periodically checking for failed nodes and
+        reassigning their work to healthy nodes. Stops when the monitor
+        is stopped.
+
+        Args:
+            check_interval: Seconds between failover checks. Defaults to
+                          config.heartbeat_interval if not specified.
+
+        Example:
+            >>> # Start auto-failover
+            >>> await monitor.start()
+            >>> asyncio.create_task(monitor.auto_failover())
+            >>>
+            >>> # Later, stop monitoring
+            >>> await monitor.stop()
+        """
+        interval = check_interval or self.config.heartbeat_interval
+
+        while self.is_running:
+            try:
+                # Handle failover for any detected failures
+                await self.handle_failover(force_check=True)
+
+                # Wait for next check
+                await asyncio.sleep(interval)
+
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                # Log error but continue auto-failover
+                await asyncio.sleep(interval)
