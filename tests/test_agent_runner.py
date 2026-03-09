@@ -152,6 +152,54 @@ class AgentRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_tampered_prompt_md_raises_system_exit(self) -> None:
+        """Test that tampered prompt.md file is detected and raises SystemExit."""
+        # Import integrity module to compute hash
+        from scripts.integrity import hash_file_content
+
+        # Compute the original hash of the prompt file
+        original_hash = hash_file_content(str(self.prompt_file))
+
+        # Create run metadata with integrity hash
+        run_file = Path(self.temp_dir.name) / "run.json"
+        run_file.write_text(
+            json.dumps(
+                {
+                    "resume_from": "run-1",
+                    "agent_config": {"command": "claude", "args": []},
+                    "integrity": {"prompt.md": original_hash},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # Tamper with the prompt file
+        self.prompt_file.write_text("MALICIOUS CONTENT", encoding="utf-8")
+
+        # Verify that integrity check fails
+        agents_file = Path(self.temp_dir.name) / "agents.json"
+        agents_file.write_text(
+            json.dumps({"agents": {"test-agent": {"command": "claude", "args": []}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        argv = [
+            "agent_runner.py",
+            str(agents_file),
+            "test-agent",
+            str(self.prompt_file),
+            str(run_file),
+        ]
+
+        with patch.object(sys, "argv", argv):
+            with self.assertRaises(SystemExit) as context:
+                self.module.main()
+
+            # Verify the error message mentions integrity check failure
+            self.assertIn("integrity check failed", str(context.exception))
+            self.assertIn("tampered with", str(context.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
