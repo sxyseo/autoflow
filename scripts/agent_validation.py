@@ -52,6 +52,13 @@ SHELL_METACHARACTERS = frozenset({
     "<",  # Redirect
     ">",  # Redirect
     "\\",  # Escape character (could be used to bypass filters)
+    "!",  # History expansion / csh-style command execution
+    "{",  # Brace expansion
+    "}",  # Brace expansion
+    "[",  # Glob pattern / character class
+    "]",  # Glob pattern / character class
+    "*",  # Glob pattern / wildcard
+    "?",  # Glob pattern / single character wildcard
 })
 
 # Security: Flags that could enable command execution
@@ -260,7 +267,7 @@ class AgentSpecValidator(BaseModel):
 
         if found:
             raise ValidationError(
-                f"{field_name} contains shell metacharacters: {', '.join(found)}. "
+                f"{field_name} contains invalid characters. "
                 "This could indicate a command injection attempt.",
                 field=field_name,
             )
@@ -442,8 +449,8 @@ def validate_path(
             resolved.relative_to(base)
         except ValueError as e:
             raise ValidationError(
-                f"Path '{path}' resolves to '{resolved}' which is outside "
-                f"the base directory '{base}'. This could be a directory traversal attempt.",
+                f"Path '{path}' is outside the allowed base directory. "
+                "This could be a directory traversal attempt.",
                 field="path",
             ) from e
 

@@ -105,52 +105,70 @@ class AgentRunnerTests(unittest.TestCase):
         self.assertEqual(command, ["acp-agent", "--serve", "Implement the selected task."])
 
     def test_main_uses_resolved_agent_config_from_run_metadata(self) -> None:
-        agents_file = Path(self.temp_dir.name) / "agents.json"
-        run_file = Path(self.temp_dir.name) / "run.json"
-        agents_file.write_text(
-            json.dumps({"agents": {"claude-review": {"command": "claude", "args": []}}}) + "\n",
-            encoding="utf-8",
-        )
-        run_file.write_text(
-            json.dumps(
-                {
-                    "resume_from": "run-9",
-                    "agent_config": {
-                        "command": "claude",
-                        "args": [],
-                        "model": "claude-sonnet-4-6",
-                        "tools": ["Read"],
-                        "resume": {"mode": "args", "args": ["--resume"]},
-                    },
-                }
+        # Create test files in current directory to pass path validation
+        import os
+        import uuid
+
+        # Use unique names to avoid conflicts
+        unique_id = str(uuid.uuid4())[:8]
+        agents_file = Path(f"test_agents_{unique_id}.json")
+        run_file = Path(f"test_run_{unique_id}.json")
+        prompt_file = Path(f"test_prompt_{unique_id}.md")
+
+        try:
+            agents_file.write_text(
+                json.dumps({"agents": {"claude-review": {"command": "claude", "args": []}}}) + "\n",
+                encoding="utf-8",
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        argv = [
-            "agent_runner.py",
-            str(agents_file),
-            "claude-review",
-            str(self.prompt_file),
-            str(run_file),
-        ]
-        with (
-            patch.object(sys, "argv", argv),
-            patch.object(self.module.os, "execvp") as execvp,
-        ):
-            self.module.main()
-        execvp.assert_called_once_with(
-            "claude",
-            [
+            run_file.write_text(
+                json.dumps(
+                    {
+                        "resume_from": "run-9",
+                        "agent_config": {
+                            "command": "claude",
+                            "args": [],
+                            "model": "claude-sonnet-4-6",
+                            "tools": ["Read"],
+                            "resume": {"mode": "args", "args": ["--resume"]},
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            prompt_file.write_text("Implement the selected task.", encoding="utf-8")
+            argv = [
+                "agent_runner.py",
+                str(agents_file),
+                "claude-review",
+                str(prompt_file),
+                str(run_file),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(self.module.os, "execvp") as execvp,
+            ):
+                self.module.main()
+            execvp.assert_called_once_with(
                 "claude",
-                "--model",
-                "claude-sonnet-4-6",
-                "--allowedTools",
-                "Read",
-                "--resume",
-                "Implement the selected task.",
-            ],
-        )
+                [
+                    "claude",
+                    "--model",
+                    "claude-sonnet-4-6",
+                    "--allowedTools",
+                    "Read",
+                    "--resume",
+                    "Implement the selected task.",
+                ],
+            )
+        finally:
+            # Clean up test files
+            if agents_file.exists():
+                agents_file.unlink()
+            if run_file.exists():
+                run_file.unlink()
+            if prompt_file.exists():
+                prompt_file.unlink()
 
     def test_malicious_command_rejected(self) -> None:
         """Test that commands not in the allowlist are rejected."""
@@ -711,6 +729,135 @@ class AgentRunnerTests(unittest.TestCase):
                         run_metadata=None,
                     )
                 self.assertIn("Invalid agent specification", str(cm.exception))
+
+    def test_command_line_path_validation(self) -> None:
+        """Test that command-line file paths are validated to prevent arbitrary file reads."""
+        from unittest.mock import patch
+        import tempfile
+        import os
+
+        # Create temporary valid files
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create valid agents directory structure
+            agents_dir = Path(tmpdir) / "agents"
+            agents_dir.mkdir()
+            valid_agents_json = agents_dir / "test.json"
+            valid_agents_json.write_text('{"agents": {"test": {"command": "claude", "args": []}}}')
+
+            # Create valid prompts directory structure
+            prompts_dir = Path(tmpdir) / "prompts"
+            prompts_dir.mkdir()
+            valid_prompt = prompts_dir / "test.md"
+            valid_prompt.write_text("test prompt")
+
+            # Create valid runs directory structure
+            runs_dir = Path(tmpdir) / "runs"
+            runs_dir.mkdir()
+            valid_run_json = runs_dir / "run.json"
+            valid_run_json.write_text('{}')
+
+            # Test helper function to run main with custom argv
+            def main_with_argv(argv):
+                old_argv = sys.argv
+                sys.argv = argv
+                try:
+                    self.module.main()
+                except SystemExit as e:
+                    sys.argv = old_argv
+                    raise e
+                except OSError:
+                    # Expected: execvp will fail since command doesn't exist
+                    sys.argv = old_argv
+                finally:
+                    sys.argv = old_argv
+
+            # Test 1: Path traversal attempt should fail
+            with self.assertRaises(SystemExit) as cm:
+                main_with_argv([
+                    "agent_runner.py",
+                    "../../../etc/passwd",
+                    "test",
+                    str(valid_prompt)
+                ])
+            self.assertIn("Invalid", str(cm.exception))
+
+            # Test 2: Absolute path should fail
+            with self.assertRaises(SystemExit) as cm:
+                main_with_argv([
+                    "agent_runner.py",
+                    "/etc/passwd",
+                    "test",
+                    str(valid_prompt)
+                ])
+            self.assertIn("Invalid", str(cm.exception))
+
+            # Test 3: Invalid agent_name format should fail
+            with self.assertRaises(SystemExit) as cm:
+                main_with_argv([
+                    "agent_runner.py",
+                    str(valid_agents_json),
+                    "../../malicious",
+                    str(valid_prompt)
+                ])
+            self.assertIn("Invalid", str(cm.exception))
+
+            # Test 4: Invalid prompt_file path should fail
+            with self.assertRaises(SystemExit) as cm:
+                main_with_argv([
+                    "agent_runner.py",
+                    str(valid_agents_json),
+                    "test",
+                    "../../../etc/passwd"
+                ])
+            self.assertIn("Invalid", str(cm.exception))
+
+    def test_command_line_run_json_validation(self) -> None:
+        """Test that run_json command-line argument is validated."""
+        from unittest.mock import patch
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create valid directory structure
+            agents_dir = Path(tmpdir) / "agents"
+            agents_dir.mkdir()
+            valid_agents_json = agents_dir / "test.json"
+            valid_agents_json.write_text('{"agents": {"test": {"command": "claude", "args": []}}}')
+
+            prompts_dir = Path(tmpdir) / "prompts"
+            prompts_dir.mkdir()
+            valid_prompt = prompts_dir / "test.md"
+            valid_prompt.write_text("test prompt")
+
+            runs_dir = Path(tmpdir) / "runs"
+            runs_dir.mkdir()
+            valid_run_json = runs_dir / "run.json"
+            valid_run_json.write_text('{}')
+
+            # Test helper function to run main with custom argv
+            def main_with_argv(argv):
+                old_argv = sys.argv
+                sys.argv = argv
+                try:
+                    self.module.main()
+                except SystemExit as e:
+                    sys.argv = old_argv
+                    raise e
+                except OSError:
+                    # Expected: execvp will fail since command doesn't exist
+                    sys.argv = old_argv
+                finally:
+                    sys.argv = old_argv
+
+            # Test 1: Invalid run_json path should fail
+            with self.assertRaises(SystemExit) as cm:
+                main_with_argv([
+                    "agent_runner.py",
+                    str(valid_agents_json),
+                    "test",
+                    str(valid_prompt),
+                    "../../../etc/passwd"
+                ])
+            self.assertIn("Invalid", str(cm.exception))
 
 
 if __name__ == "__main__":

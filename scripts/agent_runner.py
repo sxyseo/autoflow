@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
-from scripts.agent_validation import ValidationError, validate_agent_spec
+from scripts.agent_validation import ValidationError, validate_agent_spec, validate_path
 
 
 def read_json(path: Path) -> Any:
@@ -75,10 +76,49 @@ def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: di
 def main() -> None:
     if len(sys.argv) not in {4, 5}:
         raise SystemExit("usage: agent_runner.py <agents-json> <agent-name> <prompt-file> [run-json]")
+
+    # Security: Validate agents_file is within expected directory
     agents_file = Path(sys.argv[1])
+    try:
+        validated_agents_path = validate_path(
+            str(agents_file),
+            base_dir=str(Path.cwd()),  # Use current directory as base
+            allow_absolute=True  # Allow absolute paths within current directory
+        )
+        agents_file = validated_agents_path
+    except ValidationError as e:
+        raise SystemExit(f"Invalid agents file path: {e}") from e
+
+    # Security: Validate agent_name format
     agent_name = sys.argv[2]
+    if not re.match(r"^[a-zA-Z0-9_-]+$", agent_name):
+        raise SystemExit(f"Invalid agent name: {agent_name}")
+
+    # Security: Validate prompt_file is within expected directory
     prompt_file = sys.argv[3]
-    run_json = Path(sys.argv[4]) if len(sys.argv) == 5 else None
+    try:
+        validated_prompt_path = validate_path(
+            prompt_file,
+            base_dir=str(Path.cwd()),  # Use current directory as base
+            allow_absolute=True  # Allow absolute paths within current directory
+        )
+        prompt_file = str(validated_prompt_path)
+    except ValidationError as e:
+        raise SystemExit(f"Invalid prompt file path: {e}") from e
+
+    # Security: Validate run_json if provided
+    run_json = None
+    if len(sys.argv) == 5:
+        run_json = Path(sys.argv[4])
+        try:
+            validated_run_json = validate_path(
+                str(run_json),
+                base_dir=str(Path.cwd()),  # Use current directory as base
+                allow_absolute=True  # Allow absolute paths within current directory
+            )
+            run_json = validated_run_json
+        except ValidationError as e:
+            raise SystemExit(f"Invalid run metadata path: {e}") from e
 
     data = read_json(agents_file)
     spec = data["agents"].get(agent_name)
