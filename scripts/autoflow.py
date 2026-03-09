@@ -3469,6 +3469,22 @@ def add_planner_note_cmd(args: argparse.Namespace) -> None:
 
 
 def taskmaster_payload(spec_slug: str) -> dict[str, Any]:
+    """
+    Build Taskmaster-compatible export payload from spec tasks.
+
+    Transforms Autoflow task data into the Taskmaster JSON format, mapping
+    Autoflow field names to Taskmaster conventions. The payload includes
+    project metadata and a list of tasks with their dependencies.
+
+    Args:
+        spec_slug: Slug identifier of the spec to export
+
+    Returns:
+        Dictionary containing:
+        - project: Spec slug identifier
+        - exported_at: ISO 8601 timestamp of export
+        - tasks: List of task dictionaries in Taskmaster format
+    """
     tasks = load_tasks(spec_slug)
     return {
         "project": spec_slug,
@@ -3489,6 +3505,18 @@ def taskmaster_payload(spec_slug: str) -> dict[str, Any]:
 
 
 def export_taskmaster_cmd(args: argparse.Namespace) -> None:
+    """
+    Export spec tasks in Taskmaster JSON format.
+
+    Creates a Taskmaster-compatible JSON export of all tasks in a spec.
+    Can write to a file or print to stdout. Useful for migrating tasks
+    to external project management tools or for backup purposes.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug to export
+            - output: Optional file path to write JSON (prints to stdout if None)
+    """
     payload = taskmaster_payload(args.spec)
     if args.output:
         output = Path(args.output)
@@ -3499,6 +3527,29 @@ def export_taskmaster_cmd(args: argparse.Namespace) -> None:
 
 
 def normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
+    """
+    Normalize an imported task entry to Autoflow format.
+
+    Handles multiple input formats (Taskmaster, legacy Autoflow, etc.) and
+    converts them to the standard Autoflow task schema. Provides sensible
+    defaults for missing fields and validates status values.
+
+    Args:
+        entry: Raw task dictionary from import source. May contain various
+            field names (e.g., "dependencies" vs "depends_on",
+            "acceptanceCriteria" vs "acceptance_criteria")
+        index: Numeric index used for generating default task ID
+
+    Returns:
+        Normalized task dictionary with fields:
+        - id: Task identifier (from entry or generated as T{index})
+        - title: Task title (from "title", "name", or generated)
+        - status: Validated task status (defaults to "todo")
+        - depends_on: List of task dependency IDs
+        - owner_role: Role responsible for the task
+        - acceptance_criteria: List of acceptance criteria
+        - notes: List of task notes
+    """
     depends = entry.get("depends_on", entry.get("dependencies", [])) or []
     criteria = entry.get("acceptance_criteria", entry.get("acceptanceCriteria", [])) or []
     status = entry.get("status", "todo")
@@ -3516,6 +3567,26 @@ def normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]
 
 
 def import_taskmaster_cmd(args: argparse.Namespace) -> None:
+    """
+    Import tasks from Taskmaster JSON format into a spec.
+
+    Reads a JSON file containing task data in Taskmaster or compatible format,
+    normalizes the entries to Autoflow schema, and updates the spec's task file.
+    Accepts both a list of tasks or a dict with a "tasks" key.
+
+    Synchronizes review state after import and records the import event for
+    audit trail purposes.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug to import tasks into
+            - input: Path to JSON file containing task data
+
+    Side Effects:
+        - Overwrites the spec's task file with imported data
+        - Syncs review state (may clear existing review data)
+        - Records "taskmaster.imported" event in spec history
+    """
     payload = read_json(Path(args.input))
     tasks_input = payload if isinstance(payload, list) else payload.get("tasks", [])
     normalized = [
