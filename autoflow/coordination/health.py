@@ -460,13 +460,16 @@ class HealthMonitor:
 
         # Run checks in parallel
         tasks = [
-            self.check_health(node.id)
+            asyncio.create_task(self.check_health(node.id))
             for node in nodes
             if node.status != NodeStatus.OFFLINE
         ]
 
         # Wait for all checks to complete
-        completed, _ = await asyncio.wait(tasks, timeout=60)
+        if tasks:
+            completed, _ = await asyncio.wait(tasks, timeout=60)
+        else:
+            completed = set()
 
         for task in completed:
             try:

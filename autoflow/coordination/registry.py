@@ -448,7 +448,7 @@ class NodeRegistry:
             }
 
             with open(self._persist_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False, default=str)
         except (OSError, ValueError):
             # Fail silently if we can't persist
             pass
