@@ -239,20 +239,32 @@ class StateManager:
         Returns:
             Path to the backup file
         """
-        relative = file_path.relative_to(self.state_dir)
+        # Resolve both paths to handle symlinks
+        resolved_file = file_path.resolve()
+        resolved_state_dir = self.state_dir.resolve()
+        relative = resolved_file.relative_to(resolved_state_dir)
         return self.backup_dir / f"{relative}.bak"
 
     def _create_backup(self, file_path: Path) -> Optional[Path]:
         """
         Create a backup of an existing file.
 
+        Only creates backups for files within the state directory.
+
         Args:
             file_path: Path to the file to backup
 
         Returns:
-            Path to the backup file, or None if file doesn't exist
+            Path to the backup file, or None if file doesn't exist or is outside state_dir
         """
         if not file_path.exists():
+            return None
+
+        # Only create backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip backup
             return None
 
         backup_path = self._get_backup_path(file_path)
@@ -264,12 +276,21 @@ class StateManager:
         """
         Restore a file from its backup.
 
+        Only restores backups for files within the state directory.
+
         Args:
             file_path: Path to the file to restore
 
         Returns:
-            True if restored, False if no backup exists
+            True if restored, False if no backup exists or is outside state_dir
         """
+        # Only restore backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip restore
+            return False
+
         backup_path = self._get_backup_path(file_path)
         if backup_path.exists():
             shutil.copy2(backup_path, file_path)

@@ -981,10 +981,10 @@ class TestBackupRecovery:
     """Tests for backup and recovery functionality."""
 
     def test_backup_created_on_overwrite(
-        self, state_manager: StateManager, tmp_path: Path
+        self, state_manager: StateManager, temp_state_dir: Path
     ) -> None:
         """Test backup is created when overwriting file."""
-        file_path = tmp_path / "test.json"
+        file_path = temp_state_dir / "test.json"
 
         state_manager.write_json(file_path, {"version": 1})
         state_manager.write_json(file_path, {"version": 2})
@@ -993,13 +993,14 @@ class TestBackupRecovery:
         assert state_manager.backup_dir.exists()
 
     def test_restore_from_backup(
-        self, state_manager: StateManager, tmp_path: Path
+        self, state_manager: StateManager, temp_state_dir: Path
     ) -> None:
         """Test restoring from backup on corrupt file."""
-        file_path = tmp_path / "test.json"
+        file_path = temp_state_dir / "test.json"
 
-        # Write valid data
+        # Write initial data (creates backup on second write)
         state_manager.write_json(file_path, {"version": 1})
+        state_manager.write_json(file_path, {"version": 2})
 
         # Corrupt the file
         file_path.write_text("invalid json content")
@@ -1007,7 +1008,7 @@ class TestBackupRecovery:
         # Reading should restore from backup
         result = state_manager.read_json(file_path, default={"restored": False})
 
-        # Should have restored from backup
+        # Should have restored from backup (version 1)
         assert result == {"version": 1}
 
 
