@@ -1761,6 +1761,28 @@ def sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed"
 
 
 def review_status_summary(spec_slug: str) -> dict[str, Any]:
+    """
+    Generate a summary of review status for a spec.
+
+    Synchronizes the review state to check for spec changes and computes
+    a comprehensive summary including approval status, validity, timestamps,
+    and feedback counts.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Returns:
+        Dictionary containing review status summary with keys:
+            - approved: Whether the spec is currently approved
+            - valid: Whether approval is still valid (approved and hash matches)
+            - approved_by: Username of approver
+            - approved_at: Timestamp of approval
+            - review_count: Number of reviews completed
+            - feedback_count: Number of feedback items
+            - spec_changed: Whether spec has changed since approval
+            - invalidated_at: Timestamp when approval was invalidated
+            - invalidated_reason: Reason for invalidation
+    """
     state = sync_review_state(spec_slug)
     current_hash = compute_spec_hash(spec_slug)
     return {
@@ -1777,12 +1799,34 @@ def review_status_summary(spec_slug: str) -> dict[str, Any]:
 
 
 def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
+    """
+    Save task data for a spec and synchronize review state.
+
+    Updates the task data with a timestamp, writes it to the task file,
+    and triggers review state synchronization. The reason parameter allows
+    tracking why the task state was updated.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        data: Task data dictionary to save
+        reason: Optional reason for task state update (default: "task_state_updated")
+    """
     data["updated_at"] = now_stamp()
     write_json(task_file(spec_slug), data)
     sync_review_state(spec_slug, reason=reason)
 
 
 def detect_base_branch() -> str:
+    """
+    Detect the git repository's base branch.
+
+    Attempts to identify the primary branch by checking for common branch names
+    (main, master) in order. Falls back to the current branch if neither is found,
+    or defaults to "main" as a last resort.
+
+    Returns:
+        Name of the detected base branch ("main", "master", or current branch)
+    """
     for branch in ["main", "master"]:
         result = run_cmd(["git", "rev-parse", "--verify", branch], check=False)
         if result.returncode == 0:
