@@ -3293,10 +3293,39 @@ def create_fix_request_cmd(args: argparse.Namespace) -> None:
 
 
 def show_system_config(_: argparse.Namespace) -> None:
+    """
+    Display the current system configuration.
+
+    Prints the system configuration as formatted JSON. The configuration is
+    loaded from system.json (if it exists) and merged with defaults from
+    the system config template.
+
+    The output includes:
+    - memory: Memory settings and file paths
+    - models: Model profile configurations
+    - tools: Tool profile configurations
+    - registry: Registry settings
+    """
     print(json.dumps(load_system_config(), indent=2, ensure_ascii=True))
 
 
 def init_system_config(_: argparse.Namespace) -> None:
+    """
+    Initialize the system configuration file.
+
+    Creates the system configuration file at .autoflow/system.json with default
+    values. If the file already exists, this command does nothing (it will not
+    overwrite existing configuration).
+
+    The configuration is loaded from config/system.example.json if it exists,
+    otherwise uses hardcoded defaults. The configuration includes:
+    - memory: Memory settings and file paths
+    - models: Model profile configurations
+    - tools: Tool profile configurations
+    - registry: Registry settings
+
+    Prints the path to the configuration file after initialization.
+    """
     ensure_state()
     if not SYSTEM_CONFIG_FILE.exists():
         write_json(SYSTEM_CONFIG_FILE, system_config_default())
