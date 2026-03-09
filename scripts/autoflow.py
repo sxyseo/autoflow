@@ -3856,6 +3856,54 @@ def show_status(_: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """
+    Build and configure the Autoflow CLI argument parser.
+
+    Creates the main ArgumentParser and all subcommands for interacting with
+    the Autoflow workflow system. Each subcommand is configured with its
+    respective arguments and bound to a handler function.
+
+    Returns:
+        Configured ArgumentParser with all Autoflow subcommands registered.
+
+    Subcommands:
+        init: Create .autoflow state directories
+        new-spec: Create a spec scaffold with slug, title, and summary
+        list-tasks: Print the task graph for a spec
+        next-task: Print the next ready task for a role
+        set-task-status: Update a task lifecycle state
+        create-handoff: Write a handoff artifact between roles
+        create-fix-request: Write a structured QA fix request artifact
+        show-fix-request: Show the structured QA fix request data
+        review-status: Show hash-based review approval status
+        approve-spec: Approve the current spec/task contract hash
+        invalidate-review: Manually invalidate approval state
+        create-worktree: Create or reuse an isolated git worktree for a spec
+        remove-worktree: Remove a spec worktree
+        list-worktrees: Show known spec worktrees
+        init-system-config: Write the local system config scaffold
+        show-system-config: Show system memory/model/tool config
+        discover-agents: Probe local agents and merge ACP registry entries
+        sync-agents: Merge discovered CLI/ACP agents into .autoflow/agents.json
+        write-memory: Append to global or spec memory
+        show-memory: Show stored memory context
+        show-strategy: Show accumulated planner/reflection strategy memory
+        add-planner-note: Append a planner strategy note to strategy memory
+        export-taskmaster: Export Autoflow tasks in Taskmaster-friendly JSON
+        import-taskmaster: Import task data from Taskmaster-style JSON
+        new-run: Create a runnable agent job
+        resume-run: Create a retry run from an earlier run record
+        complete-run: Close a run and update task state
+        task-history: Show run history for a task
+        show-events: Show recent event records for a spec
+        workflow-state: Show ready tasks and next suggested action
+        status: Print current specs and runs
+
+    Examples:
+        >>> parser = build_parser()
+        >>> args = parser.parse_args(["status"])
+        >>> args.func(args)
+    """
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
