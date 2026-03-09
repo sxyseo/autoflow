@@ -1659,6 +1659,18 @@ def clear_fix_request(spec_slug: str) -> None:
 
 
 def compute_file_hash(path: Path) -> str:
+    """
+    Compute MD5 hash of a file's content.
+
+    Reads the file as UTF-8 text and returns its MD5 hash as a hexadecimal string.
+    Returns empty string if the file doesn't exist.
+
+    Args:
+        path: Path to the file to hash
+
+    Returns:
+        Hexadecimal MD5 hash string, or empty string if file doesn't exist
+    """
     if not path.exists():
         return ""
     content = path.read_text(encoding="utf-8")
@@ -1666,6 +1678,21 @@ def compute_file_hash(path: Path) -> str:
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
+    """
+    Generate a planning contract from task data.
+
+    Extracts and structures task information needed for planning, including:
+    - Task ID and title
+    - Dependencies
+    - Owner role
+    - Acceptance criteria
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Returns:
+        Dictionary containing list of tasks with planning-relevant fields
+    """
     task_data = load_tasks(spec_slug)
     tasks = []
     for task in task_data.get("tasks", []):
@@ -1682,6 +1709,22 @@ def planning_contract(spec_slug: str) -> dict[str, Any]:
 
 
 def compute_spec_hash(spec_slug: str) -> str:
+    """
+    Compute a combined hash of spec content and planning contract.
+
+    Generates a hash that combines:
+    - MD5 hash of the spec.md file content
+    - MD5 hash of the planning contract (JSON representation of tasks)
+
+    The combined hash ensures that any change to either the spec content
+    or the task structure will be detected.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Returns:
+        Hexadecimal MD5 hash string combining spec and task hashes
+    """
     files = spec_files(spec_slug)
     spec_hash = compute_file_hash(files["spec"])
     task_hash = hashlib.md5(
@@ -1693,6 +1736,20 @@ def compute_spec_hash(spec_slug: str) -> str:
 
 
 def sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
+    """
+    Synchronize review state with current spec hash.
+
+    Checks if the spec has changed since approval. If the previously approved
+    spec hash differs from the current hash, invalidates the approval and
+    records the change as an event.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        reason: Reason code for invalidation (default: "planning_artifacts_changed")
+
+    Returns:
+        Current review state dictionary, potentially updated with invalidation
+    """
     state = load_review_state(spec_slug)
     if state.get("approved") and state.get("spec_hash") != compute_spec_hash(spec_slug):
         state["approved"] = False
