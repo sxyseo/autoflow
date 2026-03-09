@@ -1170,14 +1170,69 @@ def render_strategy_context(spec_slug: str) -> str:
 
 
 def load_review_state(spec_slug: str) -> dict[str, Any]:
+    """
+    Load the review state for a spec.
+
+    Reads the review state from disk, returning a default state if the file
+    doesn't exist or is invalid. The review state tracks approval status,
+    reviewer information, and approval metadata.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Review state dictionary with the following keys:
+        - approved: Whether the review is approved (bool)
+        - approved_by: Username of the approver (str)
+        - approved_at: ISO timestamp of approval (str)
+        - spec_hash: Hash of the spec at approval time (str)
+        - review_count: Number of reviews performed (int)
+    """
     return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
 
 
 def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
+    """
+    Save the review state for a spec.
+
+    Persists the review state to disk as JSON. Creates parent directories
+    if they don't exist. The review state tracks approval status, reviewer
+    information, and approval metadata.
+
+    Args:
+        spec_slug: Spec slug identifier
+        state: Review state dictionary containing:
+            - approved: Whether the review is approved (bool)
+            - approved_by: Username of the approver (str)
+            - approved_at: ISO timestamp of approval (str)
+            - spec_hash: Hash of the spec at approval time (str)
+            - review_count: Number of reviews performed (int)
+    """
     write_json(spec_files(spec_slug)["review_state"], state)
 
 
 def load_tasks(spec_slug: str) -> dict[str, Any]:
+    """
+    Load the tasks file for a spec.
+
+    Reads and parses the tasks JSON file containing all tasks, their status,
+    and metadata. Exits with an error if the tasks file doesn't exist.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Tasks dictionary with the following structure:
+        - tasks: List of task dictionaries, each containing:
+            - id: Unique task identifier (str)
+            - title: Task title (str)
+            - status: Task status from VALID_TASK_STATUSES (str)
+            - ...additional task metadata
+        - ...other top-level keys
+
+    Raises:
+        SystemExit: If the tasks file doesn't exist
+    """
     path = task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
@@ -1185,6 +1240,26 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
 
 
 def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
+    """
+    Look up a task by ID within a tasks dictionary.
+
+    Searches through the tasks list to find a task with the matching ID.
+    This is useful for retrieving full task details given only a task ID.
+
+    Args:
+        data: Tasks dictionary containing a "tasks" key with a list of task objects
+        task_id: Unique identifier of the task to find
+
+    Returns:
+        Task dictionary containing all task details:
+        - id: Unique task identifier (str)
+        - title: Task title (str)
+        - status: Task status (str)
+        - ...additional task metadata
+
+    Raises:
+        SystemExit: If no task with the given ID is found
+    """
     for task in data.get("tasks", []):
         if task["id"] == task_id:
             return task
