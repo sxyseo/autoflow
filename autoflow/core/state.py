@@ -31,6 +31,8 @@ from typing import Any, Optional, TypeVar, Union
 
 from pydantic import BaseModel, Field
 
+from autoflow.core.sanitization import sanitize_dict
+
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
@@ -325,7 +327,8 @@ class StateManager:
         Write JSON data to a file atomically.
 
         Uses write-to-temporary-and-rename pattern for crash safety.
-        Creates parent directories if needed.
+        Creates parent directories if needed. Sanitizes sensitive data
+        before writing to prevent information disclosure.
 
         Args:
             file_path: Destination path
@@ -349,6 +352,9 @@ class StateManager:
         # Create backup of existing file
         self._create_backup(path)
 
+        # Sanitize data to remove sensitive information
+        sanitized_data = sanitize_dict(data) if isinstance(data, dict) else data
+
         # Write to temporary file in same directory (ensures same filesystem)
         temp_fd, temp_path = tempfile.mkstemp(
             dir=path.parent,
@@ -359,7 +365,7 @@ class StateManager:
         try:
             # Write data to temp file
             with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=indent, ensure_ascii=False)
+                json.dump(sanitized_data, f, indent=indent, ensure_ascii=False)
 
             # Atomic rename
             os.replace(temp_path, path)
