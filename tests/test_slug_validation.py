@@ -349,6 +349,30 @@ class TestWorktreePath:
             assert isinstance(path, Path), f"Should return Path for: {slug}"
             assert str(slug) in str(path), f"Path should contain slug: {slug}"
 
+    def test_worktree_path_rejects_traversal(self) -> None:
+        """Test that worktree_path() specifically rejects path traversal attempts.
+
+        This is a focused security test for CWE-22 (Path Traversal) prevention,
+        verifying that parent directory references cannot escape the worktrees directory.
+        """
+        traversal_attempts = [
+            "..",
+            "../",
+            "../etc",
+            "../../etc",
+            "../../etc/passwd",
+            "../../../",
+            "../..",
+            ".././etc",
+            "./../etc",
+            "../test/../etc",
+            "..-..-etc",
+        ]
+
+        for slug in traversal_attempts:
+            with pytest.raises(SystemExit, match=r"invalid spec slug"):
+                worktree_path(slug), f"Should reject path traversal attempt: {slug}"
+
     def test_worktree_path_rejects_dangerous_slugs(self, dangerous_slugs: list[tuple[str, str]]) -> None:
         """Test that worktree_path() raises SystemExit for dangerous slugs."""
         for slug, description in dangerous_slugs:
