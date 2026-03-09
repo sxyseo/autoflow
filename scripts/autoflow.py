@@ -1444,6 +1444,7 @@ def create_run_record(
     summary_path = run_dir / "summary.md"
     summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
     os.chmod(run_script, 0o755)
+    run_script_hash = hash_file_content(run_script)
     metadata = {
         "id": run_id,
         "spec": spec_slug,
@@ -1467,6 +1468,7 @@ def create_run_record(
         },
         "integrity": {
             "prompt.md": prompt_hash,
+            "run.sh": run_script_hash,
         },
     }
     write_json(run_json_path, metadata)
