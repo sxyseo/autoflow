@@ -1086,6 +1086,24 @@ def add_planner_note(
 
 
 def strategy_summary(spec_slug: str) -> dict[str, Any]:
+    """
+    Generate a summary of strategy memory for a spec.
+
+    Loads the strategy memory for the given spec and extracts the most relevant
+    information including playbook entries, planner notes, recent reflections,
+    and statistics.
+
+    Args:
+        spec_slug: URL-friendly slug identifying the spec
+
+    Returns:
+        Dictionary containing:
+            - updated_at: Last update timestamp
+            - playbook: List of playbook rules with evidence
+            - planner_notes: Last 5 planner notes with metadata
+            - recent_reflections: Last 5 reflection entries
+            - stats: Strategy statistics and metrics
+    """
     spec_memory = load_strategy_memory("spec", spec_slug)
     recent = spec_memory.get("reflections", [])[-5:]
     return {
@@ -1098,6 +1116,25 @@ def strategy_summary(spec_slug: str) -> dict[str, Any]:
 
 
 def render_strategy_context(spec_slug: str) -> str:
+    """
+    Render strategy memory as formatted markdown for context injection.
+
+    Generates a markdown representation of strategy memory for use in prompts
+    and context windows. Includes playbook entries, planner notes, and recent
+    reflections with their recommended actions.
+
+    The output includes:
+    - Playbook: Top 5 rules with evidence counts
+    - Planner notes: Last 3 notes with titles and categories
+    - Recent reflections: Last 3 reflections with outcomes and actions
+
+    Args:
+        spec_slug: URL-friendly slug identifying the spec
+
+    Returns:
+        Formatted markdown string containing strategy context, or a message
+        indicating no strategy memory has been recorded yet
+    """
     summary = strategy_summary(spec_slug)
     lines = ["## Strategy memory", ""]
     playbook = summary.get("playbook", [])
