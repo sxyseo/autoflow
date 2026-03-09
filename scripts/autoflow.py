@@ -225,6 +225,8 @@ def load_agents() -> dict[str, AgentSpec]:
 
 
 def spec_dir(slug: str) -> Path:
+    if not validate_slug_safe(slug):
+        raise SystemExit(f"invalid spec slug: {slug}")
     return SPECS_DIR / slug
 
 
