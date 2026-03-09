@@ -3,7 +3,7 @@
   "spec": "032-add-integrity-verification-for-run-artifacts-and-p",
   "state": "building",
   "subtasks": {
-    "completed": 10,
+    "completed": 11,
     "total": 14,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 12,
+    "number": 13,
     "started_at": "2026-03-09T14:15:39.249483"
   },
-  "last_update": "2026-03-09T14:31:14.594340"
+  "last_update": "2026-03-09T14:34:26.900558"
 }

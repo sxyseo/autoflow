@@ -298,6 +298,46 @@ class AgentRunnerTests(unittest.TestCase):
             elif agents_file.exists():
                 agents_file.unlink()
 
+    def test_missing_integrity_hash_allows_execution(self) -> None:
+        """Test that missing integrity hash in run metadata allows execution to proceed."""
+        # Create run metadata WITHOUT integrity field
+        run_file = Path(self.temp_dir.name) / "run.json"
+        run_file.write_text(
+            json.dumps(
+                {
+                    "resume_from": "run-1",
+                    "agent_config": {"command": "claude", "args": []},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # Verify that execution proceeds without error
+        agents_file = Path(self.temp_dir.name) / "agents.json"
+        agents_file.write_text(
+            json.dumps({"agents": {"test-agent": {"command": "claude", "args": []}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        argv = [
+            "agent_runner.py",
+            str(agents_file),
+            "test-agent",
+            str(self.prompt_file),
+            str(run_file),
+        ]
+
+        with patch.object(sys, "argv", argv):
+            with patch.object(self.module.os, "execvp") as execvp:
+                self.module.main()
+
+        # Verify execvp was called (meaning execution proceeded)
+        execvp.assert_called_once_with(
+            "claude",
+            ["claude", "Implement the selected task."],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
