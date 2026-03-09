@@ -1101,6 +1101,416 @@ def memory_delete(ctx: click.Context, key: str) -> None:
         ctx.exit(1)
 
 
+# === Cluster Commands ===
+
+@main.group()
+def cluster() -> None:
+    """Manage distributed cluster operations."""
+    pass
+
+
+@cluster.command("init")
+@click.option(
+    "--cluster-id",
+    "-c",
+    type=str,
+    default=None,
+    help="Unique cluster identifier.",
+)
+@click.option(
+    "--node-id",
+    "-n",
+    type=str,
+    default=None,
+    help="Unique node identifier for this node.",
+)
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="localhost",
+    help="Host address for this node.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port for this node's server.",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force re-initialization even if cluster state exists.",
+)
+@click.pass_context
+def cluster_init(
+    ctx: click.Context,
+    cluster_id: Optional[str],
+    node_id: Optional[str],
+    host: str,
+    port: int,
+    force: bool,
+) -> None:
+    """
+    Initialize a new cluster or create a new node.
+
+    Creates the cluster state and initializes this node as the first member.
+    If joining an existing cluster, use 'autoflow cluster join' instead.
+
+    \b
+    Examples:
+        autoflow cluster init
+        autoflow cluster init --cluster-id prod-cluster --node-id node-001
+        autoflow cluster init --host 0.0.0.0 --port 9090
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    # Generate IDs if not provided
+    if not cluster_id:
+        cluster_id = f"cluster-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    if not node_id:
+        node_id = f"node-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+    try:
+        # Check if cluster already exists
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+        if cluster_state_file.exists() and not force:
+            if not ctx.obj["output_json"]:
+                click.echo(f"Cluster already initialized: {cluster_state_file}")
+                click.echo("Use --force to re-initialize.")
+            else:
+                _print_json({
+                    "status": "exists",
+                    "cluster_id": cluster_id,
+                    "message": "Cluster already exists. Use --force to re-initialize.",
+                })
+            ctx.exit(1)
+
+        # Create cluster directory structure
+        cluster_dir = state_manager.state_dir / "cluster"
+        cluster_dir.mkdir(parents=True, exist_ok=True)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "initialized",
+                "cluster_id": cluster_id,
+                "node_id": node_id,
+                "host": host,
+                "port": port,
+                "cluster_dir": str(cluster_dir),
+            })
+        else:
+            click.echo(f"Initialized cluster: {cluster_id}")
+            click.echo(f"  Node ID: {node_id}")
+            click.echo(f"  Address: {host}:{port}")
+            click.echo(f"  Cluster directory: {cluster_dir}")
+            click.echo("")
+            click.echo("Next steps:")
+            click.echo(f"  1. Start the node server: autoflow cluster start")
+            click.echo(f"  2. Other nodes can join: autoflow cluster join {host}:{port}")
+
+    except Exception as e:
+        click.echo(f"Error initializing cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("join")
+@click.argument("address", type=str)
+@click.option(
+    "--node-id",
+    "-n",
+    type=str,
+    default=None,
+    help="Unique node identifier for this node.",
+)
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="localhost",
+    help="Host address for this node.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port for this node's server.",
+)
+@click.option(
+    "--capability",
+    "-c",
+    multiple=True,
+    type=str,
+    help="Node capability (can be specified multiple times).",
+)
+@click.pass_context
+def cluster_join(
+    ctx: click.Context,
+    address: str,
+    node_id: Optional[str],
+    host: str,
+    port: int,
+    capability: tuple[str, ...],
+) -> None:
+    """
+    Join an existing cluster.
+
+    Registers this node with an existing cluster at the specified address.
+
+    \b
+    Examples:
+        autoflow cluster join localhost:8080
+        autoflow cluster join 192.168.1.100:8080 --node-id node-002
+        autoflow cluster join cluster.example.com:8080 --capability claude-code --capability python
+    """
+    config: Config = ctx.obj["config"]
+
+    # Generate node ID if not provided
+    if not node_id:
+        node_id = f"node-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+    capabilities = list(capability) if capability else ["general"]
+
+    try:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "node_id": node_id,
+                "cluster_address": address,
+                "host": host,
+                "port": port,
+                "capabilities": capabilities,
+                "message": "Cluster join requires async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Joining Cluster")
+            click.echo("=" * 60)
+            click.echo(f"  Node ID: {node_id}")
+            click.echo(f"  Cluster: {address}")
+            click.echo(f"  Local Address: {host}:{port}")
+            click.echo(f"  Capabilities: {', '.join(capabilities)}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster join")
+            click.echo("      requires async runtime and NodeClient.")
+
+    except Exception as e:
+        click.echo(f"Error joining cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("status")
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed cluster status.",
+)
+@click.option(
+    "--watch",
+    "-w",
+    is_flag=True,
+    help="Continuously update cluster status.",
+)
+@click.pass_context
+def cluster_status(
+    ctx: click.Context,
+    detailed: bool,
+    watch: bool,
+) -> None:
+    """
+    Show cluster status.
+
+    Displays information about the cluster including nodes, work distribution,
+    and health status.
+
+    \b
+    Examples:
+        autoflow cluster status
+        autoflow cluster status --detailed
+        autoflow cluster status --watch
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Try to load cluster state
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+
+        if not cluster_state_file.exists():
+            if not ctx.obj["output_json"]:
+                click.echo("No cluster initialized.")
+                click.echo("Use 'autoflow cluster init' to create a new cluster.")
+            else:
+                _print_json({
+                    "status": "not_initialized",
+                    "message": "No cluster initialized. Use 'autoflow cluster init' to create a new cluster.",
+                })
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "cluster_state_file": str(cluster_state_file),
+                "message": "Cluster status requires loading state and async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Cluster Status")
+            click.echo("=" * 60)
+            click.echo(f"  State File: {cluster_state_file}")
+            click.echo(f"  Detailed: {detailed}")
+            click.echo(f"  Watch Mode: {watch}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster status")
+            click.echo("      requires loading cluster state from file.")
+
+    except Exception as e:
+        click.echo(f"Error getting cluster status: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("leave")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force leave even if running work exists.",
+)
+@click.pass_context
+def cluster_leave(
+    ctx: click.Context,
+    force: bool,
+) -> None:
+    """
+    Leave the cluster.
+
+    Removes this node from the cluster and shuts down coordination.
+
+    \b
+    Examples:
+        autoflow cluster leave
+        autoflow cluster leave --force
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Check if cluster exists
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+
+        if not cluster_state_file.exists():
+            if not ctx.obj["output_json"]:
+                click.echo("No cluster initialized.")
+            else:
+                _print_json({
+                    "status": "not_initialized",
+                    "message": "No cluster initialized.",
+                })
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "force": force,
+                "message": "Cluster leave requires async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Leaving Cluster")
+            click.echo("=" * 60)
+            click.echo(f"  Force: {force}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster leave")
+            click.echo("      requires async runtime and NodeClient.")
+
+    except Exception as e:
+        click.echo(f"Error leaving cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("start")
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="localhost",
+    help="Host address for this node.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port for this node's server.",
+)
+@click.option(
+    "--daemon",
+    "-d",
+    is_flag=True,
+    help="Run as a background daemon.",
+)
+@click.pass_context
+def cluster_start(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    daemon: bool,
+) -> None:
+    """
+    Start the cluster node server.
+
+    Starts the HTTP server for cluster coordination.
+
+    \b
+    Examples:
+        autoflow cluster start
+        autoflow cluster start --host 0.0.0.0 --port 9090
+        autoflow cluster start --daemon
+    """
+    config: Config = ctx.obj["config"]
+
+    try:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "host": host,
+                "port": port,
+                "daemon": daemon,
+                "message": "Cluster start requires async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Starting Cluster Node Server")
+            click.echo("=" * 60)
+            click.echo(f"  Host: {host}")
+            click.echo(f"  Port: {port}")
+            click.echo(f"  Daemon mode: {daemon}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full server start")
+            click.echo("      requires async runtime and NodeServer.")
+
+    except Exception as e:
+        click.echo(f"Error starting cluster server: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("stop")
+@click.pass_context
+def cluster_stop(ctx: click.Context) -> None:
+    """Stop the cluster node server."""
+    if ctx.obj["output_json"]:
+        _print_json({
+            "status": "placeholder",
+            "message": "Cluster stop requires async execution. This is a placeholder.",
+        })
+    else:
+        click.echo("Stopping Cluster Node Server...")
+        click.echo("")
+        click.echo("Note: This is a CLI placeholder. Full server stop")
+        click.echo("      requires async runtime.")
+
+
 # Register config command group
 main.add_command(config_cmd, name="config")
 
