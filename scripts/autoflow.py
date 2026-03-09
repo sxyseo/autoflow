@@ -1326,6 +1326,23 @@ def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def load_fix_request(spec_slug: str) -> str:
+    """
+    Load the QA fix request markdown file for a spec.
+
+    Reads the fix request markdown file that contains structured feedback
+    for implementation revisions. Returns an empty string if the file doesn't exist.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Returns:
+        Contents of the fix request markdown file, or empty string if not found
+
+    Examples:
+        >>> content = load_fix_request("my-feature")
+        >>> print(content[:50])
+        # QA Fix Request: task-001
+    """
     path = spec_files(spec_slug)["qa_fix_request"]
     if not path.exists():
         return ""
@@ -1333,6 +1350,32 @@ def load_fix_request(spec_slug: str) -> str:
 
 
 def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
+    """
+    Load the QA fix request JSON data for a spec.
+
+    Reads the structured JSON data that contains the fix request payload including
+    task ID, result status, summary, and normalized findings. Returns a default
+    empty structure if the file doesn't exist.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Returns:
+        Dictionary containing fix request data with keys:
+        - task: Task ID string
+        - result: Review result status
+        - summary: Reviewer summary text
+        - finding_count: Number of findings
+        - findings: List of normalized finding dictionaries
+        Returns default empty structure if file not found.
+
+    Examples:
+        >>> data = load_fix_request_data("my-feature")
+        >>> data["finding_count"]
+        3
+        >>> len(data["findings"])
+        3
+    """
     return read_json_or_default(
         spec_files(spec_slug)["qa_fix_request_json"],
         {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
@@ -1340,6 +1383,47 @@ def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
 
 
 def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    Normalize review findings to a standard structure.
+
+    Converts findings from various sources into a consistent format with all required
+    fields. Handles missing or inconsistent data by providing sensible defaults.
+    Each finding gets a unique ID if not present, and line numbers are normalized.
+
+    Args:
+        summary: Default summary text to use when finding body is missing
+        findings: List of finding dictionaries from review sources, or None to create
+                  a single default finding
+
+    Returns:
+        List of normalized finding dictionaries with keys:
+        - id: Unique finding identifier (e.g., "F1", "F2")
+        - title: Finding title or "Follow-up required"
+        - body: Detailed description or summary
+        - file: File path (empty string if not applicable)
+        - line: Starting line number (None if not applicable)
+        - end_line: Ending line number (None if not applicable)
+        - severity: Severity level ("critical", "high", "medium", "low")
+        - category: Finding category (e.g., "tests", "workflow", "general")
+        - suggested_fix: Suggested fix text (empty string if none)
+        - source_run: Source run identifier (empty string if none)
+
+    Examples:
+        >>> findings = [
+        ...     {"title": "Add tests", "severity": "high", "category": "tests"}
+        ... ]
+        >>> normalized = normalize_findings("Please add tests", findings)
+        >>> normalized[0]["id"]
+        'F1'
+        >>> normalized[0]["body"]
+        'Please add tests'
+
+        >>> normalized = normalize_findings("Fix bug", None)
+        >>> len(normalized)
+        1
+        >>> normalized[0]["id"]
+        'F1'
+    """
     if findings:
         normalized = []
         for index, finding in enumerate(findings, start=1):
@@ -1377,6 +1461,49 @@ def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> l
 
 
 def format_fix_request_markdown(task_id: str, summary: str, result: str, findings: list[dict[str, Any]]) -> str:
+    """
+    Format a QA fix request as structured markdown.
+
+    Generates a comprehensive markdown document containing review findings in a
+    structured format suitable for developer review and implementation revisions.
+    Includes a summary table, detailed findings with metadata, and retry policy.
+
+    Args:
+        task_id: Identifier for the task requiring fixes
+        summary: High-level summary of the review feedback
+        result: Review result status (e.g., "needs_changes", "blocked")
+        findings: List of normalized finding dictionaries
+
+    Returns:
+        Formatted markdown string with sections:
+        - Header with task ID and metadata
+        - Summary section with overall feedback
+        - Findings table with ID, severity, category, file, line, and title
+        - Details section with full information for each finding
+        - Retry policy section with guidance for implementation
+
+    Examples:
+        >>> findings = [
+        ...     {
+        ...         "id": "F1",
+        ...         "title": "Add tests",
+        ...         "severity": "high",
+        ...         "category": "tests",
+        ...         "file": "src/test.py",
+        ...         "line": 42,
+        ...         "end_line": 50,
+        ...         "body": "Add unit tests for edge cases",
+        ...         "suggested_fix": "Add tests in test suite",
+        ...         "source_run": "run-123"
+        ...     }
+        ... ]
+        >>> markdown = format_fix_request_markdown("task-001", "Tests needed", "needs_changes", findings)
+        >>> print(markdown[:100])
+        # QA Fix Request: task-001
+        <BLANKLINE>
+        - created_at: 20260309T120000Z
+        - result: needs_changes
+    """
     lines = [
         f"# QA Fix Request: {task_id}",
         "",
@@ -1442,6 +1569,38 @@ def write_fix_request(
     result: str,
     findings: list[dict[str, Any]] | None = None,
 ) -> Path:
+    """
+    Write a QA fix request to both markdown and JSON files.
+
+    Creates structured fix request documentation by normalizing findings, formatting
+    them as markdown, and saving both human-readable (markdown) and machine-readable
+    (JSON) versions. Records an event in the spec's event log.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        task_id: Identifier for the task requiring fixes
+        reviewer_summary: High-level summary of the review feedback
+        result: Review result status (e.g., "needs_changes", "blocked")
+        findings: List of finding dictionaries from review, or None for a default finding
+
+    Returns:
+        Path to the written markdown fix request file
+
+    Side Effects:
+        - Creates/overwrites QA_FIX_REQUEST.md file in spec directory
+        - Creates/overwrites QA_FIX_REQUEST.json file in spec directory
+        - Records "qa.fix_request_created" event in spec's event log
+
+    Examples:
+        >>> findings = [
+        ...     {"title": "Fix typo", "severity": "low", "category": "style"}
+        ... ]
+        >>> path = write_fix_request("my-feature", "task-001", "Minor fixes needed", "needs_changes", findings)
+        >>> path.name
+        'QA_FIX_REQUEST.md'
+        >>> path.exists()
+        True
+    """
     path = spec_files(spec_slug)["qa_fix_request"]
     json_path = spec_files(spec_slug)["qa_fix_request_json"]
     normalized = normalize_findings(reviewer_summary, findings)
@@ -1468,6 +1627,24 @@ def write_fix_request(
 
 
 def clear_fix_request(spec_slug: str) -> None:
+    """
+    Remove QA fix request files for a spec.
+
+    Deletes both the markdown and JSON fix request files if they exist.
+    Records an event in the spec's event log if any files were removed.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+
+    Side Effects:
+        - Deletes QA_FIX_REQUEST.md file if it exists
+        - Deletes QA_FIX_REQUEST.json file if it exists
+        - Records "qa.fix_request_cleared" event in spec's event log if any files were removed
+
+    Examples:
+        >>> clear_fix_request("my-feature")
+        >>> # Files are removed if they existed
+    """
     paths = [
         spec_files(spec_slug)["qa_fix_request"],
         spec_files(spec_slug)["qa_fix_request_json"],
