@@ -2447,6 +2447,30 @@ def default_tasks() -> list[dict[str, Any]]:
 
 
 def create_spec(args: argparse.Namespace) -> None:
+    """
+    Create a new spec directory with markdown, metadata, and initial task files.
+
+    Creates a spec directory structure containing:
+    - spec.md: Main specification document with title, summary, problem, goals, etc.
+    - metadata.json: Spec metadata including slug, title, dates, and worktree info
+    - handoff.md: Handoff notes for role transitions
+    - tasks.json: Initial task list with default tasks
+    - review_state.json: Initial review state
+    - handoffs/: Directory for role handoff notes
+
+    Args:
+        args: Namespace containing spec creation parameters:
+            - title: Spec title
+            - summary: Brief description of the spec
+            - slug: Optional URL-friendly slug (auto-generated from title if not provided)
+
+    Raises:
+        SystemExit: If a spec with the same slug already exists
+
+    Side Effects:
+        Creates spec directory and all initial files
+        Records a spec.created event
+    """
     ensure_state()
     slug = slugify(args.slug or args.title)
     files = spec_files(slug)
@@ -2522,11 +2546,42 @@ Describe the problem this system is solving.
 
 
 def list_tasks(args: argparse.Namespace) -> None:
+    """
+    List all tasks for a spec in JSON format.
+
+    Retrieves the task list for a given spec and prints it as formatted JSON.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug identifier
+
+    Side Effects:
+        Prints JSON task list to stdout
+    """
     tasks = load_tasks(args.spec)
     print(json.dumps(tasks, indent=2, ensure_ascii=True))
 
 
 def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | None:
+    """
+    Find the next available task for a given role.
+
+    Searches for a task that is:
+    - For non-reviewer roles: status is "todo" or "needs_changes", matches the role if specified,
+      and has all dependencies completed
+    - For reviewer role: status is "in_review"
+
+    Args:
+        spec_slug: Spec slug identifier
+        role: Optional role filter (e.g., "frontend", "backend"). If None, returns any
+            available task. If "reviewer", returns tasks in review status.
+
+    Returns:
+        Task dictionary if an available task is found, None otherwise
+
+    Side Effects:
+        None
+    """
     tasks = load_tasks(spec_slug)
     for task in tasks.get("tasks", []):
         if role == "reviewer":
@@ -2549,6 +2604,20 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
 
 
 def next_task(args: argparse.Namespace) -> None:
+    """
+    Print the next available task for a spec in JSON format.
+
+    Retrieves and displays the next available task for a given spec and role.
+    If no task is available, prints an empty JSON object.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug identifier
+            - role: Optional role filter (e.g., "frontend", "backend", "reviewer")
+
+    Side Effects:
+        Prints task data as JSON to stdout, or {} if no task is available
+    """
     task = next_task_data(args.spec, args.role)
     if not task:
         print("{}")
