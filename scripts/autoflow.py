@@ -2340,6 +2340,23 @@ def resume_context(run_id: str | None) -> str:
 
 
 def parse_findings(args: argparse.Namespace) -> list[dict[str, Any]] | None:
+    """
+    Parse findings from command-line arguments.
+
+    Findings can be provided either as a JSON string via --findings-json
+    or as a file path via --findings-file. The JSON can be either a list
+    of finding objects or a dict with a 'findings' key.
+
+    Args:
+        args: Parsed command-line arguments with optional findings_json
+            and findings_file attributes
+
+    Returns:
+        List of finding dictionaries, or None if no findings provided
+
+    Raises:
+        json.JSONDecodeError: If the provided JSON is invalid
+    """
     findings_json = getattr(args, "findings_json", "")
     findings_file = getattr(args, "findings_file", "")
     if findings_json:
@@ -2352,6 +2369,19 @@ def parse_findings(args: argparse.Namespace) -> list[dict[str, Any]] | None:
 
 
 def default_tasks() -> list[dict[str, Any]]:
+    """
+    Get the default task template for new specs.
+
+    Returns a predefined list of tasks that form the core workflow for
+    building an autonomous development harness, including workflow contract
+    definition, task graph management, execution harness implementation,
+    review gates, and maintenance hooks.
+
+    Returns:
+        List of task dictionaries with default workflow tasks. Each task
+        contains id, title, status, depends_on, owner_role,
+        acceptance_criteria, and notes fields
+    """
     return [
         {
             "id": "T1",
