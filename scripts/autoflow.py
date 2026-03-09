@@ -700,6 +700,30 @@ def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
 
 
 def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
+    """
+    Get the file path for a strategy memory store.
+
+    Strategy memory can be stored at global or spec scope. Global memory applies
+    across all specs, while spec memory is specific to a particular specification.
+
+    Args:
+        scope: Either "global" for system-wide strategy memory, or "spec" for
+               spec-specific memory
+        spec_slug: Slug identifier for the spec (required when scope="spec")
+
+    Returns:
+        Path to the strategy memory JSON file
+
+    Raises:
+        SystemExit: If scope="spec" but no spec_slug is provided
+
+    Examples:
+        >>> strategy_memory_file("global")
+        PosixPath('.autoflow/memory/strategy/global.json')
+
+        >>> strategy_memory_file("spec", "my-feature")
+        PosixPath('.autoflow/memory/strategy/specs/my-feature.json')
+    """
     if scope == "global":
         return STRATEGY_MEMORY_DIR / "global.json"
     if spec_slug:
@@ -708,6 +732,32 @@ def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
 
 
 def strategy_memory_default() -> dict[str, Any]:
+    """
+    Get the default structure for a strategy memory store.
+
+    Returns a dictionary with the standard schema used for strategy memory
+    persistence. This structure tracks reflections, planner notes, statistics,
+    and playbook entries across workflow runs.
+
+    Returns:
+        Dictionary with the following structure:
+        - updated_at: ISO 8601 timestamp of last update (empty string for new)
+        - reflections: List of reflection entries from workflow reviews
+        - planner_notes: List of notes added by the planner agent
+        - stats: Dictionary containing:
+          - by_role: Counters grouped by agent role
+          - by_result: Counters grouped by task result type
+          - finding_categories: Counters for review finding categories
+          - severity: Counters for finding severity levels
+          - files: Counters for files mentioned in findings
+        - playbook: List of actionable recommendations derived from patterns
+
+    Examples:
+        >>> strategy_memory_default()
+        {'updated_at': '', 'reflections': [], 'planner_notes': [],
+         'stats': {'by_role': {}, 'by_result': {}, 'finding_categories': {},
+                   'severity': {}, 'files': {}}, 'playbook': []}
+    """
     return {
         "updated_at": "",
         "reflections": [],
@@ -724,10 +774,68 @@ def strategy_memory_default() -> dict[str, Any]:
 
 
 def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
+    """
+    Load strategy memory from disk.
+
+    Reads the strategy memory file for the specified scope (global or spec).
+    If the file doesn't exist or contains invalid JSON, returns the default
+    strategy memory structure.
+
+    Args:
+        scope: Either "global" for system-wide strategy memory, or "spec" for
+               spec-specific memory
+        spec_slug: Slug identifier for the spec (required when scope="spec")
+
+    Returns:
+        Dictionary containing strategy memory data with the structure:
+        - updated_at: ISO 8601 timestamp of last update
+        - reflections: List of reflection entries
+        - planner_notes: List of planner notes
+        - stats: Dictionary of statistical counters
+        - playbook: List of actionable recommendations
+
+    Examples:
+        >>> memory = load_strategy_memory("global")
+        >>> memory["playbook"]
+        ['Address high-severity findings first']
+
+        >>> spec_memory = load_strategy_memory("spec", "my-feature")
+        >>> len(spec_memory["reflections"])
+        3
+    """
     return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
 
 
 def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
+    """
+    Save strategy memory to disk.
+
+    Writes the strategy memory payload to the appropriate file based on scope.
+    Automatically updates the `updated_at` timestamp to the current UTC time
+    before saving. Creates parent directories if they don't exist.
+
+    Args:
+        scope: Either "global" for system-wide strategy memory, or "spec" for
+               spec-specific memory
+        payload: Dictionary containing strategy memory data. Must include the
+                 standard structure (reflections, planner_notes, stats, playbook).
+                 The `updated_at` field will be overwritten with the current time.
+        spec_slug: Slug identifier for the spec (required when scope="spec")
+
+    Returns:
+        Path to the file that was written
+
+    Examples:
+        >>> memory = load_strategy_memory("global")
+        >>> memory["playbook"].append("New recommendation")
+        >>> save_strategy_memory("global", memory)
+        PosixPath('.autoflow/memory/strategy/global.json')
+
+        >>> spec_memory = load_strategy_memory("spec", "my-feature")
+        >>> spec_memory["reflections"].append(new_reflection)
+        >>> save_strategy_memory("spec", spec_memory, "my-feature")
+        PosixPath('.autoflow/memory/strategy/specs/my-feature.json')
+    """
     payload["updated_at"] = now_stamp()
     path = strategy_memory_file(scope, spec_slug)
     write_json(path, payload)
