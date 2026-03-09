@@ -1080,3 +1080,232 @@ class TestEdgeCases:
         result = state_manager.load_memory("complex")
 
         assert result == complex_value
+
+
+# ============================================================================
+# File Write Sanitization Tests
+# ============================================================================
+
+
+class TestFileWriteSanitization:
+    """Integration tests for file write sanitization."""
+
+    def test_write_json_sanitizes_api_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes api_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"api_key": "sk-secret123", "name": "test"}
+
+        state_manager.write_json(file_path, data)
+
+        # Read the file content directly
+        with open(file_path) as f:
+            content = f.read()
+            loaded = json.loads(content)
+
+        # api_key should be redacted
+        assert loaded["api_key"] == "***REDACTED***"
+        assert loaded["name"] == "test"
+
+    def test_write_json_sanitizes_password(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes password fields."""
+        file_path = tmp_path / "test.json"
+        data = {"username": "user", "password": "secret123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["password"] == "***REDACTED***"
+        assert result["username"] == "user"
+
+    def test_write_json_sanitizes_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"access_token": "token123", "id": "123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["access_token"] == "***REDACTED***"
+        assert result["id"] == "123"
+
+    def test_write_json_sanitizes_nested_dict(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes nested dictionaries."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "config": {
+                "api_key": "secret123",
+                "endpoint": "https://api.example.com",
+            }
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["config"]["api_key"] == "***REDACTED***"
+        assert result["config"]["endpoint"] == "https://api.example.com"
+
+    def test_write_json_sanitizes_list_of_dicts(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes lists containing dictionaries."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "items": [
+                {"name": "item1", "api_key": "key1"},
+                {"name": "item2", "secret": "secret2"},
+            ]
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["items"][0]["api_key"] == "***REDACTED***"
+        assert result["items"][0]["name"] == "item1"
+        assert result["items"][1]["secret"] == "***REDACTED***"
+        assert result["items"][1]["name"] == "item2"
+
+    def test_write_json_preserves_non_sensitive(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json preserves non-sensitive data."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "name": "test",
+            "count": 42,
+            "active": True,
+            "tags": ["tag1", "tag2"],
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result == data
+
+    def test_write_json_sanitizes_multiple_sensitive_fields(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes multiple sensitive fields."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "api_key": "key123",
+            "password": "pass123",
+            "token": "token123",
+            "secret": "secret123",
+            "normal_field": "keep_this",
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["api_key"] == "***REDACTED***"
+        assert result["password"] == "***REDACTED***"
+        assert result["token"] == "***REDACTED***"
+        assert result["secret"] == "***REDACTED***"
+        assert result["normal_field"] == "keep_this"
+
+    def test_write_json_case_insensitive_matching(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json matches sensitive fields case-insensitively."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "API_KEY": "secret1",
+            "ApiKey": "secret2",
+            "api_key": "secret3",
+            "PASSWORD": "pass1",
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["API_KEY"] == "***REDACTED***"
+        assert result["ApiKey"] == "***REDACTED***"
+        assert result["api_key"] == "***REDACTED***"
+        assert result["PASSWORD"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_auth_field(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes auth-related fields."""
+        file_path = tmp_path / "test.json"
+        data = {"auth": "credentials", "authorization": "bearer token"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["auth"] == "***REDACTED***"
+        assert result["authorization"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_credential_field(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes credential fields."""
+        file_path = tmp_path / "test.json"
+        data = {"credential": "user:pass", "credentials": {"key": "value"}}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["credential"] == "***REDACTED***"
+        # credentials is a dict, should be preserved but nested values checked
+        assert isinstance(result["credentials"], dict)
+
+    def test_write_json_sanitizes_private_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes private_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"private_key": "-----BEGIN PRIVATE KEY-----", "public_key": "public"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["private_key"] == "***REDACTED***"
+        assert result["public_key"] == "public"
+
+    def test_write_json_sanitizes_session_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes session_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"session_key": "session123", "session_id": "id123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["session_key"] == "***REDACTED***"
+        assert result["session_id"] == "id123"
+
+    def test_write_json_sanitizes_csrf_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes csrf token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"csrf_token": "csrf123", "csrf": "csrf456"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["csrf_token"] == "***REDACTED***"
+        assert result["csrf"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_bearer_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes bearer token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"bearer": "bearer123", "bearer_token": "token456"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["bearer"] == "***REDACTED***"
+        assert result["bearer_token"] == "***REDACTED***"
