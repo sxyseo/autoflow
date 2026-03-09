@@ -231,6 +231,8 @@ def spec_dir(slug: str) -> Path:
 
 
 def task_file(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return TASKS_DIR / f"{spec_slug}.json"
 
 
