@@ -3238,14 +3238,51 @@ def complete_run(args: argparse.Namespace) -> None:
 
 
 def show_task_history(args: argparse.Namespace) -> None:
+    """
+    Display execution history for a specific task.
+
+    Retrieves and prints all runs associated with the given spec and task,
+    sorted by creation timestamp. Output is formatted as indented JSON.
+
+    Args:
+        args: Command-line arguments namespace with attributes:
+            - spec: Slug identifier of the spec
+            - task: ID of the task to get history for
+    """
     print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
 
 
 def show_events(args: argparse.Namespace) -> None:
+    """
+    Display event log for a spec.
+
+    Retrieves and prints the most recent events from the spec's event log,
+    formatted as indented JSON. Events are stored in reverse chronological
+    order (newest last).
+
+    Args:
+        args: Command-line arguments namespace with attributes:
+            - spec: Slug identifier of the spec
+            - limit: Maximum number of events to return (default: 20)
+    """
     print(json.dumps(load_events(args.spec, args.limit), indent=2, ensure_ascii=True))
 
 
 def show_fix_request(args: argparse.Namespace) -> None:
+    """
+    Display QA fix request data for a spec.
+
+    Retrieves and prints the structured JSON data containing the fix request
+    payload including task ID, result status, summary, and normalized findings.
+    Output is formatted as indented JSON.
+
+    Args:
+        args: Command-line arguments namespace with attributes:
+            - spec: Slug identifier of the spec
+
+    Notes:
+        Returns a default empty structure if the fix request file doesn't exist.
+    """
     print(json.dumps(load_fix_request_data(args.spec), indent=2, ensure_ascii=True))
 
 
