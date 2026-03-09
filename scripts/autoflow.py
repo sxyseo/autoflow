@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from autoflow.core.sanitization import sanitize_dict, sanitize_value
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -65,8 +67,20 @@ def slugify(value: str) -> str:
 
 
 def write_json(path: Path, data: Any) -> None:
+    """
+    Write JSON data to a file.
+
+    Sanitizes sensitive data before writing to prevent information disclosure.
+
+    Args:
+        path: Destination file path
+        data: JSON-serializable data to write
+    """
+    # Sanitize data to remove sensitive information
+    # Use sanitize_value to handle both dicts and lists containing sensitive data
+    sanitized_data = sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(sanitized_data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
 def read_json(path: Path) -> Any:
