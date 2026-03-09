@@ -3,9 +3,9 @@
   "spec": "023-enterprise-sso-and-rbac",
   "state": "building",
   "subtasks": {
-    "completed": 15,
+    "completed": 18,
     "total": 27,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 17,
-    "started_at": "2026-03-08T22:34:29.274265"
+    "number": 3,
+    "started_at": "2026-03-09T14:00:51.318931"
   },
-  "last_update": "2026-03-08T23:11:04.057977"
+  "last_update": "2026-03-09T06:08:59.824201+00:00"
 }
