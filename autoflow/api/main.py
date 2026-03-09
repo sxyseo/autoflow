@@ -189,14 +189,16 @@ def get_app(
         }
 
     # Register routers
-    from autoflow.api.routes import auth
+    from autoflow.api.routes import auth, users
 
     app.include_router(
         auth.router, prefix="/api/v1/auth", tags=["Authentication"]
     )
+    app.include_router(
+        users.router, prefix="/api/v1/users", tags=["User Management"]
+    )
     # TODO: Register additional routers
-    # from autoflow.api.routes import users, specs, tasks
-    # app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+    # from autoflow.api.routes import specs, tasks
     # app.include_router(specs.router, prefix="/api/v1/specs", tags=["Specifications"])
     # app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks"])
 
