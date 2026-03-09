@@ -150,6 +150,83 @@ class TestValidateSlugSafe:
         assert validate_slug_safe("-") is True  # Single dash is safe
         assert validate_slug_safe(".") is True  # Single dot is safe (not "..")
 
+    def test_validate_slug_safe_rejects_mixed_separators(self) -> None:
+        """Test that validate_slug_safe() rejects mixed separator patterns."""
+        # Mixed forward and backward slashes
+        assert validate_slug_safe("../..\\etc") is False
+        assert validate_slug_safe("..\\../etc") is False
+        assert validate_slug_safe("/..\\path") is False
+        assert validate_slug_safe("\\../path") is False
+
+    def test_validate_slug_safe_rejects_whitespace_traversal(self) -> None:
+        """Test that validate_slug_safe() rejects whitespace-based traversal attempts."""
+        # Attempts to use whitespace to bypass detection
+        assert validate_slug_safe(".. /etc") is False  # Still contains ".."
+        assert validate_slug_safe("../ etc") is False  # Still contains ".."
+        assert validate_slug_safe("../\tetc") is False  # Still contains ".."
+        assert validate_slug_safe("../\netc") is False  # Still contains ".."
+        assert validate_slug_safe("../\retc") is False  # Still contains ".."
+
+    def test_validate_slug_safe_rejects_combined_attacks(self) -> None:
+        """Test that validate_slug_safe() rejects combined attack patterns."""
+        # Combinations of multiple attack vectors
+        assert validate_slug_safe("../.\x00hidden") is False  # Traversal + null byte
+        assert validate_slug_safe("..\\../etc") is False  # Mixed separators (contains ..)
+        assert validate_slug_safe("./../etc") is False  # Current + parent dir
+        assert validate_slug_safe("/../etc") is False  # Absolute + traversal
+        assert validate_slug_safe("C:../etc") is False  # Drive + traversal (contains ..)
+
+    def test_validate_slug_safe_handles_repeated_dots(self) -> None:
+        """Test that validate_slug_safe() handles repeated dot patterns."""
+        # Various combinations of dots
+        assert validate_slug_safe("...") is False  # Contains ".."
+        assert validate_slug_safe("....") is False  # Contains ".."
+        assert validate_slug_safe(".../test") is False  # Contains ".."
+        assert validate_slug_safe("....test") is False  # Contains ".."
+
+    def test_validate_slug_safe_handles_edge_cases(self) -> None:
+        """Test that validate_slug_safe() handles edge cases correctly."""
+        # Edge cases that might appear in real usage
+        assert validate_slug_safe("-.") is True  # Dash-dot is safe
+        assert validate_slug_safe(".-") is True  # Dot-dash is safe
+        assert validate_slug_safe("--") is True  # Double dash is safe
+        assert validate_slug_safe("a-b-c") is True  # Multiple dashes is safe
+        assert validate_slug_safe("test.spec") is True  # Dot in middle is safe
+
+    def test_validate_slug_safe_case_variations(self) -> None:
+        """Test that validate_slug_safe() handles case variations of attacks."""
+        # Case variations of dangerous patterns (Windows is case-insensitive)
+        assert validate_slug_safe("C:") is False  # Uppercase drive letter
+        assert validate_slug_safe("c:") is False  # Lowercase drive letter
+        assert validate_slug_safe("D:") is False  # Another drive letter
+        assert validate_slug_safe("../ETC/PASSWD") is False  # Uppercase traversal
+        assert validate_slug_safe("../Etc/Passwd") is False  # Mixed case traversal
+
+    def test_validate_slug_safe_length_attacks(self) -> None:
+        """Test that validate_slug_safe() handles potential length-based attacks."""
+        # Very long paths that might cause buffer overflows elsewhere
+        long_safe = "a" * 10000
+        assert validate_slug_safe(long_safe) is True  # Long but safe
+
+        long_dangerous = "../" * 1000  # Many traversal attempts
+        assert validate_slug_safe(long_dangerous) is False
+
+    def test_validate_slug_safe_various_dangerous_combinations(self) -> None:
+        """Test various combinations of dangerous patterns."""
+        # Additional dangerous patterns not covered in other tests
+        assert validate_slug_safe("./test/../etc") is False  # Multiple traversals
+        assert validate_slug_safe("test/../hidden") is False  # Traversal in middle
+        assert validate_slug_safe("../test/../etc") is False  # Multiple parent refs
+        assert validate_slug_safe("/test/../etc") is False  # Absolute + traversal
+
+    def test_validate_slug_safe_slash_variations(self) -> None:
+        """Test validate_slug_safe with various slash patterns."""
+        # Different slash patterns
+        assert validate_slug_safe("/") is False  # Just absolute path
+        assert validate_slug_safe("//") is False  # Double slash (still absolute)
+        assert validate_slug_safe("\\") is False  # Single backslash
+        assert validate_slug_safe("\\\\") is False  # Double backslash
+
 
 # ============================================================================
 # spec_dir() Tests
