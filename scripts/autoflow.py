@@ -3377,11 +3377,42 @@ def sync_agents_cmd(args: argparse.Namespace) -> None:
 
 
 def write_memory_cmd(args: argparse.Namespace) -> None:
+    """
+    Append content to a memory file.
+
+    Creates a timestamped memory entry in either global or spec-scoped memory.
+    The entry is written as a markdown section with an optional title. If no
+    title is provided, a timestamp is used.
+
+    Args:
+        args: Namespace containing:
+            - scope: Memory scope ("global" or "spec")
+            - spec: Optional spec slug for spec-scoped memory
+            - title: Optional title for the memory entry
+            - content: Content to append to memory
+
+    Output:
+        Prints the path to the updated memory file
+    """
     path = append_memory(args.scope, args.content, spec_slug=args.spec, title=args.title)
     print(str(path))
 
 
 def show_memory_cmd(args: argparse.Namespace) -> None:
+    """
+    Display stored memory content.
+
+    Retrieves and displays the content of a memory file. The memory file
+    is determined by the scope (global or spec) and optional spec slug.
+
+    Args:
+        args: Namespace containing:
+            - scope: Memory scope ("global" or "spec")
+            - spec: Optional spec slug for spec-scoped memory
+
+    Output:
+        Prints the memory file contents, or empty string if file doesn't exist
+    """
     path = memory_file(args.scope, args.spec)
     if not path.exists():
         print("")
@@ -3390,10 +3421,49 @@ def show_memory_cmd(args: argparse.Namespace) -> None:
 
 
 def show_strategy_cmd(args: argparse.Namespace) -> None:
+    """
+    Display accumulated strategy memory for a spec.
+
+    Shows the complete strategy summary including playbook entries,
+    planner notes, recent reflections, and statistics. This provides
+    a comprehensive view of all strategic decisions and learnings
+    accumulated for a spec.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug to show strategy for
+
+    Output:
+        Prints JSON-formatted strategy summary with keys:
+            - updated_at: Last update timestamp
+            - playbook: List of playbook rules with evidence
+            - planner_notes: Last 5 planner notes with metadata
+            - recent_reflections: Last 5 reflection entries
+            - stats: Strategy statistics and metrics
+    """
     print(json.dumps(strategy_summary(args.spec), indent=2, ensure_ascii=True))
 
 
 def add_planner_note_cmd(args: argparse.Namespace) -> None:
+    """
+    Add a planner note to strategy memory.
+
+    Creates a timestamped, categorized planner note for tracking strategic
+    decisions, observations, or guidance. Notes are retained in memory
+    with the last 25 notes preserved. Can be scoped globally or to a
+    specific spec.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug for scoping the note
+            - title: Short title describing the note
+            - content: Detailed content of the note
+            - category: Category for organizing notes (default: "strategy")
+            - scope: Memory scope - "global" or "spec" (default: "spec")
+
+    Output:
+        Prints the path to the updated strategy memory file
+    """
     path = add_planner_note(args.spec, args.title, args.content, category=args.category, scope=args.scope)
     print(str(path))
 
