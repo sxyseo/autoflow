@@ -3605,6 +3605,38 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
 
 
 def create_worktree(args: argparse.Namespace) -> None:
+    """
+    Create a git worktree for isolated spec development.
+
+    Creates a new git worktree linked to a spec-specific branch, allowing
+    parallel development without affecting the main branch. The worktree
+    is created at `.autoflow/worktrees/tasks/{spec_slug}`.
+
+    If the worktree already exists, updates the spec metadata with the
+    worktree information without recreating it.
+
+    The branch name follows the pattern `codex/{slugified_spec}` and is
+    created from the base branch if it doesn't already exist.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug identifier
+            - base_branch: Base branch to create worktree from (optional,
+              defaults to detected base branch)
+
+    Side Effects:
+        - Creates git worktree directory
+        - Creates or checks out spec-specific branch
+        - Updates spec metadata with worktree path and branch info
+        - Records worktree.created event
+
+    Example:
+        >>> args = argparse.Namespace(spec="feature-auth", base_branch="main")
+        >>> create_worktree(args)
+        {"path": ".autoflow/worktrees/tasks/feature-auth",
+         "branch": "codex/feature-auth",
+         "base_branch": "main"}
+    """
     ensure_state()
     path = worktree_path(args.spec)
     branch = worktree_branch(args.spec)
@@ -3641,6 +3673,29 @@ def create_worktree(args: argparse.Namespace) -> None:
 
 
 def remove_worktree(args: argparse.Namespace) -> None:
+    """
+    Remove a git worktree for a spec.
+
+    Removes the worktree directory and optionally deletes the associated branch.
+    Updates the spec metadata to clear the worktree path.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug identifier
+            - delete_branch: If True, delete the associated git branch
+              (defaults to False from argparse)
+
+    Side Effects:
+        - Removes git worktree directory if it exists
+        - Deletes the associated branch if delete_branch is True
+        - Updates spec metadata to clear worktree path
+        - Records worktree.removed event
+
+    Example:
+        >>> args = argparse.Namespace(spec="feature-auth", delete_branch=True)
+        >>> remove_worktree(args)
+        {"path": "", "branch": "codex/feature-auth", "base_branch": "main"}
+    """
     path = worktree_path(args.spec)
     branch = worktree_branch(args.spec)
     if path.exists():
@@ -3655,6 +3710,40 @@ def remove_worktree(args: argparse.Namespace) -> None:
 
 
 def list_worktrees(_: argparse.Namespace) -> None:
+    """
+    List all worktrees across all specs.
+
+    Scans all spec metadata files to collect worktree information, including
+    the spec slug, worktree path, associated branch, and base branch.
+
+    Args:
+        _: Unused namespace argument (required for CLI command interface)
+
+    Output:
+        Prints JSON array of worktree information, one entry per spec:
+        - spec: Spec slug identifier
+        - worktree: Dictionary containing:
+            - path: Path to worktree directory (empty if not created)
+            - branch: Branch name for the worktree
+            - base_branch: Base branch the worktree was created from
+
+    Example:
+        >>> list_worktrees(None)
+        [
+          {
+            "spec": "feature-auth",
+            "worktree": {
+              "path": ".autoflow/worktrees/tasks/feature-auth",
+              "branch": "codex/feature-auth",
+              "base_branch": "main"
+            }
+          },
+          {
+            "spec": "bugfix-login",
+            "worktree": {"path": "", "branch": "codex/bugfix-login", "base_branch": "main"}
+          }
+        ]
+    """
     items = []
     for metadata_path in sorted(SPECS_DIR.glob("*/metadata.json")):
         metadata = read_json(metadata_path)
