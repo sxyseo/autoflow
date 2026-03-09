@@ -965,6 +965,31 @@ def record_reflection(
     summary: str,
     findings: list[dict[str, Any]] | None = None,
 ) -> list[Path]:
+    """
+    Record a task run reflection into strategy memory.
+
+    Captures reflection data including run metadata, results, summary, and findings.
+    Updates both global and spec-scoped strategy memory with statistics and
+    maintains a rolling history of the last 25 reflections. Automatically rebuilds
+    the strategy playbook based on accumulated reflections.
+
+    Args:
+        spec_slug: Spec identifier for scoping the reflection
+        run_metadata: Dictionary containing run metadata (id, task, role, etc.)
+        result: Run result status (e.g., "success", "needs_changes", "blocked", "failed")
+        summary: Text summary of the reflection
+        findings: Optional list of finding dictionaries with category, severity, file
+
+    Returns:
+        List of paths to updated strategy memory files (global and spec)
+
+    Example:
+        >>> metadata = {"id": "run-123", "task": "task-1", "role": "developer"}
+        >>> findings = [{"category": "bug", "severity": "high", "file": "src/main.py"}]
+        >>> paths = record_reflection("my-spec", metadata, "success", "All tests passed", findings)
+        >>> print(f"Updated {len(paths)} memory files")
+        Updated 2 memory files
+    """
     normalized = (
         normalize_findings(summary, findings)
         if findings or result in {"needs_changes", "blocked", "failed"}
@@ -1019,6 +1044,33 @@ def add_planner_note(
     category: str = "strategy",
     scope: str = "spec",
 ) -> Path:
+    """
+    Add a planner note to strategy memory.
+
+    Planner notes are free-form annotations for tracking strategic decisions,
+    observations, or guidance. Notes are timestamped and categorized, with the
+    last 25 notes retained in memory. Notes can be scoped globally or to a
+    specific spec.
+
+    Args:
+        spec_slug: Spec identifier for scoping the note
+        title: Short title describing the note
+        content: Detailed content of the note
+        category: Category for organizing notes (default: "strategy")
+        scope: Memory scope - "global" or "spec" (default: "spec")
+
+    Returns:
+        Path to the updated strategy memory file
+
+    Example:
+        >>> path = add_planner_note(
+        ...     "my-spec",
+        ...     "Architecture Decision",
+        ...     "Use PostgreSQL for the primary database",
+        ...     category="architecture"
+        ... )
+        >>> print(f"Note saved to {path}")
+    """
     memory = load_strategy_memory(scope, spec_slug if scope == "spec" else None)
     notes = memory.setdefault("planner_notes", [])
     notes.append(
