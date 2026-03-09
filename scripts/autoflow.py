@@ -1,4 +1,35 @@
 #!/usr/bin/env python3
+"""
+Autoflow CLI - Control Plane Interface
+
+Provides the command-line interface for managing Autoflow specs, tasks, agents,
+and git worktrees. This is the main entry point for interacting with the Autoflow
+workflow system.
+
+Features:
+    - Spec and task lifecycle management
+    - Git worktree isolation for parallel development
+    - Agent discovery and configuration
+    - Memory and strategy tracking
+    - Review and approval workflows
+    - Run execution and history tracking
+
+Usage:
+    # Initialize Autoflow state
+    python scripts/autoflow.py init
+
+    # Create a new spec
+    python scripts/autoflow.py new-spec --title "Add Feature" --summary "Description"
+
+    # Show available tasks
+    python scripts/autoflow.py list-tasks --spec my-spec
+
+    # Create a worktree for isolated development
+    python scripts/autoflow.py create-worktree --spec my-spec
+
+    # Show overall status
+    python scripts/autoflow.py status
+"""
 from __future__ import annotations
 
 import argparse
