@@ -1423,6 +1423,7 @@ def create_run_record(
         build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
         encoding="utf-8",
     )
+    prompt_hash = hash_file_content(prompt_path)
     branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
     target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
@@ -1463,6 +1464,9 @@ def create_run_record(
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
+        },
+        "integrity": {
+            "prompt.md": prompt_hash,
         },
     }
     write_json(run_json_path, metadata)
