@@ -2098,6 +2098,24 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
+    """
+    Iterate through all run metadata directories and collect metadata.
+
+    Scans the runs directory for subdirectories containing run.json files,
+    collecting all available run metadata. Returns items in sorted order
+    by run directory name (typically timestamp-based).
+
+    Returns:
+        List of run metadata dictionaries. Each dictionary contains
+        the run's configuration, status, and execution details from
+        the run.json file. Returns empty list if RUNS_DIR doesn't exist
+        or contains no valid runs.
+
+    Example:
+        >>> runs = run_metadata_iter()
+        >>> for run in runs:
+        ...     print(f"{run['id']}: {run['status']}")
+    """
     items = []
     if not RUNS_DIR.exists():
         return items
@@ -2111,6 +2129,26 @@ def run_metadata_iter() -> list[dict[str, Any]]:
 
 
 def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
+    """
+    Get all active (non-completed) runs for a specific spec.
+
+    Filters through all run metadata to find runs associated with the
+    given spec that have not yet completed. Active runs include those
+    with statuses like "pending", "in_progress", "failed", etc.
+
+    Args:
+        spec_slug: Slug identifier of the spec to filter runs for
+
+    Returns:
+        List of run metadata dictionaries for active runs. Each
+        dictionary contains the run's configuration, current status,
+        and execution details. Returns empty list if no active runs
+        exist for the spec.
+
+    Example:
+        >>> active = active_runs_for_spec("add-feature")
+        >>> print(f"Found {len(active)} active runs")
+    """
     return [
         item
         for item in run_metadata_iter()
@@ -2119,6 +2157,29 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
 
 
 def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    """
+    Get execution history for a specific task.
+
+    Retrieves all runs associated with the given spec and task,
+    sorted by creation timestamp. Returns the most recent runs up
+    to the specified limit.
+
+    Args:
+        spec_slug: Slug identifier of the spec
+        task_id: ID of the task to get history for
+        limit: Maximum number of historical runs to return (default: 5)
+
+    Returns:
+        List of run metadata dictionaries for the task, sorted by
+        creation timestamp (most recent last). Each dictionary contains
+        the run's configuration, status, and execution details. Returns
+        up to `limit` items, or all items if history is shorter.
+
+    Example:
+        >>> history = task_run_history("add-feature", "task-1", limit=3)
+        >>> for run in history:
+        ...     print(f"{run['created_at']}: {run['status']}")
+    """
     history = [
         item
         for item in run_metadata_iter()
