@@ -3333,10 +3333,46 @@ def init_system_config(_: argparse.Namespace) -> None:
 
 
 def discover_agents_cmd(_: argparse.Namespace) -> None:
+    """
+    Discover and display all available agents.
+
+    Performs comprehensive agent discovery by checking for CLI-based agents
+    (codex, claude) on the system PATH and loading additional agents from the
+    system configuration registry (ACP protocol).
+
+    The discovery results are printed as JSON containing:
+    - discovered_at: ISO 8601 timestamp of when discovery was performed
+    - agents: List of discovered agent dictionaries with name, protocol,
+      command/path, transport, and capabilities
+    - system_config: Relevant sections from system config including memory,
+      models, and tools configurations
+
+    The discovery results are also cached to .autoflow/discovered_agents.json
+    for persistence and use by other commands.
+    """
     print(json.dumps(discover_agents_registry(), indent=2, ensure_ascii=True))
 
 
 def sync_agents_cmd(args: argparse.Namespace) -> None:
+    """
+    Sync discovered agents from the registry into the agents configuration file.
+
+    Merges agents from the discovery registry into .autoflow/agents.json,
+    preserving existing agent configurations by default. Can optionally
+    overwrite existing entries when the --overwrite flag is provided.
+
+    Creates the agents file with default structure if it doesn't exist.
+
+    The sync results are printed as JSON containing:
+    - agents_file: Path to the agents.json file
+    - added: List of agent names that were added or updated
+    - total_agents: Total number of agents after sync
+
+    Args:
+        args: Namespace with optional overwrite attribute (bool). If True,
+            replaces existing agent configurations with discovered ones.
+            If False, preserves existing configurations and only adds new agents.
+    """
     print(json.dumps(sync_discovered_agents(overwrite=args.overwrite), indent=2, ensure_ascii=True))
 
 
