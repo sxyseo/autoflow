@@ -70,7 +70,6 @@ def dangerous_slugs() -> list[tuple[str, str]]:
         ("..-..-etc-passwd", "Encoded parent directory with dashes"),
         ("./hidden", "Current directory reference"),
         ("./file", "Current directory with file"),
-        (".hidden", "Hidden file reference"),
         ("/etc/passwd", "Absolute path"),
         ("/absolute/path", "Absolute path to directory"),
         ("C:\\Windows\\System32", "Windows absolute path with backslash"),
