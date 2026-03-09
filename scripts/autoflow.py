@@ -356,22 +356,76 @@ def load_agents() -> dict[str, AgentSpec]:
 
 
 def spec_dir(slug: str) -> Path:
+    """
+    Get the directory path for a spec.
+
+    Args:
+        slug: Spec slug identifier
+
+    Returns:
+        Path to the spec directory
+    """
     return SPECS_DIR / slug
 
 
 def task_file(spec_slug: str) -> Path:
+    """
+    Get the task file path for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Path to the task JSON file
+    """
     return TASKS_DIR / f"{spec_slug}.json"
 
 
 def worktree_path(spec_slug: str) -> Path:
+    """
+    Get the worktree path for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Path to the worktree directory
+    """
     return WORKTREES_DIR / spec_slug
 
 
 def worktree_branch(spec_slug: str) -> str:
+    """
+    Get the git branch name for a spec's worktree.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Branch name for the worktree (format: codex/{slugified_spec_slug})
+    """
     return f"codex/{slugify(spec_slug)}"
 
 
 def spec_files(slug: str) -> dict[str, Path]:
+    """
+    Get all file paths associated with a spec.
+
+    Args:
+        slug: Spec slug identifier
+
+    Returns:
+        Dictionary containing paths to all spec-related files:
+        - dir: Spec directory path
+        - spec: Spec markdown file
+        - metadata: Metadata JSON file
+        - handoff: Handoff markdown file
+        - handoffs_dir: Handoffs directory
+        - review_state: Review state JSON file
+        - events: Events JSONL file
+        - qa_fix_request: QA fix request markdown file
+        - qa_fix_request_json: QA fix request JSON file
+    """
     directory = spec_dir(slug)
     return {
         "dir": directory,
