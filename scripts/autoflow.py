@@ -1267,6 +1267,25 @@ def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
 
 
 def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
+    """
+    Record an event to the spec's event log.
+
+    Events are stored as JSONL (one JSON object per line) in the events.jsonl file.
+    Each event includes a timestamp, event type, and payload data.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        event_type: Type of event being recorded (e.g., "task_started", "task_completed")
+        payload: Event data as a dictionary
+
+    Event Log Format:
+        Each line is a JSON object with:
+        {
+            "at": "YYYYMMDDTHHMMSSZ",  # UTC timestamp
+            "type": "event_type",       # Event type identifier
+            "payload": {...}            # Event-specific data
+        }
+    """
     files = spec_files(spec_slug)
     files["events"].parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -1279,6 +1298,25 @@ def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> No
 
 
 def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
+    """
+    Load events from the spec's event log.
+
+    Reads the events.jsonl file and returns the most recent events.
+    Events are stored in reverse chronological order (newest last),
+    so the last N lines are retrieved.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        limit: Maximum number of events to return (default: 20)
+
+    Returns:
+        List of event dictionaries, each containing:
+        - "at": UTC timestamp string
+        - "type": Event type identifier
+        - "payload": Event-specific data dictionary
+
+        Returns empty list if the event log doesn't exist.
+    """
     events_path = spec_files(spec_slug)["events"]
     if not events_path.exists():
         return []
