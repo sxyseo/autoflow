@@ -232,6 +232,17 @@ class AgentSpec:
     transport: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """
+        Convert agent specification to dictionary.
+
+        Serializes the AgentSpec dataclass instance to a plain dictionary
+        suitable for JSON serialization or configuration storage.
+
+        Returns:
+            Dictionary representation of the agent specification with all
+            configuration fields including name, command, args, resume settings,
+            protocol, model, tools, and transport configuration.
+        """
         return {
             "name": self.name,
             "command": self.command,
@@ -3287,6 +3298,26 @@ def show_fix_request(args: argparse.Namespace) -> None:
 
 
 def create_fix_request_cmd(args: argparse.Namespace) -> None:
+    """
+    Create a QA fix request artifact for a spec and task.
+
+    Parses QA findings from command-line arguments and writes a structured
+    fix request file to the spec's review directory. The file captures
+    issues that must be addressed before the spec can be approved.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug identifier
+            - task: Task ID requiring fixes
+            - summary: Brief summary of issues
+            - result: QA result status (e.g., "needs_changes")
+            - findings_json: JSON string with findings (optional)
+            - findings_file: Path to JSON file with findings (optional)
+
+    Side Effects:
+        - Creates .autoflow/specs/{spec}/QA_FIX_REQUEST.md
+        - Records event in spec's event log
+    """
     findings = parse_findings(args)
     path = write_fix_request(args.spec, args.task, args.summary, args.result, findings=findings)
     print(str(path))
