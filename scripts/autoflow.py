@@ -1356,18 +1356,20 @@ def build_prompt(
             "",
             "## Backend configuration",
             json.dumps(
-                {
-                    "agent": agent.name,
-                    "protocol": agent.protocol,
-                    "command": agent.command,
-                    "model": agent.model,
-                    "model_profile": agent.model_profile,
-                    "tools": agent.tools or [],
-                    "tool_profile": agent.tool_profile,
-                    "memory_scopes": agent.memory_scopes or [],
-                    "native_resume_supported": bool(agent.resume),
-                    "transport": agent.transport or {},
-                },
+                sanitize_dict(
+                    {
+                        "agent": agent.name,
+                        "protocol": agent.protocol,
+                        "command": agent.command,
+                        "model": agent.model,
+                        "model_profile": agent.model_profile,
+                        "tools": agent.tools or [],
+                        "tool_profile": agent.tool_profile,
+                        "memory_scopes": agent.memory_scopes or [],
+                        "native_resume_supported": bool(agent.resume),
+                        "transport": agent.transport or {},
+                    }
+                ),
                 indent=2,
                 ensure_ascii=True,
             ),
