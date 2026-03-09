@@ -2013,6 +2013,26 @@ def discover_agents_registry() -> dict[str, Any]:
 
 
 def discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
+    """
+    Transform a discovered agent registry entry into an Autoflow agent configuration.
+
+    Converts agent discovery data into the standard Autoflow agent configuration format,
+    handling both ACP (Agent Communication Protocol) agents and CLI agents. For CLI
+    agents, configures resume behavior based on agent capabilities.
+
+    Args:
+        agent: Discovered agent metadata from the agent registry. Contains protocol,
+            command, name, capabilities, and optional transport configuration.
+
+    Returns:
+        A dictionary with agent configuration including:
+        - protocol: "acp" or "cli"
+        - command: Command to run the agent
+        - args: List of command arguments (typically empty)
+        - transport: Transport config for ACP agents
+        - resume: Resume configuration for CLI agents with resume capability
+        - memory_scopes: List of memory scopes (defaults to ["spec"])
+    """
     if agent.get("protocol") == "acp":
         return {
             "protocol": "acp",
@@ -2036,6 +2056,23 @@ def discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
 
 
 def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
+    """
+    Sync discovered agents from the registry into the agents configuration file.
+
+    Merges agents from the discovery registry into agents.json, preserving existing
+    agent configurations by default. Can optionally overwrite existing entries.
+    Creates the agents file with default structure if it doesn't exist.
+
+    Args:
+        overwrite: If True, replace existing agent configurations with discovered
+            ones. If False, preserve existing configurations and only add new agents.
+
+    Returns:
+        A dictionary containing sync results:
+        - agents_file: Path to the agents.json file
+        - added: List of agent names that were added or updated
+        - total_agents: Total number of agents after sync
+    """
     ensure_state()
     discovered = discover_agents_registry()
     existing = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
