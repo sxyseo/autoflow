@@ -843,6 +843,16 @@ def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | N
 
 
 def increment_counter(counters: dict[str, int], key: str) -> None:
+    """
+    Increment a counter in a dictionary.
+
+    Creates the counter with initial value 1 if it doesn't exist.
+    Does nothing if the key is empty.
+
+    Args:
+        counters: Dictionary of counters to update
+        key: Counter key to increment
+    """
     if not key:
         return
     counters[key] = counters.get(key, 0) + 1
@@ -854,6 +864,22 @@ def derive_strategy_actions(
     findings: list[dict[str, Any]],
     stats: dict[str, Any],
 ) -> list[str]:
+    """
+    Derive strategic actions from review findings and statistics.
+
+    Analyzes review findings, result status, and historical statistics to generate
+    actionable recommendations for improving future work. Considers severity levels,
+    categories, file paths, and recurring patterns.
+
+    Args:
+        role: Agent role (e.g., "implementation-runner", "maintainer")
+        result: Review result status (e.g., "success", "needs_changes", "blocked", "failed")
+        findings: List of review findings with category, severity, and file metadata
+        stats: Historical statistics including finding_categories and file counts
+
+    Returns:
+        List of strategic action recommendations based on the analysis
+    """
     actions: list[str] = []
     categories = {finding.get("category", "") for finding in findings if finding.get("category")}
     severities = {finding.get("severity", "") for finding in findings if finding.get("severity")}
@@ -883,6 +909,22 @@ def derive_strategy_actions(
 
 
 def rebuild_playbook(memory: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Rebuild a playbook from memory statistics.
+
+    Generates actionable rules based on historical finding categories and file hotspots.
+    Prioritizes rules by evidence count and includes special handling for tests
+    and workflow categories. Returns the top 8 rules.
+
+    Args:
+        memory: Strategy memory dictionary containing stats with finding_categories
+                and files counts
+
+    Returns:
+        List of playbook entries sorted by evidence count (highest first).
+        Each entry contains category/file, evidence_count, and a rule string.
+        Maximum 8 entries.
+    """
     playbook: list[dict[str, Any]] = []
     for category, count in sorted(
         memory.get("stats", {}).get("finding_categories", {}).items(),
