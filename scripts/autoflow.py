@@ -2951,6 +2951,28 @@ def create_run_record(
     branch: str | None = None,
     resume_from: str | None = None,
 ) -> Path:
+    """
+    Create a new run record directory with all necessary files.
+
+    Creates a unique run directory with timestamp-based ID, generates the agent prompt,
+    creates the execution script, and writes run metadata. The run ID is formatted as:
+    {timestamp}-{role}-{spec_slug}-{task_id}[-{suffix}] if duplicates exist.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        role: Role executing the run (e.g., "implementation-runner", "reviewer")
+        agent_name: Name of the agent to use for execution
+        task_id: ID of the task to execute
+        branch: Git branch name (defaults to "codex/{spec_slug}-{task_id}")
+        resume_from: Optional run ID to resume from
+
+    Returns:
+        Path to the created run directory
+
+    Raises:
+        SystemExit: If run directory creation fails (already exists after suffix attempts)
+        KeyError: If agent_name is not found in agents configuration
+    """
     agents = load_agents()
     agent = agents[agent_name]
     run_id_base = f"{now_stamp()}-{slugify(role)}-{slugify(spec_slug)}-{slugify(task_id)}"
@@ -3015,6 +3037,26 @@ def create_run_record(
 
 
 def create_run(args: argparse.Namespace) -> None:
+    """
+    Create a new run for task execution.
+
+    Validates the agent and spec review status, selects the appropriate task,
+    updates task status to in_progress, and creates a run record. If no task
+    is specified, automatically selects the next ready task for the role.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug identifier
+            - role: Role executing the run
+            - agent: Agent name to use
+            - task: Optional task ID (auto-selects if not provided)
+            - branch: Optional git branch name
+            - resume_from: Optional run ID to resume from
+
+    Raises:
+        SystemExit: If agent is unknown, spec review is invalid, no ready task exists,
+                    or task is not in a runnable state
+    """
     ensure_state()
     agents = load_agents()
     if args.agent not in agents:
@@ -3054,6 +3096,20 @@ def create_run(args: argparse.Namespace) -> None:
 
 
 def resume_run(args: argparse.Namespace) -> None:
+    """
+    Resume a previous run by creating a new run record.
+
+    Creates a new run that resumes from a previous run, preserving the original
+    spec, role, agent, and task configuration. The new run is linked to the
+    original run via the resume_from parameter.
+
+    Args:
+        args: Namespace with attributes:
+            - run: Run ID to resume from
+
+    Raises:
+        SystemExit: If run ID is unknown or spec review is invalid
+    """
     run_dir = RUNS_DIR / args.run
     metadata_path = run_dir / "run.json"
     if not metadata_path.exists():
@@ -3082,6 +3138,27 @@ def resume_run(args: argparse.Namespace) -> None:
 
 
 def complete_run(args: argparse.Namespace) -> None:
+    """
+    Mark a run as completed and update task status.
+
+    Processes the completion of a run by:
+    - Updating run metadata with result and completion time
+    - Updating task status based on run result
+    - Recording findings and generating fix requests if needed
+    - Capturing reflections in strategy memory
+    - Writing handoff notes for the next role
+    - Recording completion events
+
+    Args:
+        args: Namespace with attributes:
+            - run: Run ID to complete
+            - result: Run result ("success", "needs_changes", "blocked", "failed")
+            - summary: Optional completion summary
+            - findings: Optional findings data
+
+    Raises:
+        SystemExit: If result is invalid or run ID is unknown
+    """
     if args.result not in RUN_RESULTS:
         raise SystemExit(f"invalid result: {args.result}")
     run_dir = RUNS_DIR / args.run
