@@ -7,9 +7,44 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Import integrity verification functions
+sys.path.insert(0, str(Path(__file__).parent))
+from integrity import verify_file_integrity
+
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def verify_prompt_integrity(prompt_file: str, run_metadata: dict[str, Any] | None) -> None:
+    """Verify prompt.md file integrity before loading.
+
+    Args:
+        prompt_file: Path to the prompt file
+        run_metadata: Run metadata containing integrity hashes
+
+    Raises:
+        SystemExit: If integrity verification fails
+    """
+    if not run_metadata:
+        # No integrity metadata available, skip verification
+        return
+
+    integrity = run_metadata.get("integrity")
+    if not integrity:
+        # No integrity hashes in metadata, skip verification
+        return
+
+    expected_hash = integrity.get("prompt.md")
+    if not expected_hash:
+        # No hash for prompt.md, skip verification
+        return
+
+    # Verify the prompt file integrity
+    if not verify_file_integrity(prompt_file, expected_hash):
+        raise SystemExit(
+            f"integrity check failed for {prompt_file}: file may have been tampered with"
+        )
 
 
 def load_prompt(prompt_file: str) -> str:
@@ -72,6 +107,10 @@ def main() -> None:
     resolved_spec = dict(spec)
     if run_metadata and run_metadata.get("agent_config"):
         resolved_spec.update(run_metadata["agent_config"])
+
+    # Verify prompt.md integrity before loading
+    verify_prompt_integrity(prompt_file, run_metadata)
+
     command = build_command(resolved_spec, prompt_file, run_metadata=run_metadata)
     os.execvp(command[0], command)
 
