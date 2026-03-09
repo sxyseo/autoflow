@@ -2626,6 +2626,24 @@ def next_task(args: argparse.Namespace) -> None:
 
 
 def set_task_status(args: argparse.Namespace) -> None:
+    """
+    Set the status of a task within a spec.
+
+    Updates the task's status field, adds a note with timestamp, saves the
+    updated tasks data, records an event, and prints the updated task as JSON.
+
+    Valid statuses: todo, in_progress, in_review, needs_changes, blocked, done
+
+    Args:
+        args: Command-line arguments containing:
+            - spec: Spec identifier (slug or ID)
+            - task: Task identifier to update
+            - status: New status value (must be in VALID_TASK_STATUSES)
+            - note: Optional note to add (defaults to status change message)
+
+    Raises:
+        SystemExit: If the provided status is not valid
+    """
     if args.status not in VALID_TASK_STATUSES:
         raise SystemExit(f"invalid status: {args.status}")
     data = load_tasks(args.spec)
@@ -2647,6 +2665,24 @@ def write_handoff(
     next_role: str,
     result: str,
 ) -> Path:
+    """
+    Write a handoff document for a task.
+
+    Creates a timestamped handoff markdown file in the spec's handoffs directory
+    and updates the current handoff file. The handoff includes metadata (role,
+    next_role, result, timestamp) and a summary section.
+
+    Args:
+        spec_slug: Spec identifier (slug or ID)
+        task_id: Task identifier for the handoff
+        role: Current role (who is handing off)
+        summary: Summary of work completed or context for next role
+        next_role: Next role to take over the task
+        result: Result status or outcome of the current role's work
+
+    Returns:
+        Path to the created handoff markdown file
+    """
     files = spec_files(spec_slug)
     files["handoffs_dir"].mkdir(parents=True, exist_ok=True)
     handoff_path = files["handoffs_dir"] / f"{now_stamp()}-{task_id}-{slugify(role)}.md"
@@ -2672,6 +2708,22 @@ def write_handoff(
 
 
 def create_handoff(args: argparse.Namespace) -> None:
+    """
+    Create a handoff document from CLI arguments.
+
+    Command-line interface wrapper for write_handoff(). Extracts handoff
+    parameters from args namespace, creates the handoff document, and
+    prints the resulting file path.
+
+    Args:
+        args: Command-line arguments containing:
+            - spec: Spec identifier (slug or ID)
+            - task: Task identifier for the handoff
+            - role: Current role handing off
+            - summary: Summary of work completed
+            - next_role: Next role to receive the handoff
+            - result: Result status of current work
+    """
     path = write_handoff(args.spec, args.task, args.role, args.summary, args.next_role, args.result)
     print(str(path))
 
