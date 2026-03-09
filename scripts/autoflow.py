@@ -568,6 +568,37 @@ def load_system_config() -> dict[str, Any]:
 
 
 def memory_file(scope: str, spec_slug: str | None = None) -> Path:
+    """
+    Resolve the path to a memory file based on scope and optional spec slug.
+
+    Memory files store persistent information for Autoflow operations.
+    The scope determines which memory file to return:
+    - "global": Returns the global memory file path
+    - "spec": Returns the spec-specific memory file path (requires spec_slug)
+
+    File paths are resolved from system configuration, with defaults:
+    - Global: .autoflow/memory/global.md
+    - Spec: .autoflow/memory/specs/{spec_slug}.md
+
+    Args:
+        scope: Memory scope, either "global" or "spec"
+        spec_slug: Optional spec identifier for spec-scoped memory
+
+    Returns:
+        Resolved Path object to the memory file
+
+    Raises:
+        SystemExit: If scope is "spec" but no spec_slug is provided
+
+    Example:
+        >>> global_mem = memory_file("global")
+        >>> print(global_mem)
+        PosixPath('.autoflow/memory/global.md')
+
+        >>> spec_mem = memory_file("spec", "my-feature")
+        >>> print(spec_mem)
+        PosixPath('.autoflow/memory/specs/my-feature.md')
+    """
     memory_cfg = load_system_config().get("memory", {})
     if scope == "global":
         return resolve_root_path(memory_cfg.get("global_file", MEMORY_DIR / "global.md"))
@@ -578,6 +609,29 @@ def memory_file(scope: str, spec_slug: str | None = None) -> Path:
 
 
 def append_memory(scope: str, content: str, spec_slug: str | None = None, title: str = "") -> Path:
+    """
+    Append content to a memory file with a timestamped heading.
+
+    Creates parent directories if they don't exist. Content is appended
+    as a markdown section with a level-2 heading. If no title is provided,
+    uses a timestamp in the format "Memory @ YYYYMMDDTHHMMSSZ".
+
+    Args:
+        scope: Memory scope, either "global" or "spec"
+        content: Content to append to the memory file
+        spec_slug: Optional spec identifier for spec-scoped memory
+        title: Optional title for the memory entry (defaults to timestamp)
+
+    Returns:
+        Path object for the memory file that was appended to
+
+    Example:
+        >>> append_memory("global", "Important note about the project")
+        PosixPath('.autoflow/memory/global.md')
+
+        >>> append_memory("spec", "Feature decision", "my-feature", title="Architecture Decision")
+        PosixPath('.autoflow/memory/specs/my-feature.md')
+    """
     path = memory_file(scope, spec_slug)
     path.parent.mkdir(parents=True, exist_ok=True)
     heading = title or f"Memory @ {now_stamp()}"
@@ -587,6 +641,47 @@ def append_memory(scope: str, content: str, spec_slug: str | None = None, title:
 
 
 def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
+    """
+    Load memory context from global and spec-specific memory files.
+
+    Reads and combines memory content from specified scopes. Each scope's
+    content is prefixed with a markdown heading. Only loads content from
+    memory files that exist. Respects the memory.enabled configuration
+    setting.
+
+    The scopes parameter filters which memory sources to include:
+    - "global": Include global memory if available
+    - "spec": Include spec-specific memory if available
+
+    If no scopes are specified, uses the default_scopes from system config
+    (defaults to ["spec"]).
+
+    Args:
+        spec_slug: Spec identifier for loading spec-scoped memory
+        scopes: Optional list of scopes to load (defaults to config default_scopes)
+
+    Returns:
+        Formatted string containing memory context with section headings,
+        or "Memory is disabled." if memory is disabled in config,
+        or "No stored memory yet." if no memory files exist
+
+    Example:
+        >>> context = load_memory_context("my-feature")
+        >>> print(context)
+        ### Spec memory
+        ## Memory @ 20240309T120000Z
+        Important architectural decision...
+
+        >>> context = load_memory_context("my-feature", scopes=["global", "spec"])
+        >>> print(context)
+        ### Global memory
+        ## Memory @ 20240309T110000Z
+        Project-wide note...
+
+        ### Spec memory
+        ## Memory @ 20240309T120000Z
+        Feature-specific note...
+    """
     config = load_system_config()
     memory_cfg = config.get("memory", {})
     if not memory_cfg.get("enabled", True):
