@@ -556,6 +556,126 @@ That's it! Autoflow will now:
 }
 ```
 
+### Sanitization Configuration
+
+Autoflow includes built-in data sanitization to prevent sensitive information from appearing in logs and JSON output. This protects against information disclosure (CWE-200) by automatically redacting API keys, secrets, passwords, tokens, and other sensitive data.
+
+#### Default Sanitization Behavior
+
+By default, Autoflow automatically redacts fields matching these patterns:
+
+- **Credentials**: `api_key`, `apikey`, `secret`, `password`, `passwd`, `token`, `auth`, `credential`, `private_key`, `access_token`, `refresh_token`, `session_key`, `csrf`, `bearer`
+- **Configuration**: `model`, `model_profile`, `tool_profile`, `memory_scope`, `transport`
+
+Values are replaced with `***REDACTED***` in all JSON file writes and stdout output.
+
+#### Configuration Options
+
+Create or edit `config/settings.json5` to customize sanitization:
+
+```json5
+{
+  // ... other config ...
+
+  sanitization: {
+    // Enable or disable sanitization globally
+    enabled: true,
+
+    // Custom redaction marker
+    redacted_marker: "***REDACTED***",
+
+    // Partial redaction (show first/last N chars) for some fields
+    partial_redaction: false,
+    partial_chars: 4,
+
+    // Additional fields to treat as sensitive
+    custom_sensitive_fields: ["custom_field", "internal_id"],
+
+    // Fields to exclude from sanitization (whitelist)
+    excluded_fields: ["model_name", "display_model"],
+
+    // Recursively sanitize nested structures
+    recursive: true
+  }
+}
+```
+
+#### Programmatic Usage
+
+You can also use sanitization functions directly in your code:
+
+```python
+from autoflow.core.sanitization import sanitize_dict, sanitize_value, create_sanitize_config
+
+# Basic usage - sanitize a dictionary
+data = {
+    "api_key": "sk-1234567890",
+    "username": "user@example.com",
+    "model": "gpt-4",
+    "public_id": "abc-123"
+}
+clean_data = sanitize_dict(data)
+# Result: {
+#   "api_key": "***REDACTED***",
+#   "username": "user@example.com",
+#   "model": "***REDACTED***",
+#   "public_id": "abc-123"
+# }
+
+# With custom configuration
+config = create_sanitize_config(
+    partial_redaction=True,
+    partial_chars=4,
+    excluded_fields=["model"]
+)
+clean_data = sanitize_dict(data, config)
+# Result: {
+#   "api_key": "***REDACTED***",
+#   "username": "user@example.com",
+#   "model": "gpt-4",
+#   "public_id": "abc-123"
+# }
+
+# Sanitize nested structures
+nested = {
+    "database": {
+        "host": "localhost",
+        "password": "secret123",
+        "credentials": {
+            "api_key": "key-456"
+        }
+    }
+}
+clean_nested = sanitize_dict(nested)
+# Result: {
+#   "database": {
+#     "host": "localhost",
+#     "password": "***REDACTED***",
+#     "credentials": {
+#       "api_key": "***REDACTED***"
+#     }
+#   }
+# }
+```
+
+#### Automatic Sanitization Points
+
+Autoflow automatically sanitizes data at these points:
+
+1. **JSON File Writes**: All `write_json()` calls in StateManager
+2. **Agent Configuration**: Agent configs in prompts and CLI output
+3. **Run Metadata**: Metadata saved to run directories
+4. **CLI Output**: JSON output from all CLI commands
+
+This ensures sensitive data is protected regardless of how it's output.
+
+#### Security Best Practices
+
+1. **Never disable sanitization in production**: Keep `enabled: true` at all times
+2. **Review custom exclusions carefully**: Only exclude fields that are truly non-sensitive
+3. **Use partial redaction for debugging**: Enable `partial_redaction` during development to see enough info for debugging without exposing full values
+4. **Audit logs regularly**: Check `.autoflow/logs/` and run directories to ensure sanitization is working
+
 ## Usage
 
 ### Basic Commands
