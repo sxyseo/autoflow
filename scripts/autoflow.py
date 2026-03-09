@@ -3757,6 +3757,35 @@ def list_worktrees(_: argparse.Namespace) -> None:
 
 
 def workflow_state(args: argparse.Namespace) -> None:
+    """
+    Aggregate and display comprehensive workflow state for a spec.
+
+    Computes the complete workflow state by analyzing task dependencies,
+    review status, active runs, strategy memory, and QA fix requests.
+    Identifies ready tasks (those whose dependencies are satisfied) and
+    blocked tasks, then determines the recommended next action while
+    respecting approval gates.
+
+    The output payload includes:
+        - spec: Spec slug identifier
+        - review_status: Review approval and validity information
+        - worktree: Git worktree metadata if present
+        - fix_request_present: Whether a QA fix request exists
+        - fix_request: Structured QA fix request data
+        - strategy_summary: Strategy memory with playbook and reflections
+        - active_runs: List of currently executing runs for this spec
+        - ready_tasks: Tasks ready to be started (dependencies met)
+        - blocked_or_active_tasks: Tasks that are blocked or in progress
+        - blocking_reason: Reason if next action is blocked (e.g., "review_approval_required")
+        - recommended_next_action: Next task to work on, or None if active runs exist
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug identifier
+
+    Returns:
+        None (prints JSON payload to stdout)
+    """
     data = load_tasks(args.spec)
     review_summary = review_status_summary(args.spec)
     active_runs = active_runs_for_spec(args.spec)
@@ -3802,6 +3831,23 @@ def workflow_state(args: argparse.Namespace) -> None:
 
 
 def show_status(_: argparse.Namespace) -> None:
+    """
+    Display overall Autoflow system status.
+
+    Shows a high-level overview of the Autoflow system by listing all
+    available specs and runs. This provides a quick way to see what
+    specs exist and what runs have been executed across the entire system.
+
+    The output payload includes:
+        - specs: Alphabetically sorted list of spec slugs
+        - runs: Alphabetically sorted list of run IDs
+
+    Args:
+        _: Namespace (unused, present for command interface consistency)
+
+    Returns:
+        None (prints JSON payload to stdout)
+    """
     ensure_state()
     specs = sorted(p.name for p in SPECS_DIR.iterdir() if p.is_dir())
     runs = sorted(p.name for p in RUNS_DIR.iterdir() if p.is_dir())
