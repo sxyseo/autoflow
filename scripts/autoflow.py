@@ -1857,6 +1857,32 @@ def load_bmad_template(role: str) -> str:
 
 
 def native_resume_preview(agent: AgentSpec) -> list[str]:
+    """
+    Build command preview for native resume mode.
+
+    Constructs the command line arguments needed to resume a previous session
+    using the agent's native resume capability. Supports different resume modes:
+    - "subcommand": Uses a dedicated resume subcommand (e.g., "claude resume")
+    - "args": Passes resume arguments directly to the main command
+    - Other modes: Returns empty list (no native resume)
+
+    Args:
+        agent: Agent specification containing resume configuration
+
+    Returns:
+        List of command arguments for native resume, or empty list if resume
+        is not configured or mode is not supported. Includes "<prompt>" as
+        a placeholder for the actual prompt content.
+
+    Example:
+        >>> agent = AgentSpec(
+        ...     name="claude",
+        ...     command="claude",
+        ...     resume={"mode": "subcommand", "subcommand": "continue", "args": []}
+        ... )
+        >>> native_resume_preview(agent)
+        ['claude', '--print', 'continue', '<prompt>']
+    """
     if not agent.resume:
         return []
     mode = agent.resume.get("mode", "none")
@@ -1869,6 +1895,37 @@ def native_resume_preview(agent: AgentSpec) -> list[str]:
 
 
 def discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
+    """
+    Discover a CLI agent by checking command availability and capabilities.
+
+    Attempts to locate the specified command on the system PATH and analyzes
+    its help output to determine supported capabilities. This enables automatic
+    detection of agent features like resume support and model selection flags.
+
+    Detection capabilities:
+    - resume: Checks for "resume" or "--continue" in help text
+    - model_flag: Checks for "--model" or " -m," in help text
+
+    Args:
+        name: Identifier name for the agent (e.g., "claude", "codex")
+        command: Executable command to search for (e.g., "claude", "codex")
+
+    Returns:
+        Dictionary containing discovered agent information with keys:
+        - name: Agent identifier
+        - protocol: Always "cli" for this function
+        - command: The command string
+        - path: Full path to the executable
+        - capabilities: Dict of boolean flags (resume, model_flag)
+
+        Returns None if the command is not found on PATH.
+
+    Example:
+        >>> agent = discover_cli_agent("claude", "claude")
+        >>> if agent:
+        ...     print(agent["path"])
+        ...     print(agent["capabilities"]["resume"])
+    """
     executable = shutil.which(command)
     if not executable:
         return None
@@ -1889,6 +1946,44 @@ def discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
 
 
 def discover_agents_registry() -> dict[str, Any]:
+    """
+    Discover all available agents from CLI and system configuration registry.
+
+    Performs comprehensive agent discovery by:
+    1. Checking for CLI-based agents (codex, claude) on the system PATH
+    2. Loading additional agents from the system config registry (ACP protocol)
+
+    CLI agents are discovered by probing for executable commands and their
+    capabilities. Registry agents are loaded from the system configuration's
+    registry.acp_agents section, which typically contains ACP (Agent Control
+    Protocol) agents with custom transport configurations.
+
+    The discovery results are cached to DISCOVERY_FILE for persistence and
+    returned with metadata about when the discovery was performed.
+
+    Returns:
+        Dictionary containing:
+        - discovered_at: ISO 8601 timestamp of when discovery was performed
+        - agents: List of discovered agent dictionaries, each containing:
+            - name: Agent identifier
+            - protocol: "cli" or "acp"
+            - command/path (for CLI agents)
+            - transport (for ACP agents)
+            - capabilities: Dict of supported features
+        - system_config: Relevant sections from system config including:
+            - memory: Memory configuration
+            - models: Model profiles
+            - tools: Tool configurations
+
+    Side Effects:
+        Writes discovery results to DISCOVERY_FILE (discovered_agents.json)
+
+    Example:
+        >>> registry = discover_agents_registry()
+        >>> print(f"Found {len(registry['agents'])} agents")
+        >>> for agent in registry['agents']:
+        ...     print(f"  - {agent['name']} ({agent['protocol']})")
+    """
     config = load_system_config()
     discovered = []
     for name, command in [("codex", "codex"), ("claude", "claude")]:
