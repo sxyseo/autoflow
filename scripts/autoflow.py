@@ -2189,6 +2189,22 @@ def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[
 
 
 def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
+    """
+    Get the most recent handoff markdown files for a spec.
+
+    Handoffs contain context passed between agents when working on tasks.
+    This function retrieves the latest handoff files, sorted chronologically,
+    to provide recent context for continuation or review.
+
+    Args:
+        spec_slug: URL-friendly slug identifying the spec
+        limit: Maximum number of handoff files to return (default: 3)
+
+    Returns:
+        List of paths to the most recent handoff markdown files,
+        sorted oldest to newest. Returns empty list if no handoffs exist
+        or the handoffs directory doesn't exist.
+    """
     handoffs_dir = spec_files(spec_slug)["handoffs_dir"]
     if not handoffs_dir.exists():
         return []
@@ -2196,6 +2212,23 @@ def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
 
 
 def worktree_context(spec_slug: str) -> str:
+    """
+    Generate environment context documentation for a spec's workspace mode.
+
+    Creates a formatted markdown section explaining whether the spec uses an
+    isolated git worktree or shares the main repository root. Provides critical
+    rules and path information to guide agent behavior based on the workspace mode.
+
+    Args:
+        spec_slug: URL-friendly slug identifying the spec
+
+    Returns:
+        Formatted markdown string containing environment context, including:
+        - Current working directory path
+        - Workspace mode (isolated worktree or shared root)
+        - Critical rules for path usage and file operations
+        - Parent repository path (if using worktree)
+    """
     path = worktree_path(spec_slug)
     if not path.exists():
         return f"""## Environment Context
@@ -2221,6 +2254,27 @@ Use relative paths only.
 
 
 def recovery_context(spec_slug: str, task_id: str) -> str:
+    """
+    Generate context about previous failed or blocked attempts for a task.
+
+    Aggregates information from recent unsuccessful task runs to help agents
+    understand what went wrong before and avoid repeating mistakes. Includes
+    run IDs, roles, results, and summary text from up to 3 recent failures.
+
+    Args:
+        spec_slug: URL-friendly slug identifying the spec
+        task_id: Unique identifier for the task
+
+    Returns:
+        Formatted text string containing:
+        - Count of previous unsuccessful attempts
+        - List of recent failed/blocked runs with:
+            - Run ID
+            - Role that executed the run
+            - Result status (needs_changes, blocked, or failed)
+            - Summary text (if available)
+        Returns "No previous failed or blocked attempts..." if no failures exist.
+    """
     history = task_run_history(spec_slug, task_id, limit=5)
     unsuccessful = [item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}]
     if not unsuccessful:
@@ -2243,6 +2297,27 @@ def recovery_context(spec_slug: str, task_id: str) -> str:
 
 
 def resume_context(run_id: str | None) -> str:
+    """
+    Generate context when resuming execution from a previous run.
+
+    Retrieves metadata and summary information from a prior run to enable
+    continuation of work. Provides agents with information about what role
+    previously worked on the task, what result was achieved, how many attempts
+    have been made, and what summary was recorded.
+
+    Args:
+        run_id: Unique identifier of the run to resume from, or None if no resume context
+
+    Returns:
+        Formatted text string containing:
+        - Run ID being resumed
+        - Previous role that executed the run
+        - Previous result status
+        - Attempt count so far
+        - Summary text from the previous run (if available)
+        Returns "No resume context." if run_id is None
+        Returns "Requested resume source `{run_id}` was not found." if run doesn't exist
+    """
     if not run_id:
         return "No resume context."
     run_dir = RUNS_DIR / run_id
