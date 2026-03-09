@@ -112,20 +112,15 @@ def get_app(
         logger.info("Starting Autoflow API...")
 
         try:
-            # Load Autoflow configuration
-            # Import here to avoid issues with core/__init__.py imports
-            import sys
-            from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            import autoflow.core.config as config_module
-            config = config_module.load_config()
-            logger.info(f"Loaded configuration from state dir: {config.state_dir}")
+            # Initialize database (optional - may fail if dependencies not installed)
+            try:
+                from autoflow.db import init_db
 
-            # Initialize database
-            from autoflow.db import init_db
-
-            init_db()
-            logger.info("Database initialized")
+                init_db()
+                logger.info("Database initialized")
+            except ImportError as e:
+                logger.warning(f"Database initialization skipped: {e}")
+                logger.info("API running without database support")
 
             # TODO: Initialize auth components
             # from autoflow.auth.defaults import seed_roles_and_permissions
@@ -148,11 +143,14 @@ def get_app(
         logger.info("Shutting down Autoflow API...")
 
         try:
-            # Close database connections
-            from autoflow.db import close_db
+            # Close database connections (optional)
+            try:
+                from autoflow.db import close_db
 
-            close_db()
-            logger.info("Database connections closed")
+                close_db()
+                logger.info("Database connections closed")
+            except ImportError:
+                logger.info("Database cleanup skipped (not available)")
 
             logger.info("Autoflow API shutdown complete")
         except Exception as e:
@@ -190,9 +188,14 @@ def get_app(
             "description": "Autoflow - Autonomous AI Development System",
         }
 
-    # TODO: Register routers
-    # from autoflow.api.routes import auth, users, specs, tasks
-    # app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+    # Register routers
+    from autoflow.api.routes import auth
+
+    app.include_router(
+        auth.router, prefix="/api/v1/auth", tags=["Authentication"]
+    )
+    # TODO: Register additional routers
+    # from autoflow.api.routes import users, specs, tasks
     # app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
     # app.include_router(specs.router, prefix="/api/v1/specs", tags=["Specifications"])
     # app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks"])
