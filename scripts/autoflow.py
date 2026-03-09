@@ -1836,6 +1836,20 @@ def detect_base_branch() -> str:
 
 
 def load_bmad_template(role: str) -> str:
+    """
+    Load a BMAD (Behavioral Model for Agent Development) template for a specific role.
+
+    BMAD templates provide role-specific guidance and instructions for agents.
+    Templates are stored as markdown files in the templates/bmad directory,
+    with filenames matching the role name.
+
+    Args:
+        role: The role name to load the template for (e.g., "developer", "reviewer")
+
+    Returns:
+        The template content as a string, or a message indicating no template
+        is configured for the requested role
+    """
     path = BMAD_DIR / f"{role}.md"
     if not path.exists():
         return "No BMAD template configured for this role."
