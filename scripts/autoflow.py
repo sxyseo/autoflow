@@ -237,6 +237,8 @@ def task_file(spec_slug: str) -> Path:
 
 
 def worktree_path(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return WORKTREES_DIR / spec_slug
 
 
