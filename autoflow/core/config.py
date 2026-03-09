@@ -22,6 +22,8 @@ import json5
 
 from pydantic import BaseModel, Field, field_validator
 
+from autoflow.core.sanitization import SanitizationConfig
+
 
 # Default configuration paths
 DEFAULT_CONFIG_PATH = "config/settings.json5"
@@ -110,6 +112,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    sanitization: SanitizationConfig = Field(default_factory=SanitizationConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
