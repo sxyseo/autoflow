@@ -198,6 +198,27 @@ def run_cmd(
 
 @dataclass
 class AgentSpec:
+    """
+    Specification for an AI agent configuration.
+
+    Contains all parameters needed to instantiate and execute an AI agent,
+    including command invocation, protocol settings, model configuration,
+    tool access, and memory scopes.
+
+    Attributes:
+        name: Unique identifier for this agent
+        command: Executable command to run (e.g., "claude", "codex")
+        args: Command-line arguments to pass to the agent
+        resume: Resume configuration (flags, session handling)
+        protocol: Communication protocol ("cli", "api", etc.)
+        model: Model identifier string
+        model_profile: Named profile from system config models
+        tools: List of tools/functions available to the agent
+        tool_profile: Named profile from system config tools
+        memory_scopes: Memory scopes this agent can access
+        transport: Additional transport configuration options
+    """
+
     name: str
     command: str
     args: list[str]
@@ -227,6 +248,20 @@ class AgentSpec:
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively merge two dictionaries.
+
+    Deep merges overlay into base, with overlay values taking precedence.
+    When both base and overlay have a dict value for the same key,
+    they are merged recursively instead of being replaced.
+
+    Args:
+        base: Base dictionary to merge into
+        overlay: Dictionary with values to overlay on top of base
+
+    Returns:
+        A new dictionary with merged contents
+    """
     merged = dict(base)
     for key, value in overlay.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
@@ -237,11 +272,37 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolve_root_path(raw: str | Path) -> Path:
+    """
+    Resolve a path relative to the project root.
+
+    Converts the input to a Path object. If the path is relative,
+    it resolves it relative to the project ROOT directory.
+
+    Args:
+        raw: Path as string or Path object
+
+    Returns:
+        Absolute Path object
+    """
     path = Path(raw)
     return path if path.is_absolute() else ROOT / path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Resolve model and tool profiles in an agent specification.
+
+    Expands named profiles (model_profile, tool_profile) to their actual
+    values from system configuration. Also sets default memory_scopes
+    if not specified.
+
+    Args:
+        spec: Agent specification dictionary with potential profile references
+        system_config: System configuration containing model and tool profiles
+
+    Returns:
+        Resolved agent specification with expanded profiles
+    """
     resolved = dict(spec)
     model_profiles = system_config.get("models", {}).get("profiles", {})
     tool_profiles = system_config.get("tools", {}).get("profiles", {})
@@ -257,6 +318,18 @@ def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) 
 
 
 def load_agents() -> dict[str, AgentSpec]:
+    """
+    Load and parse all configured agents from the agents file.
+
+    Reads the agents.json file, resolves model and tool profiles from
+    system configuration, and instantiates AgentSpec objects for each agent.
+
+    Returns:
+        Dictionary mapping agent names to AgentSpec objects
+
+    Raises:
+        SystemExit: If agents.json file does not exist
+    """
     if not AGENTS_FILE.exists():
         raise SystemExit(
             f"missing {AGENTS_FILE}. copy config/agents.example.json to .autoflow/agents.json first"
