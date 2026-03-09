@@ -42,6 +42,13 @@ SENSITIVE_PATTERNS = [
     "session[_-]?key",
     "csrf",
     "bearer",
+    # Model, tool, and transport configurations - these support partial redaction
+    # but are redacted by default for security
+    r"\bmodel\b",  # Use word boundaries to avoid matching "models"
+    "model[_-]?profile",
+    "tool[_-]?profile",
+    "memory[_-]?scope",
+    "transport",
 ]
 
 # Compiled regex patterns for matching sensitive field names (case-insensitive)
@@ -51,8 +58,10 @@ _SENSITIVE_REGEX = re.compile(
 )
 
 # Fields that should be partially redacted (show first/last few chars)
+# Note: These are only used when partial_redaction is enabled in config
+# Fields here must also be in SENSITIVE_PATTERNS to be redacted by default
 PARTIAL_REDACT_PATTERNS = [
-    "model",
+    r"\bmodel\b",  # Use word boundaries to avoid matching "models"
     "model[_-]?profile",
     "agent[_-]?id",
     "transport",
