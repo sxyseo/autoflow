@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -199,6 +201,102 @@ class AgentRunnerTests(unittest.TestCase):
             # Verify the error message mentions integrity check failure
             self.assertIn("integrity check failed", str(context.exception))
             self.assertIn("tampered with", str(context.exception))
+
+    def test_tampered_run_sh_raises_error(self) -> None:
+        """Test that tampered run.sh file is detected and raises an error."""
+        # Import integrity module to compute hash
+        from scripts.integrity import hash_file_content
+
+        # Get the repo root
+        repo_root = Path(__file__).resolve().parents[1]
+
+        # Create .autoflow directory and agents.json if it doesn't exist
+        autoflow_dir = repo_root / ".autoflow"
+        autoflow_dir.mkdir(exist_ok=True)
+        agents_file = autoflow_dir / "agents.json"
+
+        # Save original agents.json if it exists
+        original_agents = None
+        if agents_file.exists():
+            original_agents = agents_file.read_text(encoding="utf-8")
+
+        try:
+            # Create test agents.json
+            agents_file.write_text(
+                json.dumps({"agents": {"test-agent": {"command": "echo", "args": ["test"]}}}) + "\n",
+                encoding="utf-8",
+            )
+
+            # Create a run directory structure
+            run_dir = Path(self.temp_dir.name) / "run"
+            run_dir.mkdir()
+
+            # Create run.sh file
+            run_script = run_dir / "run.sh"
+            run_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo 'Original content'\n",
+                encoding="utf-8",
+            )
+            run_script.chmod(0o755)
+
+            # Create prompt.md file
+            prompt_file = run_dir / "prompt.md"
+            prompt_file.write_text("Implement the selected task.", encoding="utf-8")
+
+            # Compute the original hash of run.sh
+            original_hash = hash_file_content(str(run_script))
+
+            # Create run metadata with integrity hash
+            run_file = run_dir / "run.json"
+            run_file.write_text(
+                json.dumps(
+                    {
+                        "resume_from": "run-1",
+                        "agent_config": {"command": "echo", "args": ["test"]},
+                        "integrity": {"run.sh": original_hash},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            # Tamper with run.sh
+            run_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo 'MALICIOUS CONTENT'\n",
+                encoding="utf-8",
+            )
+
+            # Get the path to run-agent.sh
+            run_agent_script = repo_root / "scripts" / "run-agent.sh"
+
+            # Call run-agent.sh and verify it exits with error
+            result = subprocess.run(
+                [
+                    str(run_agent_script),
+                    "test-agent",
+                    str(prompt_file),
+                    str(run_file),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            # Verify the script failed
+            self.assertNotEqual(result.returncode, 0)
+
+            # Verify the error message mentions integrity check failure
+            self.assertIn("integrity check failed", result.stderr)
+            self.assertIn("tampered with", result.stderr)
+        finally:
+            # Restore original agents.json
+            if original_agents is not None:
+                agents_file.write_text(original_agents, encoding="utf-8")
+            elif agents_file.exists():
+                agents_file.unlink()
 
 
 if __name__ == "__main__":
