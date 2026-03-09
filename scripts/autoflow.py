@@ -2613,6 +2613,30 @@ def build_prompt(
     agent: AgentSpec,
     resume_from: str | None = None,
 ) -> str:
+    """
+    Build a comprehensive execution prompt for an AI agent.
+
+    Assembles all context needed for an AI agent to execute a task, including
+    the spec definition, task details, agent configuration, memory context,
+    strategy context, review state, recovery information, resume context,
+    QA fix requests, and recent handoffs.
+
+    The prompt is structured to provide the agent with complete situational
+    awareness and all necessary metadata to perform its role effectively.
+
+    Args:
+        spec_slug: Slug identifier for the spec to execute
+        role: Role name the agent should assume (e.g., "developer", "reviewer")
+        task_id: Specific task ID to execute, or None to auto-select next task
+        agent: Agent specification with configuration, tools, and memory scopes
+        resume_from: Optional run ID to resume from for recovery
+
+    Returns:
+        Complete prompt string with all context sections for agent execution
+
+    Raises:
+        SystemExit: If the specified spec does not exist
+    """
     files = spec_files(spec_slug)
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
