@@ -441,6 +441,20 @@ def spec_files(slug: str) -> dict[str, Path]:
 
 
 def review_state_default() -> dict[str, Any]:
+    """
+    Get the default review state structure.
+
+    Returns:
+        Default review state dictionary with the following keys:
+        - approved: Whether the review is approved (bool)
+        - approved_by: Username of the approver (str)
+        - approved_at: ISO timestamp of approval (str)
+        - spec_hash: Hash of the spec at approval time (str)
+        - review_count: Number of reviews performed (int)
+        - feedback: List of feedback comments (list)
+        - invalidated_at: ISO timestamp of invalidation (str)
+        - invalidated_reason: Reason for invalidation (str)
+    """
     return {
         "approved": False,
         "approved_by": "",
@@ -454,6 +468,19 @@ def review_state_default() -> dict[str, Any]:
 
 
 def read_json_or_default(path: Path, default: Any) -> Any:
+    """
+    Read a JSON file, returning a default value if the file doesn't exist or is invalid.
+
+    This is a safe version of read_json that handles missing files and JSON parse
+    errors by returning a provided default value instead of raising an exception.
+
+    Args:
+        path: Path to the JSON file to read
+        default: Default value to return if file doesn't exist or is invalid JSON
+
+    Returns:
+        Parsed JSON data if file exists and is valid, otherwise the default value
+    """
     if not path.exists():
         return default
     try:
@@ -463,6 +490,21 @@ def read_json_or_default(path: Path, default: Any) -> Any:
 
 
 def system_config_default() -> dict[str, Any]:
+    """
+    Get the default system configuration.
+
+    Returns the default configuration from the system config template if it exists,
+    otherwise returns a hardcoded default configuration.
+
+    Returns:
+        Default system configuration dictionary with the following top-level keys:
+        - memory: Memory settings including enabled flag, auto_capture_run_results,
+          global_file path, and spec_dir path (dict)
+        - models: Model profile configurations with profiles for spec, implementation,
+          and review tasks (dict)
+        - tools: Tool profile configurations with profiles for different agent types (dict)
+        - registry: Registry settings including acp_agents list (dict)
+    """
     if SYSTEM_CONFIG_TEMPLATE.exists():
         return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
     return {
@@ -492,6 +534,24 @@ def system_config_default() -> dict[str, Any]:
 
 
 def load_system_config() -> dict[str, Any]:
+    """
+    Load the system configuration from file or defaults.
+
+    This function performs a multi-stage merge to combine:
+    1. Base defaults with required structure
+    2. Default system configuration (from template or hardcoded)
+    3. Local system configuration from system.json (if it exists)
+
+    The merge is done using deep_merge, so local values override defaults.
+
+    Returns:
+        Merged system configuration dictionary with the following structure:
+        - memory: Memory settings including default_scopes, enabled flag,
+          auto_capture_run_results, global_file path, and spec_dir path (dict)
+        - models: Model profile configurations with profiles for different tasks (dict)
+        - tools: Tool profile configurations with profiles for different agent types (dict)
+        - registry: Registry settings including acp_agents list (dict)
+    """
     config = system_config_default()
     if SYSTEM_CONFIG_FILE.exists():
         local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
