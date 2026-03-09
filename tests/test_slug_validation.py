@@ -458,6 +458,144 @@ class TestSlugify:
         assert "\\" not in slug
         assert validate_slug_safe(slug) is True
 
+    def test_slugify_edge_cases(self) -> None:
+        """Test slugify() edge cases to ensure it doesn't create dangerous patterns.
+
+        This comprehensive test verifies that slugify() properly sanitizes inputs
+        that could potentially become dangerous after conversion, ensuring that
+        no edge case results in a slug that could be used for path traversal.
+        """
+        # Test cases where input could become dangerous after slugify
+        edge_case_inputs = [
+            # Null bytes and control characters
+            ("test\x00null", "Null byte in input"),
+            ("\x00", "Pure null byte"),
+            ("test\x01\x02\x03", "Multiple control characters"),
+            ("test\twith\ttabs", "Tab characters"),
+            ("test\nwith\nnewlines", "Newline characters"),
+            ("test\rwith\rcarriage", "Carriage returns"),
+
+            # Multiple dots that could form ".."
+            ("...", "Three dots"),
+            ("....", "Four dots"),
+            ("test...test", "Dots in middle"),
+            ("...test", "Leading dots"),
+            ("test...", "Trailing dots"),
+            ("...test...", "Dots on both ends"),
+
+            # Mixed separators
+            ("path/\\mixed", "Mixed forward and backslash"),
+            ("path-/-mixed", "Mixed dash and slash"),
+            ("path_/_mixed", "Mixed underscore and slash"),
+            ("path.-.mixed", "Mixed dot and dash"),
+            ("path_.-mixed", "Mixed underscore, dot, dash"),
+
+            # Whitespace variations
+            ("test   spaces", "Multiple spaces"),
+            ("test  \t  mixed", "Mixed whitespace"),
+            ("  leading", "Leading whitespace"),
+            ("trailing  ", "Trailing whitespace"),
+            ("  both  ", "Both leading and trailing"),
+
+            # Special characters at edges
+            ("-test", "Leading dash"),
+            ("test-", "Trailing dash"),
+            ("_test", "Leading underscore"),
+            ("test_", "Trailing underscore"),
+            (".test", "Leading dot"),
+            ("test.", "Trailing dot"),
+            ("/test", "Leading slash"),
+            ("test/", "Trailing slash"),
+
+            # Repeated special characters
+            ("---test---", "Multiple dashes"),
+            ("___test___", "Multiple underscores"),
+            ("...", "Multiple dots"),
+            ("///test///", "Multiple slashes"),
+
+            # Case variations that might cause issues
+            ("TEST", "All uppercase"),
+            ("TeSt", "Mixed case"),
+            ("tEST", "Mixed case starting with lower"),
+
+            # Empty and minimal inputs
+            ("", "Empty string"),
+            ("-", "Single dash"),
+            ("_", "Single underscore"),
+            (".", "Single dot"),
+            (" ", "Single space"),
+
+            # Unicode and special characters
+            ("test™", "Trademark symbol"),
+            ("test©", "Copyright symbol"),
+            ("test®", "Registered symbol"),
+            ("test•", "Bullet point"),
+            ("test◆", "Diamond"),
+            ("test→", "Arrow"),
+
+            # Path-like patterns
+            ("test/path/file", "Unix-like path"),
+            ("test\\path\\file", "Windows-like path"),
+            ("test./path", "Dot-slash pattern"),
+            ("test/.path", "Slash-dot pattern"),
+            ("test//path", "Double slash"),
+
+            # Potentially dangerous sequences
+            ("..test..", "Dots around text"),
+            ("test..test", "Dots in middle"),
+            ("test-.-test", "Dash-dot-dash pattern"),
+            ("test_.-test", "Underscore-dot-dash pattern"),
+
+            # Long sequences
+            ("a" * 1000, "Long string of safe characters"),
+            ("-" * 100, "Many dashes"),
+            ("." * 100, "Many dots"),
+            (" " * 100, "Many spaces"),
+
+            # Mixed safe and unsafe
+            ("safe/../test", "Safe with traversal"),
+            ("safe-./test", "Safe with dot-slash"),
+            ("safe-\\test", "Safe with backslash"),
+            ("safe C:/test", "Safe with Windows path"),
+
+            # Edge cases with dots and dashes
+            ("..-..", "Dash-separated parent refs"),
+            (".-.-.", "Alternating dot and dash"),
+            ("-.-", "Dash-dot-dash"),
+            ("_.-._", "Underscore combinations"),
+        ]
+
+        for input_str, description in edge_case_inputs:
+            slug = slugify(input_str)
+
+            # Every slugified result must be safe
+            assert validate_slug_safe(slug) is True, (
+                f"slugify() created unsafe slug for {description!r}. "
+                f"Input: {input_str!r}, Output: {slug!r}"
+            )
+
+            # Result should not contain dangerous patterns
+            assert ".." not in slug, (
+                f"slugify() created '..' in {description!r}. "
+                f"Input: {input_str!r}, Output: {slug!r}"
+            )
+
+            assert "\\" not in slug, (
+                f"slugify() preserved backslash in {description!r}. "
+                f"Input: {input_str!r}, Output: {slug!r}"
+            )
+
+            assert not slug.startswith("/"), (
+                f"slugify() created absolute path in {description!r}. "
+                f"Input: {input_str!r}, Output: {slug!r}"
+            )
+
+            # Result should not be empty (should return "spec" as fallback)
+            assert len(slug) > 0, (
+                f"slugify() returned empty string for {description!r}. "
+                f"Input: {input_str!r}, Output: {slug!r}"
+            )
+
 
 # ============================================================================
 # Edge Cases and Integration Tests
