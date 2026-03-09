@@ -4070,6 +4070,35 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    """
+    Main entry point for the Autoflow CLI.
+
+    Parses command-line arguments and dispatches to the appropriate command handler.
+    Each command is implemented as a separate function that receives the parsed arguments.
+
+    The CLI uses argparse for argument parsing, with subcommands for each major operation:
+    - init: Initialize Autoflow state directories
+    - new-spec: Create a new specification
+    - list-tasks: Show tasks for a spec
+    - create-worktree: Create a git worktree for isolated development
+    - status: Show overall Autoflow status
+    - And many more...
+
+    Error Handling:
+        - Argument parsing errors are handled by argparse and display usage information
+        - Command-specific errors are handled by individual command functions
+        - Unhandled exceptions will propagate and display a traceback
+
+    Example:
+        # Initialize Autoflow
+        python scripts/autoflow.py init
+
+        # Create a new spec
+        python scripts/autoflow.py new-spec --title "Add Feature" --summary "Description"
+
+        # Show status
+        python scripts/autoflow.py status
+    """
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)
