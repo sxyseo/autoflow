@@ -8,8 +8,6 @@ import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
-
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -30,9 +28,9 @@ class CommandExecutionError(Exception):
     def __init__(
         self,
         message: str,
-        exit_code: Optional[int] = None,
-        command: Optional[str] = None,
-        spec: Optional[str] = None,
+        exit_code: int | None = None,
+        command: str | None = None,
+        spec: str | None = None,
     ):
         self.message = message
         self.exit_code = exit_code
@@ -54,8 +52,8 @@ class InvalidCommandError(Exception):
     def __init__(
         self,
         message: str,
-        command: Optional[str] = None,
-        reason: Optional[str] = None,
+        command: str | None = None,
+        reason: str | None = None,
     ):
         self.message = message
         self.command = command
@@ -82,7 +80,7 @@ class CommandResult:
     exit_code: int = 0
     stdout: str = ""
     stderr: str = ""
-    error: Optional[str] = None
+    error: str | None = None
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -105,7 +103,7 @@ class VerifyCommandsResult:
     commands_run: int = 0
     all_success: bool = True
     results: list[CommandResult] = None
-    stopped_at: Optional[int] = None
+    stopped_at: int | None = None
 
     def __post_init__(self) -> None:
         """Initialize results if not provided."""
@@ -153,10 +151,7 @@ def validate_slug_safe(slug: str) -> bool:
         return False
 
     # Check for drive letters (Windows absolute paths like C:)
-    if len(slug) >= 2 and slug[1] == ":":
-        return False
-
-    return True
+    return not (len(slug) >= 2 and slug[1] == ":")
 
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -266,7 +261,7 @@ def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
                     message=f"Failed to parse command: {e}",
                     command=rendered,
                     reason=str(e),
-                )
+                ) from e
 
             # Validate command list is not empty
             if not cmd_list:
@@ -285,14 +280,14 @@ def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
                     capture_output=True,
                     timeout=300,  # 5 minute timeout per command
                 )
-            except subprocess.TimeoutExpired as e:
+            except subprocess.TimeoutExpired:
                 # Command timed out - treat as failure but continue
                 cmd_result = CommandResult(
                     command=rendered,
                     success=False,
                     exit_code=-1,
                     stdout="",
-                    stderr=f"Command timed out after 300 seconds",
+                    stderr="Command timed out after 300 seconds",
                     error="timeout",
                 )
                 results.append(cmd_result)

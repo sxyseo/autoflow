@@ -12,19 +12,22 @@ git, autoflow, or other commands to be available in the test environment.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Import functions from continuous_iteration.py
 # Note: We need to add the scripts directory to the path
 import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(scripts_dir))
 
-from continuous_iteration import (
+from continuous_iteration import (  # noqa: E402
+    CommandResult,
+    InvalidCommandError,
+    VerifyCommandsResult,
     auto_commit,
     default_role_preferences,
     dispatch_gate,
@@ -34,21 +37,12 @@ from continuous_iteration import (
     load_agent_catalog,
     load_config,
     load_json,
-    run,
     run_verify_commands,
     select_agent_for_role,
     sync_agents,
     task_history,
     workflow_state,
-    ROOT,
-    STATE_DIR,
-    AGENTS_FILE,
-    CommandResult,
-    VerifyCommandsResult,
-    CommandExecutionError,
-    InvalidCommandError,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -1085,7 +1079,7 @@ class TestSyncAgents:
         mock_subprocess_success.stdout = json.dumps({"synced": ["agent-a"]})
 
         with patch("continuous_iteration.run", return_value=mock_subprocess_success) as mock_run:
-            result = sync_agents(overwrite=True)
+            sync_agents(overwrite=True)
 
         # Verify that --overwrite flag was passed
         assert mock_run.called
@@ -1429,8 +1423,6 @@ class TestEdgeCases:
             with patch("subprocess.run", return_value=mock_proc):
                 result = run_verify_commands(["pytest {spec}"], spec)
 
-                # The placeholder should be replaced
-                rendered_command = result.results[0].command
                 # After replacement, the spec should be in the command
                 # (though format strings might cause unexpected behavior)
                 assert result.commands_run == 1, f"Result length incorrect for: {description}"
@@ -1547,7 +1539,7 @@ class TestEdgeCases:
 
         # Test that malformed quotes are properly rejected
         # Note: No need to mock subprocess.run() since shlex.split() will fail first
-        for spec, description in malformed_quote_specs:
+        for spec, _description in malformed_quote_specs:
             with pytest.raises(InvalidCommandError, match="Failed to parse command"):
                 result = run_verify_commands(["pytest {spec}"], spec)
 
