@@ -17,6 +17,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from autoflow.healing.recovery_learner import RecoveryLearner, RecoveryOutcome
+
 if TYPE_CHECKING:
     from autoflow.healing.actions import (
         ActionRegistry,
@@ -36,8 +38,11 @@ if TYPE_CHECKING:
         DegradationSignal,
         HealthAssessment,
         WorkflowHealthMonitor,
-        WorkflowHealthStatus,
     )
+    from autoflow.healing.recovery_learner import RecoveryLearner
+
+# Runtime import for WorkflowHealthStatus (needed outside type hints)
+from autoflow.healing.monitor import WorkflowHealthStatus
 
 
 logger = logging.getLogger(__name__)
@@ -411,6 +416,7 @@ class HealingOrchestrator:
         selector: StrategySelector,
         registry: ActionRegistry,
         rollback_manager: RollbackManager,
+        recovery_learner: RecoveryLearner | None = None,
     ) -> None:
         """Initialize the healing orchestrator.
 
@@ -421,6 +427,7 @@ class HealingOrchestrator:
             selector: Strategy selector.
             registry: Action registry.
             rollback_manager: Rollback manager.
+            recovery_learner: Recovery learner for recording attempts (optional).
         """
         self.config = config
         self.monitor = monitor
@@ -439,6 +446,12 @@ class HealingOrchestrator:
 
         # Initialize escalation manager
         self.escalation_manager = EscalationManager(config)
+
+        # Initialize recovery learner
+        if recovery_learner is None:
+            learning_path = config.project_root / ".autoflow" / "recovery_learning.json"
+            recovery_learner = RecoveryLearner(learning_path=learning_path)
+        self.recovery_learner = recovery_learner
 
     async def run_healing_cycle(
         self, trigger_assessment: HealthAssessment | None = None
@@ -470,7 +483,7 @@ class HealingOrchestrator:
 
             # Phase 2: Diagnosis
             diagnostic_result = await self._diagnosis_phase(assessment)
-            if not diagnostic_result or not diagnostic_result.root_cause:
+            if not diagnostic_result or not diagnostic_result.root_causes:
                 return self._complete_session(HealingOutcome.ESCALATED)
 
             # Phase 3: Healing
@@ -502,6 +515,10 @@ class HealingOrchestrator:
         Returns:
             Current health assessment.
         """
+        # Create session if one doesn't exist (for direct testing)
+        if not self._current_session:
+            self._current_session = self._create_session(trigger_assessment)
+
         self.state = OrchestratorState.MONITORING
         self._log_event(
             event_type="monitoring_started",
@@ -512,7 +529,7 @@ class HealingOrchestrator:
         if trigger_assessment:
             assessment = trigger_assessment
         else:
-            assessment = await self.monitor.assess_health()
+            assessment = self.monitor.assess_health()
 
         logger.info(f"Health assessment: {assessment.status.value}")
         self._log_event(
@@ -576,18 +593,20 @@ class HealingOrchestrator:
         self.state = OrchestratorState.HEALING
 
         # Generate healing plan
-        healing_plan = await self.selector.create_healing_plan(
-            diagnostic_result.primary_cause, assessment
-        )
+        healing_plan = self.selector.select_healing_strategy(diagnostic_result)
+
+        # Check if no healing plan could be created (escalation needed)
+        if not healing_plan:
+            return await self._escalate(diagnostic_result, assessment)
 
         self._log_event(
             event_type="healing_plan_created",
             severity="warning",
             description=f"Healing plan created with {len(healing_plan.execution_steps)} steps",
             metadata={
-                "strategy": healing_plan.strategy.value,
-                "estimated_success_rate": healing_plan.estimated_success_rate,
-                "risk_level": healing_plan.risk_level.value if healing_plan.risk_level else None,
+                "strategy": healing_plan.selected_strategy.value,
+                "estimated_duration": healing_plan.estimated_duration,
+                "fallback_strategies": [s.value for s in healing_plan.fallback_strategies],
             },
         )
 
@@ -597,6 +616,10 @@ class HealingOrchestrator:
 
         # Execute healing actions
         for action in healing_plan.execution_steps:
+            # Skip string steps (descriptions only)
+            if isinstance(action, str):
+                continue
+
             outcome = await self._execute_action(action, diagnostic_result)
 
             if outcome != HealingOutcome.HEALED:
@@ -616,6 +639,10 @@ class HealingOrchestrator:
         Returns:
             Action outcome.
         """
+        # Create session if one doesn't exist (for direct testing)
+        if not self._current_session:
+            self._current_session = self._create_session(None)
+
         self._log_event(
             event_type="action_started",
             severity="warning",
@@ -624,7 +651,9 @@ class HealingOrchestrator:
         )
 
         self._current_session.healing_attempts += 1
+        start_time = datetime.now()
         action_result = await self.registry.execute_action(action)
+        execution_time = (datetime.now() - start_time).total_seconds()
 
         self._log_event(
             event_type="action_completed",
@@ -635,6 +664,15 @@ class HealingOrchestrator:
         )
 
         if not action_result.success:
+            # Record failed recovery attempt
+            self._record_recovery_attempt(
+                action=action,
+                action_result=action_result,
+                diagnostic_result=diagnostic_result,
+                outcome=HealingOutcome.FAILED,
+                execution_time=execution_time,
+            )
+
             # Rollback on failure
             if action_result.can_rollback:
                 return await self._rollback_action(action, action_result)
@@ -648,7 +686,18 @@ class HealingOrchestrator:
             return HealingOutcome.FAILED
 
         # Verify action
-        return await self._verify_action(action, action_result)
+        outcome = await self._verify_action(action, action_result)
+
+        # Record recovery attempt with final outcome
+        self._record_recovery_attempt(
+            action=action,
+            action_result=action_result,
+            diagnostic_result=diagnostic_result,
+            outcome=outcome,
+            execution_time=execution_time,
+        )
+
+        return outcome
 
     async def _verify_action(
         self, action: HealingAction, action_result: ActionResult
@@ -673,7 +722,7 @@ class HealingOrchestrator:
         )
 
         # Reassess health
-        new_assessment = await self.monitor.assess_health()
+        new_assessment = self.monitor.assess_health()
 
         if new_assessment.status == WorkflowHealthStatus.HEALTHY:
             self._log_event(
@@ -719,21 +768,44 @@ class HealingOrchestrator:
             action_result=action_result,
         )
 
+        start_time = datetime.now()
         try:
-            await self.rollback_manager.rollback_to_checkpoint(action.action_id)
+            await self.rollback_manager.rollback_to_checkpoint(action.id)
+            execution_time = (datetime.now() - start_time).total_seconds()
             self._log_event(
                 event_type="rollback_completed",
                 severity="info",
                 description="Rollback completed successfully",
             )
+
+            # Record the rollback as a failed recovery attempt
+            self._record_recovery_attempt(
+                action=action,
+                action_result=action_result,
+                diagnostic_result=None,
+                outcome=HealingOutcome.ROLLED_BACK,
+                execution_time=execution_time,
+            )
+
             return HealingOutcome.ROLLED_BACK
         except Exception as e:
+            execution_time = (datetime.now() - start_time).total_seconds()
             logger.exception(f"Rollback failed: {e}")
             self._log_event(
                 event_type="rollback_failed",
                 severity="critical",
                 description=f"Rollback failed: {e}",
             )
+
+            # Record the failed rollback
+            self._record_recovery_attempt(
+                action=action,
+                action_result=action_result,
+                diagnostic_result=None,
+                outcome=HealingOutcome.FAILED,
+                execution_time=execution_time,
+            )
+
             return HealingOutcome.FAILED
 
     async def _escalate(
@@ -798,6 +870,34 @@ class HealingOrchestrator:
             severity="critical",
             description=f"Issue escalated: {escalation['escalation_id']}",
             metadata=escalation,
+        )
+
+        # Record the escalation as a recovery attempt
+        # Note: We don't have a specific action here, so we create a placeholder
+        from autoflow.healing.actions import HealingAction, ActionType
+        escalation_action = HealingAction(
+            action_id=f"escalation_{self._current_session.session_id}",
+            action_type=ActionType.ESCALATE,
+            description="Escalation to human operator",
+            parameters={"escalation_id": escalation["escalation_id"]},
+        )
+
+        # Create a placeholder action result
+        from autoflow.healing.actions import ActionResult
+        escalation_result = ActionResult(
+            success=False,
+            message="Issue escalated to human operator",
+            changes_made=[],
+            can_rollback=False,
+            error=None,
+        )
+
+        self._record_recovery_attempt(
+            action=escalation_action,
+            action_result=escalation_result,
+            diagnostic_result=diagnostic_result,
+            outcome=HealingOutcome.ESCALATED,
+            execution_time=0.0,
         )
 
         return HealingOutcome.ESCALATED
@@ -907,3 +1007,104 @@ class HealingOrchestrator:
             Current state.
         """
         return self.state
+
+    def _map_healing_outcome(self, outcome: HealingOutcome) -> RecoveryOutcome:
+        """Map healing outcome to recovery outcome.
+
+        Args:
+            outcome: Healing outcome from orchestrator.
+
+        Returns:
+            Recovery outcome for learning system.
+        """
+        mapping = {
+            HealingOutcome.HEALED: RecoveryOutcome.SUCCESS,
+            HealingOutcome.FAILED: RecoveryOutcome.FAILED,
+            HealingOutcome.ROLLED_BACK: RecoveryOutcome.FAILED,
+            HealingOutcome.ESCALATED: RecoveryOutcome.ESCALATED,
+            HealingOutcome.SKIPPED: RecoveryOutcome.FAILED,
+        }
+        return mapping.get(outcome, RecoveryOutcome.FAILED)
+
+    def _generate_pattern_id(self, diagnostic_result: DiagnosticResult | None) -> str:
+        """Generate pattern ID from diagnostic result.
+
+        Args:
+            diagnostic_result: Diagnostic result to analyze.
+
+        Returns:
+            Pattern ID string.
+        """
+        if not diagnostic_result or not diagnostic_result.primary_cause:
+            return "unknown-error"
+
+        cause = diagnostic_result.primary_cause
+        category = cause.category.value if cause.category else "unknown"
+        description = cause.description.lower() if cause.description else ""
+
+        # Create simple pattern ID from category and description
+        # Remove special characters and normalize spaces
+        import re
+        normalized_desc = re.sub(r'[^\w\s-]', '', description)
+        normalized_desc = re.sub(r'[-\s]+', '-', normalized_desc.strip())
+        normalized_desc = normalized_desc[:50]  # Limit length
+
+        return f"{category}-{normalized_desc}" if normalized_desc else category
+
+    def _record_recovery_attempt(
+        self,
+        action: HealingAction,
+        action_result: ActionResult,
+        diagnostic_result: DiagnosticResult | None = None,
+        outcome: HealingOutcome = HealingOutcome.FAILED,
+        execution_time: float = 0.0,
+    ) -> None:
+        """Record a recovery attempt for learning.
+
+        Args:
+            action: The healing action that was executed.
+            action_result: Result of the action execution.
+            diagnostic_result: Associated diagnostic result.
+            outcome: Final outcome of the healing attempt.
+            execution_time: Time taken to execute the action.
+        """
+        try:
+            # Generate pattern ID from diagnostic result
+            pattern_id = self._generate_pattern_id(diagnostic_result)
+
+            # Map healing outcome to recovery outcome
+            recovery_outcome = self._map_healing_outcome(outcome)
+
+            # Extract metadata for learning
+            metadata = {
+                "session_id": self._current_session.session_id if self._current_session else "",
+                "action_id": action.action_id,
+                "error_category": diagnostic_result.primary_cause.category.value
+                if diagnostic_result and diagnostic_result.primary_cause
+                else "unknown",
+                "error_signature": diagnostic_result.primary_cause.description
+                if diagnostic_result and diagnostic_result.primary_cause
+                else "",
+                "health_status": self._current_session.initial_assessment.status.value
+                if self._current_session and self._current_session.initial_assessment
+                else "unknown",
+            }
+
+            # Record the attempt
+            self.recovery_learner.record_attempt(
+                pattern_id=pattern_id,
+                strategy_used=action.action_type.value,
+                action_type=action.action_type.value,
+                parameters=action.parameters,
+                outcome=recovery_outcome,
+                success=(outcome == HealingOutcome.HEALED),
+                execution_time=execution_time,
+                error=action_result.error if not action_result.success else None,
+                changes_made=action_result.changes_made,
+                verification_passed=(outcome == HealingOutcome.HEALED),
+                outcome_details=action_result.message,
+                metadata=metadata,
+            )
+        except Exception as e:
+            # Don't let recording errors interrupt healing flow
+            logger.warning(f"Failed to record recovery attempt for learning: {e}")

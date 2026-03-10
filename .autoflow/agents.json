@@ -4,6 +4,28 @@
     "shell": "bash"
   },
   "agents": {
+    "codex-spec": {
+      "command": "codex",
+      "args": [
+        "--full-auto"
+      ],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "codex-impl": {
+      "command": "codex",
+      "args": [
+        "--full-auto"
+      ],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "claude-review": {
+      "command": "claude",
+      "args": [],
+      "supports_write": true,
+      "supports_background": true
+    },
     "codex": {
       "protocol": "cli",
       "command": "codex",
@@ -28,20 +50,6 @@
         "args": [
           "--continue"
         ]
-      },
-      "memory_scopes": [
-        "spec"
-      ]
-    },
-    "example-acp-agent": {
-      "protocol": "acp",
-      "command": "acp-agent",
-      "args": [],
-      "transport": {
-        "type": "stdio",
-        "command": "acp-agent",
-        "args": [],
-        "prompt_mode": "argv"
       },
       "memory_scopes": [
         "spec"
