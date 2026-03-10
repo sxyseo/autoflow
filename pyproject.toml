@@ -69,6 +69,8 @@ autoflow = ["py.typed"]
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -86,10 +88,10 @@ ignore = [
     "B905",   # zip without explicit strict
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["autoflow"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001", "S101"]
 
 [tool.mypy]
