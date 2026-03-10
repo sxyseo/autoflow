@@ -64,6 +64,52 @@ def slugify(value: str) -> str:
     return slug or "spec"
 
 
+def validate_slug_safe(slug: str) -> bool:
+    """Validate that a slug does not contain path traversal patterns.
+
+    Returns True if the slug is safe, False if it contains dangerous patterns
+    that could lead to path traversal attacks.
+
+    Checks for:
+    - '..' sequences (parent directory)
+    - './' sequences (current directory)
+    - Absolute paths starting with '/'
+    - Backslash separators (Windows paths)
+    - Null bytes
+
+    Args:
+        slug: The slug string to validate
+
+    Returns:
+        bool: True if safe, False if dangerous
+    """
+    # Check for null bytes
+    if "\0" in slug:
+        return False
+
+    # Check for parent directory patterns
+    if ".." in slug:
+        return False
+
+    # Check for current directory patterns
+    if "./" in slug:
+        return False
+
+    # Check for absolute paths
+    if slug.startswith("/"):
+        return False
+
+    # Check for Windows path separators
+    if "\\" in slug:
+        return False
+
+    # Check for drive letters (Windows absolute paths like C:)
+    if len(slug) >= 2 and slug[1] == ":":
+        return False
+
+    return True
+
+
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -179,14 +225,20 @@ def load_agents() -> dict[str, AgentSpec]:
 
 
 def spec_dir(slug: str) -> Path:
+    if not validate_slug_safe(slug):
+        raise SystemExit(f"invalid spec slug: {slug}")
     return SPECS_DIR / slug
 
 
 def task_file(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return TASKS_DIR / f"{spec_slug}.json"
 
 
 def worktree_path(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return WORKTREES_DIR / spec_slug
 
 
