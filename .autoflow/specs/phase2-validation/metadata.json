@@ -1,0 +1,13 @@
+{
+  "slug": "phase2-validation",
+  "title": "Phase 2 validation",
+  "summary": "Validate the task lifecycle, review gate, handoff artifacts, and OpenClaw dispatch contract.",
+  "created_at": "20260306T173214Z",
+  "updated_at": "20260306T173214Z",
+  "status": "draft",
+  "worktree": {
+    "path": "/Users/abel/dev/autoflow/.autoflow/worktrees/tasks/phase2-validation",
+    "branch": "codex/phase2-validation",
+    "base_branch": "main"
+  }
+}

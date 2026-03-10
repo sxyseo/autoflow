@@ -154,6 +154,9 @@ class StateManager:
     - tasks/: Task definitions and state
     - runs/: Agent execution runs
     - memory/: Persistent memory/context
+    - workspaces/: Shared collaboration workspaces
+    - activities/: Activity feed and event tracking
+    - notifications/: User notifications and alerts
 
     All write operations are atomic - either they complete fully
     or leave the existing state unchanged.
@@ -174,6 +177,9 @@ class StateManager:
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
+    WORKSPACES_DIR = "workspaces"
+    ACTIVITIES_DIR = "activities"
+    NOTIFICATIONS_DIR = "notifications"
     BACKUP_DIR = "backups"
 
     def __init__(self, state_dir: Union[str, Path]):
@@ -207,6 +213,21 @@ class StateManager:
         """Path to memory directory."""
         return self.state_dir / self.MEMORY_DIR
 
+    @property
+    def workspaces_dir(self) -> Path:
+        """Path to workspaces directory."""
+        return self.state_dir / self.WORKSPACES_DIR
+
+    @property
+    def activities_dir(self) -> Path:
+        """Path to activities directory."""
+        return self.state_dir / self.ACTIVITIES_DIR
+
+    @property
+    def notifications_dir(self) -> Path:
+        """Path to notifications directory."""
+        return self.state_dir / self.NOTIFICATIONS_DIR
+
     def initialize(self) -> None:
         """
         Initialize the state directory structure.
@@ -225,6 +246,9 @@ class StateManager:
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
+        self.workspaces_dir.mkdir(exist_ok=True)
+        self.activities_dir.mkdir(exist_ok=True)
+        self.notifications_dir.mkdir(exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
     def _get_backup_path(self, file_path: Path) -> Path:
@@ -769,6 +793,21 @@ class StateManager:
             "memory": {
                 "total": len(list(self.memory_dir.glob("*.json")))
                 if self.memory_dir.exists()
+                else 0,
+            },
+            "workspaces": {
+                "total": len(list(self.workspaces_dir.glob("*.json")))
+                if self.workspaces_dir.exists()
+                else 0,
+            },
+            "activities": {
+                "total": len(list(self.activities_dir.glob("*.json")))
+                if self.activities_dir.exists()
+                else 0,
+            },
+            "notifications": {
+                "total": len(list(self.notifications_dir.glob("*.json")))
+                if self.notifications_dir.exists()
                 else 0,
             },
         }
