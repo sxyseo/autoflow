@@ -2443,6 +2443,48 @@ def invalidate_run_cache() -> None:
     _cache_loaded_specs.clear()
 
 
+def _populate_system_config_cache() -> None:
+    """Load system configuration into the cache.
+
+    This implements lazy-loading: system config is only loaded from disk when needed.
+    Subsequent calls will use the cached data (O(1) lookup).
+
+    Cache Behavior:
+        If _system_config_cache is not None, we've already loaded the config,
+        so we return immediately (cache hit). Otherwise, we load the config from
+        disk using load_system_config() and store it in the cache.
+
+    Note: Unlike run metadata cache, there's only one system config, so this
+    is a simple load-once pattern without opportunistic caching.
+    """
+    global _system_config_cache
+
+    # Skip if already loaded (cache hit)
+    if _system_config_cache is not None:
+        return
+
+    # Load system config from disk
+    _system_config_cache = load_system_config()
+
+
+def invalidate_system_config_cache() -> None:
+    """Invalidate the system configuration cache.
+
+    Call this function whenever the system configuration is modified to ensure
+    the cache remains consistent with the filesystem state.
+
+    Cache Invalidation Strategy:
+        - Simple: set the cached data to None
+        - Safe: ensures cache consistency after config modification
+        - Lazy: data is reloaded on next access (not immediately)
+
+    Note: System config modifications are rare, so aggressive invalidation
+    is acceptable. The cache will be repopulated on the next access.
+    """
+    global _system_config_cache
+    _system_config_cache = None
+
+
 def run_metadata_iter() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
