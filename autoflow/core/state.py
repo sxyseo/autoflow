@@ -27,7 +27,7 @@ import tempfile
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union, overload
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -435,6 +435,60 @@ class StateManager:
         return False
 
     # === Generic JSON Operations ===
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[TaskData] = None,
+    ) -> Optional[TaskData]:
+        """Read JSON data as TaskData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[RunData] = None,
+    ) -> Optional[RunData]:
+        """Read JSON data as RunData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[SpecData] = None,
+    ) -> Optional[SpecData]:
+        """Read JSON data as SpecData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Read JSON data as dict."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[list[Any]] = None,
+    ) -> Optional[list[Any]]:
+        """Read JSON data as list."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[T] = None,
+    ) -> Union[JSONData, T]:
+        """Read JSON data with generic type."""
+        ...
 
     def read_json(
         self,
@@ -1219,6 +1273,55 @@ class StateManager:
 
 
 # === Module-level convenience functions ===
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[TaskData] = None,
+) -> Optional[TaskData]:
+    """Read JSON data as TaskData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[RunData] = None,
+) -> Optional[RunData]:
+    """Read JSON data as RunData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[SpecData] = None,
+) -> Optional[SpecData]:
+    """Read JSON data as SpecData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Read JSON data as dict."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[list[Any]] = None,
+) -> Optional[list[Any]]:
+    """Read JSON data as list."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[T] = None,
+) -> Union[JSONData, T]:
+    """Read JSON data with generic type."""
+    ...
+
 
 def read_json(
     file_path: Union[str, Path],
