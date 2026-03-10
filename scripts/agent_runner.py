@@ -7,9 +7,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Import integrity verification functions
-sys.path.insert(0, str(Path(__file__).parent))
-from integrity import verify_file_integrity
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.integrity import verify_file_integrity
 
 
 def read_json(path: Path) -> Any:
