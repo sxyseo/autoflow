@@ -54,7 +54,12 @@ class Phase4DTests(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parents[1]
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
-        subprocess.run(["git", "init", "-b", "main"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "-b", "main"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
         (self.root / "config").mkdir(parents=True, exist_ok=True)
         (self.root / "config" / "system.example.json").write_text(
             json.dumps(
@@ -66,7 +71,12 @@ class Phase4DTests(unittest.TestCase):
                         "global_file": ".autoflow/memory/global.md",
                         "spec_dir": ".autoflow/memory/specs",
                     },
-                    "models": {"profiles": {"implementation": "gpt-5-codex", "review": "claude-sonnet-4-6"}},
+                    "models": {
+                        "profiles": {
+                            "implementation": "gpt-5-codex",
+                            "review": "claude-sonnet-4-6",
+                        }
+                    },
                     "tools": {"profiles": {"claude-review": ["Read", "Bash(git:*)"]}},
                     "registry": {"acp_agents": []},
                 },
@@ -86,7 +96,9 @@ class Phase4DTests(unittest.TestCase):
             (self.root / "templates" / "bmad" / f"{role}.md").write_text(
                 f"# {role}\n", encoding="utf-8"
             )
-        self.autoflow = load_module(self.repo_root / "scripts" / "autoflow.py", "autoflow_test")
+        self.autoflow = load_module(
+            self.repo_root / "scripts" / "autoflow.py", "autoflow_test"
+        )
         configure_autoflow_module(self.autoflow, self.root)
         self.autoflow.ensure_state()
         self.autoflow.write_json(
@@ -148,7 +160,9 @@ class Phase4DTests(unittest.TestCase):
             ),
         )
         self.assertTrue(result["fix_request"].endswith("QA_FIX_REQUEST.md"))
-        fix_request = self.autoflow.spec_files("phase4d")["qa_fix_request"].read_text(encoding="utf-8")
+        fix_request = self.autoflow.spec_files("phase4d")["qa_fix_request"].read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Reviewer found two issues", fix_request)
 
     def test_structured_findings_are_written_to_markdown_and_json(self) -> None:
@@ -195,12 +209,19 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(payload["findings"][0]["file"], "tests/test_phase4d.py")
         self.assertEqual(payload["findings"][0]["severity"], "high")
         markdown = self.autoflow.load_fix_request("findings-spec")
-        self.assertIn("| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |", markdown)
+        self.assertIn(
+            "| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |",
+            markdown,
+        )
 
-    def test_build_prompt_includes_structured_fix_request_and_respects_memory_scope(self) -> None:
+    def test_build_prompt_includes_structured_fix_request_and_respects_memory_scope(
+        self,
+    ) -> None:
         self.create_spec("prompt-spec")
         self.autoflow.append_memory("global", "global memory", title="Global")
-        self.autoflow.append_memory("spec", "spec memory", spec_slug="prompt-spec", title="Spec")
+        self.autoflow.append_memory(
+            "spec", "spec memory", spec_slug="prompt-spec", title="Spec"
+        )
         self.autoflow.write_fix_request(
             "prompt-spec",
             "T1",
@@ -228,7 +249,9 @@ class Phase4DTests(unittest.TestCase):
         )
         prompt = self.autoflow.build_prompt("prompt-spec", "reviewer", "T1", agent)
         self.assertIn('"file": "scripts/continuous_iteration.py"', prompt)
-        self.assertIn('"suggested_fix": "Return the blocker in dispatch output."', prompt)
+        self.assertIn(
+            '"suggested_fix": "Return the blocker in dispatch output."', prompt
+        )
         self.assertIn("spec memory", prompt)
         self.assertNotIn("global memory", prompt)
 
@@ -271,7 +294,9 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(len(result["strategy_memory"]), 2)
         summary = self.autoflow.strategy_summary("strategy-spec")
         self.assertEqual(summary["recent_reflections"][-1]["result"], "needs_changes")
-        self.assertTrue(any(item["category"] == "tests" for item in summary["playbook"]))
+        self.assertTrue(
+            any(item["category"] == "tests" for item in summary["playbook"])
+        )
 
     def test_show_and_update_spec_support_readme_compat_flags(self) -> None:
         self.create_spec("compat-spec")
@@ -471,13 +496,17 @@ class Phase4DTests(unittest.TestCase):
         first_run = Path(output.getvalue().strip()).name
         self.capture_json_output(
             self.autoflow.complete_run,
-            SimpleNamespace(run=first_run, result="blocked", summary="First attempt blocked."),
+            SimpleNamespace(
+                run=first_run, result="blocked", summary="First attempt blocked."
+            ),
         )
         resumed = io.StringIO()
         with redirect_stdout(resumed):
             self.autoflow.resume_run(SimpleNamespace(run=first_run))
         second_run = Path(resumed.getvalue().strip()).name
-        metadata = self.autoflow.read_json(self.autoflow.RUNS_DIR / second_run / "run.json")
+        metadata = self.autoflow.read_json(
+            self.autoflow.RUNS_DIR / second_run / "run.json"
+        )
         self.assertEqual(metadata["resume_from"], first_run)
         self.assertEqual(metadata["attempt_count"], 2)
 
@@ -487,12 +516,16 @@ class Phase4DTests(unittest.TestCase):
         self.autoflow.task_lookup(tasks, "T1")["status"] = "done"
         self.autoflow.task_lookup(tasks, "T2")["status"] = "done"
         self.autoflow.save_tasks("gate-spec", tasks, reason="task_status_updated")
-        state = self.capture_json_output(self.autoflow.workflow_state, SimpleNamespace(spec="gate-spec"))
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="gate-spec")
+        )
         self.assertEqual(state["blocking_reason"], "review_approval_required")
         self.assertIsNone(state["recommended_next_action"])
 
     def test_dispatch_gate_stops_after_retry_limit(self) -> None:
-        continuous = load_module(self.repo_root / "scripts" / "continuous_iteration.py", "continuous_test")
+        continuous = load_module(
+            self.repo_root / "scripts" / "continuous_iteration.py", "continuous_test"
+        )
         continuous.task_history = lambda spec, task: [
             {"result": "needs_changes"},
             {"result": "blocked"},
@@ -511,12 +544,19 @@ class Phase4DTests(unittest.TestCase):
                 "blocking_reason": "",
                 "fix_request_present": True,
             },
-            {"id": "T3", "status": "needs_changes", "owner_role": "implementation-runner"},
+            {
+                "id": "T3",
+                "status": "needs_changes",
+                "owner_role": "implementation-runner",
+            },
         )
         self.assertEqual(gate["reason"], "max_automatic_attempts_reached")
 
     def test_continuous_iteration_can_fallback_to_discovered_agent(self) -> None:
-        continuous = load_module(self.repo_root / "scripts" / "continuous_iteration.py", "continuous_fallback_test")
+        continuous = load_module(
+            self.repo_root / "scripts" / "continuous_iteration.py",
+            "continuous_fallback_test",
+        )
         catalog = {"codex": {"command": "codex"}, "claude": {"command": "claude"}}
         agent, source = continuous.select_agent_for_role(
             {"role_agents": {"reviewer": "claude-review"}},
@@ -537,8 +577,18 @@ class Phase4DTests(unittest.TestCase):
         ]
         self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
         with (
-            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None),
-            patch.object(self.autoflow, "run_cmd", return_value=SimpleNamespace(stdout="resume --model", stderr="", returncode=0)),
+            patch.object(
+                self.autoflow.shutil,
+                "which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None,
+            ),
+            patch.object(
+                self.autoflow,
+                "run_cmd",
+                return_value=SimpleNamespace(
+                    stdout="resume --model", stderr="", returncode=0
+                ),
+            ),
         ):
             payload = self.autoflow.discover_agents_registry()
         names = [agent["name"] for agent in payload["agents"]]
@@ -576,13 +626,21 @@ class Phase4DTests(unittest.TestCase):
         ]
         self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
         with (
-            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None),
+            patch.object(
+                self.autoflow.shutil,
+                "which",
+                side_effect=lambda cmd: (
+                    f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None
+                ),
+            ),
             patch.object(
                 self.autoflow,
                 "run_cmd",
                 side_effect=[
                     SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
-                    SimpleNamespace(stdout="--continue --model", stderr="", returncode=0),
+                    SimpleNamespace(
+                        stdout="--continue --model", stderr="", returncode=0
+                    ),
                 ],
             ),
         ):

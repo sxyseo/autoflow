@@ -221,7 +221,9 @@ class HealthCheckRunner:
             ]
 
             if health_result.get("timed_out"):
-                lines.append(f"⚠️  Timed out after {health_result.get('timeout', 'unknown')} seconds")
+                lines.append(
+                    f"⚠️  Timed out after {health_result.get('timeout', 'unknown')} seconds"
+                )
 
             if health_result.get("stderr"):
                 lines.append(f"Stderr:\n{health_result['stderr']}")

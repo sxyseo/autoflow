@@ -52,7 +52,7 @@ def verify_dependencies() -> VerificationResult:
             "Dependencies",
             False,
             f"Missing packages: {', '.join(missing)}",
-            "Run: pip install -e '.[dev]'"
+            "Run: pip install -e '.[dev]'",
         )
     return VerificationResult("Dependencies", True, "All required packages installed")
 
@@ -80,7 +80,7 @@ def verify_syntax() -> VerificationResult:
             "Python Syntax",
             False,
             f"{len(errors)} files with errors",
-            "\n".join(errors)
+            "\n".join(errors),
         )
     return VerificationResult("Python Syntax", True, f"{file_count} files validated")
 
@@ -124,12 +124,11 @@ def verify_imports() -> VerificationResult:
 
     if errors:
         return VerificationResult(
-            "Module Imports",
-            False,
-            f"{len(errors)} import errors",
-            "\n".join(errors)
+            "Module Imports", False, f"{len(errors)} import errors", "\n".join(errors)
         )
-    return VerificationResult("Module Imports", True, f"{len(modules)} modules imported")
+    return VerificationResult(
+        "Module Imports", True, f"{len(modules)} modules imported"
+    )
 
 
 def verify_cli_help() -> VerificationResult:
@@ -139,15 +138,12 @@ def verify_cli_help() -> VerificationResult:
             ["python", "-m", "autoflow.cli", "--help"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
         if result.returncode == 0 and "Usage:" in result.stdout:
             return VerificationResult("CLI --help", True, "CLI responds to --help")
         return VerificationResult(
-            "CLI --help",
-            False,
-            f"Unexpected output",
-            result.stdout + result.stderr
+            "CLI --help", False, "Unexpected output", result.stdout + result.stderr
         )
     except subprocess.TimeoutExpired:
         return VerificationResult("CLI --help", False, "Timeout")
@@ -162,6 +158,7 @@ def verify_init() -> VerificationResult:
     # Clean up any existing state
     if state_dir.exists():
         import shutil
+
         shutil.rmtree(state_dir)
 
     try:
@@ -169,21 +166,19 @@ def verify_init() -> VerificationResult:
             ["python", "-m", "autoflow.cli", "init"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
 
         if state_dir.exists():
             subdirs = [d.name for d in state_dir.iterdir() if d.is_dir()]
             return VerificationResult(
-                "autoflow init",
-                True,
-                f"Created .autoflow/ with: {', '.join(subdirs)}"
+                "autoflow init", True, f"Created .autoflow/ with: {', '.join(subdirs)}"
             )
         return VerificationResult(
             "autoflow init",
             False,
             "State directory not created",
-            result.stdout + result.stderr
+            result.stdout + result.stderr,
         )
     except subprocess.TimeoutExpired:
         return VerificationResult("autoflow init", False, "Timeout")
@@ -198,7 +193,7 @@ def verify_status() -> VerificationResult:
             ["python", "-m", "autoflow.cli", "status"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
         if result.returncode == 0:
             return VerificationResult("autoflow status", True, "Status command works")
@@ -206,7 +201,7 @@ def verify_status() -> VerificationResult:
             "autoflow status",
             False,
             f"Exit code: {result.returncode}",
-            result.stdout + result.stderr
+            result.stdout + result.stderr,
         )
     except subprocess.TimeoutExpired:
         return VerificationResult("autoflow status", False, "Timeout")
@@ -221,7 +216,7 @@ def verify_tests() -> VerificationResult:
             ["python", "-m", "pytest", "tests/", "-v", "--tb=short"],
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
         )
 
         # Parse output for summary
@@ -234,10 +229,7 @@ def verify_tests() -> VerificationResult:
         if result.returncode == 0:
             return VerificationResult("pytest tests/", True, summary_line)
         return VerificationResult(
-            "pytest tests/",
-            False,
-            "Some tests failed",
-            summary_line
+            "pytest tests/", False, "Some tests failed", summary_line
         )
     except subprocess.TimeoutExpired:
         return VerificationResult("pytest tests/", False, "Timeout (5 min)")
@@ -248,7 +240,7 @@ def verify_tests() -> VerificationResult:
 def verify_agent_adapters() -> VerificationResult:
     """Verify agent adapters can be instantiated."""
     try:
-        from autoflow.agents.base import AgentAdapter, ResumeMode
+        from autoflow.agents.base import ResumeMode
         from autoflow.agents.claude_code import ClaudeCodeAdapter
         from autoflow.agents.codex import CodexAdapter
         from autoflow.agents.openclaw import OpenClawAdapter
@@ -271,9 +263,7 @@ def verify_agent_adapters() -> VerificationResult:
         assert openclaw.get_resume_mode() == ResumeMode.NATIVE
 
         return VerificationResult(
-            "Agent Adapters",
-            True,
-            f"All adapters instantiated: {', '.join(adapters)}"
+            "Agent Adapters", True, f"All adapters instantiated: {', '.join(adapters)}"
         )
     except ImportError as e:
         return VerificationResult("Agent Adapters", False, f"Import error: {e}")
@@ -303,7 +293,7 @@ def verify_skill_registry() -> VerificationResult:
         return VerificationResult(
             "Skill Registry",
             True,
-            f"Registry initialized, {skill_count} skill dirs, {len(loaded_skills)} loaded"
+            f"Registry initialized, {skill_count} skill dirs, {len(loaded_skills)} loaded",
         )
     except ImportError as e:
         return VerificationResult("Skill Registry", False, f"Import error: {e}")
@@ -350,9 +340,11 @@ def verify_file_structure() -> VerificationResult:
             "File Structure",
             False,
             f"Missing {len(missing)} files",
-            "\n".join(missing[:10])  # Show first 10
+            "\n".join(missing[:10]),  # Show first 10
         )
-    return VerificationResult("File Structure", True, f"All {len(expected)} expected files exist")
+    return VerificationResult(
+        "File Structure", True, f"All {len(expected)} expected files exist"
+    )
 
 
 def run_all_verifications() -> list[VerificationResult]:

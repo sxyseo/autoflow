@@ -9,18 +9,6 @@ All gates must pass before code is committed, enabling
 closed-loop autonomous development.
 """
 
-from autoflow.ci.verifier import (
-    CIVerifier,
-    CIVerifierError,
-    CIVerifierStats,
-    CheckDefinition,
-    CheckResult,
-    CheckStatus,
-    CheckType,
-    VerificationResult,
-    create_verifier,
-)
-
 from autoflow.ci.gates import (
     BaseGate,
     GateConfig,
@@ -35,6 +23,17 @@ from autoflow.ci.gates import (
     TypeCheckGate,
     create_default_gates,
     create_default_runner,
+)
+from autoflow.ci.verifier import (
+    CheckDefinition,
+    CheckResult,
+    CheckStatus,
+    CheckType,
+    CIVerifier,
+    CIVerifierError,
+    CIVerifierStats,
+    VerificationResult,
+    create_verifier,
 )
 
 __all__ = [

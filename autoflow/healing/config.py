@@ -166,17 +166,19 @@ class HealingConfig:
             "healing_timeout": self.healing_timeout,
             "rollback_on_failure": self.rollback_on_failure,
             "log_healing_actions": self.log_healing_actions,
-            "thresholds": [
-                {
-                    "metric_type": t.metric_type.value,
-                    "warning_threshold": t.warning_threshold,
-                    "critical_threshold": t.critical_threshold,
-                    "measurement_window": t.measurement_window,
-                }
-                for t in self.thresholds
-            ]
-            if self.thresholds
-            else None,
+            "thresholds": (
+                [
+                    {
+                        "metric_type": t.metric_type.value,
+                        "warning_threshold": t.warning_threshold,
+                        "critical_threshold": t.critical_threshold,
+                        "measurement_window": t.measurement_window,
+                    }
+                    for t in self.thresholds
+                ]
+                if self.thresholds
+                else None
+            ),
             "project_root": str(self.project_root) if self.project_root else None,
             "learning_enabled": self.learning_enabled,
             "min_learning_samples": self.min_learning_samples,

@@ -75,10 +75,7 @@ class HealthCheck:
         working_dir = cwd or self.root
 
         # Convert list command to string for shell execution
-        if isinstance(command, list):
-            command_str = " ".join(command)
-        else:
-            command_str = command
+        command_str = " ".join(command) if isinstance(command, list) else command
 
         try:
             proc = subprocess.run(
