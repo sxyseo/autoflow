@@ -130,6 +130,42 @@ class SpecData(TypedDict, total=False):
     metadata: MetadataDict
 
 
+class ParallelGroupData(TypedDict, total=False):
+    """
+    TypedDict for parallel task group data structure.
+
+    Represents the dictionary form of a ParallelTaskGroup, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    description: str
+    status: str  # ParallelGroupStatus value as string
+    task_ids: list[str]
+    max_parallel: int
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    metadata: MetadataDict
+
+
+class MemoryData(TypedDict, total=False):
+    """
+    TypedDict for memory data structure.
+
+    Represents the dictionary form of a Memory, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    key: str
+    value: Any
+    category: str
+    created_at: str  # ISO format datetime
+    expires_at: str | None  # ISO format datetime
+    metadata: MetadataDict
+
+
 class TaskStatus(str, Enum):
     """Status of a task in the system."""
 
@@ -348,6 +384,7 @@ class StateManager:
         """Path to parallel groups directory."""
         return self.state_dir / self.PARALLEL_DIR
 
+    @property
     def workspaces_dir(self) -> Path:
         """Path to workspaces directory."""
         return self.state_dir / self.WORKSPACES_DIR
@@ -586,7 +623,7 @@ class StateManager:
 
     # === Task Operations ===
 
-    def save_task(self, task_id: str, task_data: dict[str, Any]) -> Path:
+    def save_task(self, task_id: str, task_data: TaskData | Task) -> Path:
         """
         Save a task to the state.
 
@@ -611,7 +648,7 @@ class StateManager:
         file_path = self.tasks_dir / f"{task_id}.json"
         return self.write_json(file_path, task_data)
 
-    def load_task(self, task_id: str) -> Optional[dict[str, Any]]:
+    def load_task(self, task_id: str) -> Optional[TaskData]:
         """
         Load a task from the state.
 
@@ -636,7 +673,7 @@ class StateManager:
         self,
         status: Optional[TaskStatus] = None,
         agent: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TaskData]:
         """
         List tasks, optionally filtered.
 
@@ -689,7 +726,7 @@ class StateManager:
     # === Parallel Group Operations ===
 
     def save_parallel_group(
-        self, group_id: str, group_data: dict[str, Any]
+        self, group_id: str, group_data: ParallelGroupData | ParallelTaskGroup
     ) -> Path:
         """
         Save a parallel task group to the state.
@@ -718,7 +755,7 @@ class StateManager:
 
     def load_parallel_group(
         self, group_id: str
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[ParallelGroupData]:
         """
         Load a parallel task group from the state.
 
@@ -742,7 +779,7 @@ class StateManager:
     def list_parallel_groups(
         self,
         status: Optional[ParallelGroupStatus] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ParallelGroupData]:
         """
         List parallel task groups, optionally filtered.
 
@@ -793,7 +830,7 @@ class StateManager:
 
     # === Run Operations ===
 
-    def save_run(self, run_id: str, run_data: dict[str, Any]) -> Path:
+    def save_run(self, run_id: str, run_data: RunData | Run) -> Path:
         """
         Save a run to the state.
 
@@ -813,7 +850,7 @@ class StateManager:
         file_path = self.runs_dir / f"{run_id}.json"
         return self.write_json(file_path, run_data)
 
-    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+    def load_run(self, run_id: str) -> Optional[RunData]:
         """
         Load a run from the state.
 
@@ -834,7 +871,7 @@ class StateManager:
         status: Optional[RunStatus] = None,
         agent: Optional[str] = None,
         limit: int = 100,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RunData]:
         """
         List runs, optionally filtered.
 
@@ -867,7 +904,7 @@ class StateManager:
 
     # === Spec Operations ===
 
-    def save_spec(self, spec_id: str, spec_data: dict[str, Any]) -> Path:
+    def save_spec(self, spec_id: str, spec_data: SpecData | Spec) -> Path:
         """
         Save a specification to the state.
 
@@ -886,7 +923,7 @@ class StateManager:
         file_path = self.specs_dir / f"{spec_id}.json"
         return self.write_json(file_path, spec_data)
 
-    def load_spec(self, spec_id: str) -> Optional[dict[str, Any]]:
+    def load_spec(self, spec_id: str) -> Optional[SpecData]:
         """
         Load a specification from the state.
 
@@ -906,7 +943,7 @@ class StateManager:
         self,
         tags: Optional[list[str]] = None,
         include_archived: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SpecData]:
         """
         List specifications, optionally filtered by tags.
 
@@ -990,7 +1027,7 @@ class StateManager:
 
         return True
 
-    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[SpecData]:
         """
         List archived specifications, optionally filtered by tags.
 
@@ -1093,7 +1130,7 @@ class StateManager:
     def list_memory(
         self,
         category: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[MemoryData]:
         """
         List memory entries, optionally filtered by category.
 
