@@ -262,7 +262,7 @@ class TaskData(TypedDict, total=False):
     depends_on: list[str]
     owner_role: str
     acceptance_criteria: list[str]
-    notes: list[str]
+    notes: list[dict[str, Any]]
     description: str
     priority: int
     created_at: str
@@ -785,7 +785,7 @@ def system_config_default() -> SystemConfig:
         - registry: Registry settings including acp_agents list (dict)
     """
     if SYSTEM_CONFIG_TEMPLATE.exists():
-        return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+        return cast(SystemConfig, read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {}))
     return {
         "memory": {
             "enabled": True,
@@ -831,7 +831,7 @@ def load_system_config() -> dict[str, Any]:
         - tools: Tool profile configurations with profiles for different agent types (dict)
         - registry: Registry settings including acp_agents list (dict)
     """
-    config = system_config_default()
+    config = cast(dict[str, Any], system_config_default())
     if SYSTEM_CONFIG_FILE.exists():
         local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
         config = deep_merge(config, local)
@@ -1082,7 +1082,7 @@ def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, 
         >>> len(spec_memory["reflections"])
         3
     """
-    return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
+    return cast(dict[str, Any], read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default()))
 
 
 def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
@@ -1467,7 +1467,7 @@ def load_review_state(spec_slug: str) -> dict[str, Any]:
         - spec_hash: Hash of the spec at approval time (str)
         - review_count: Number of reviews performed (int)
     """
-    return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
+    return cast(dict[str, Any], read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default()))
 
 
 def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
@@ -1664,9 +1664,12 @@ def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
         >>> len(data["findings"])
         3
     """
-    return read_json_or_default(
-        spec_files(spec_slug)["qa_fix_request_json"],
-        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+    return cast(
+        dict[str, Any],
+        read_json_or_default(
+            spec_files(spec_slug)["qa_fix_request_json"],
+            {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+        ),
     )
 
 
@@ -1723,8 +1726,8 @@ def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> l
                     "title": finding.get("title") or "Follow-up required",
                     "body": finding.get("body") or summary,
                     "file": finding.get("file", ""),
-                    "line": int(start_line) if start_line not in (None, "") else None,
-                    "end_line": int(end_line) if end_line not in (None, "") else None,
+                    "line": int(str(start_line)) if start_line not in (None, "") else None,
+                    "end_line": int(str(end_line)) if end_line not in (None, "") else None,
                     "severity": finding.get("severity", "medium"),
                     "category": finding.get("category", "general"),
                     "suggested_fix": finding.get("suggested_fix", ""),
@@ -2366,7 +2369,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     """
     ensure_state()
     discovered = discover_agents_registry()
-    existing = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
+    existing: dict[str, Any] = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
     if AGENTS_FILE.exists():
         existing = read_json_or_default(AGENTS_FILE, existing)
         existing.setdefault("defaults", {"workspace": ".", "shell": "bash"})
@@ -2464,7 +2467,7 @@ def _populate_run_cache_for_spec(spec_slug: str) -> None:
 
     # First pass: discover all specs and collect their run IDs
     # This enables opportunistic caching of all specs in one scan
-    spec_runs = {}
+    spec_runs: dict[str, list[dict[str, Any]]] = {}
     for run_dir in sorted(RUNS_DIR.iterdir()):
         if not run_dir.is_dir():
             continue
@@ -2969,7 +2972,7 @@ Describe the problem this system is solving.
     files["spec"].write_text(spec_markdown, encoding="utf-8")
     files["handoff"].write_text(handoff, encoding="utf-8")
     write_json(files["metadata"], metadata)
-    save_review_state(slug, review_state_default())
+    save_review_state(slug, cast(dict[str, Any], review_state_default()))
     if not task_file(slug).exists():
         write_json(
             task_file(slug),
