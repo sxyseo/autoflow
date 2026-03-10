@@ -18,6 +18,7 @@ from typing import Optional
 import click
 
 from autoflow import __version__
+from autoflow.cli.init import init
 from autoflow.core.config import Config, load_config
 
 
@@ -124,3 +125,7 @@ def main(
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(0)
+
+
+# Register subcommands
+main.add_command(init)
