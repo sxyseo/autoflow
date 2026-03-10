@@ -30,9 +30,34 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
+from typing_extensions import TypedDict
 
 from autoflow.bmad.artifacts import ArtifactCollection
 from autoflow.bmad.checkpoint import BMADCheckpoint
+
+
+class MetadataDict(TypedDict, total=False):
+    """
+    TypedDict for metadata fields in BMAD handoffs.
+
+    Provides type structure for metadata dictionaries used in
+    HandoffContext and Handoff models. All fields are optional
+    to support flexible metadata.
+
+    Common metadata fields include:
+    - created_by: Agent or user who created the handoff
+    - updated_by: Agent or user who last updated the handoff
+    - source: Source system or process
+    - tags: List of tags for categorization
+    - priority: Handoff priority
+    - Any additional string-keyed values
+    """
+
+    created_by: str
+    updated_by: str
+    source: str
+    tags: list[str]
+    priority: int
 
 
 class HandoffStatus(str, Enum):
@@ -61,7 +86,7 @@ class HandoffContext:
 
     task_description: str = ""
     artifacts: ArtifactCollection = field(default_factory=ArtifactCollection)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -145,7 +170,7 @@ class Handoff:
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     validation_errors: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=dict)
 
     @property
     def from_role(self) -> str:
@@ -391,7 +416,7 @@ def create_handoff(
     next_role: str,
     task_description: str = "",
     checkpoint: Optional[BMADCheckpoint] = None,
-    metadata: Optional[dict[str, Any]] = None,
+    metadata: Optional[MetadataDict] = None,
 ) -> Handoff:
     """
     Factory function to create a configured handoff.
