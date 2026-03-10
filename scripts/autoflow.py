@@ -1368,10 +1368,15 @@ def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
 
 def load_tasks(spec_slug: str) -> dict[str, Any]:
     """
-    Load the tasks file for a spec.
+    Load the tasks file for a spec using a lazy-loaded cache.
 
     Reads and parses the tasks JSON file containing all tasks, their status,
     and metadata. Exits with an error if the tasks file doesn't exist.
+
+    Cache Behavior:
+        This function uses an in-memory cache indexed by spec_slug to avoid
+        repeated disk I/O. On first call for a spec_slug, it loads the tasks
+        from disk. Subsequent calls return the cached data directly from memory.
 
     Args:
         spec_slug: Spec slug identifier
@@ -1388,10 +1393,23 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     Raises:
         SystemExit: If the tasks file doesn't exist
     """
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+
+    # Return cached data if available (cache hit)
+    if spec_slug in _cache_loaded_task_specs:
+        return _tasks_metadata_cache.get(spec_slug, {})
+
+    # Load from disk
     path = task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
-    return read_json(path)
+    tasks_data = read_json(path)
+
+    # Populate cache
+    _tasks_metadata_cache[spec_slug] = tasks_data
+    _cache_loaded_task_specs.add(spec_slug)
+
+    return tasks_data
 
 
 def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
