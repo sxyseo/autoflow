@@ -77,6 +77,33 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _get_cache_key(*args: Any) -> str:
+    key_parts = []
+    for arg in args:
+        if isinstance(arg, Path):
+            key_parts.append(str(arg))
+        elif isinstance(arg, (str, int, float, bool)):
+            key_parts.append(str(arg))
+        elif isinstance(arg, (list, tuple)):
+            key_parts.extend(str(x) for x in arg)
+        elif isinstance(arg, dict):
+            key_parts.append(json.dumps(arg, sort_keys=True))
+        else:
+            key_parts.append(repr(arg))
+    combined = ":".join(key_parts)
+    return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _is_cache_stale(cached_entry: dict[str, Any], file_path: Path) -> bool:
+    if "mtime" not in cached_entry or not file_path.exists():
+        return True
+    try:
+        current_mtime = file_path.stat().st_mtime
+        return current_mtime > cached_entry["mtime"]
+    except (OSError, IOError):
+        return True
+
+
 def ensure_state() -> None:
     for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
