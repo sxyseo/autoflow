@@ -952,7 +952,7 @@ def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
     raise SystemExit("spec scope requires a spec slug")
 
 
-def strategy_memory_default() -> dict[str, Any]:
+def strategy_memory_default() -> StrategyMemory:
     """
     Get the default structure for a strategy memory store.
 
