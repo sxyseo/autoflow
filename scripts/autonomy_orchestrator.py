@@ -31,18 +31,6 @@ STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
 
-# Old duplicate functions - replaced by autoflow.utils imports
-# def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-#     return subprocess.run(cmd, cwd=ROOT, check=check, capture_output=True, text=True)
-#
-# def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
-#     if not path.exists():
-#         return default or {}
-#     return json.loads(path.read_text(encoding="utf-8"))
-#
-# def load_config(path: str) -> dict[str, Any]:
-#     return json.loads((ROOT / path).read_text(encoding="utf-8"))
-
 
 def autoflow_json(*args: str) -> dict[str, Any]:
     result = run_cmd(["python3", "scripts/autoflow.py", *args], cwd=ROOT)
