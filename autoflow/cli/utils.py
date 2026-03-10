@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import click
 
@@ -38,7 +38,7 @@ from autoflow.core.config import Config, get_state_dir
 from autoflow.core.state import StateManager
 
 
-def _get_state_manager(config: Optional[Config] = None) -> StateManager:
+def _get_state_manager(config: Config | None = None) -> StateManager:
     """Get a StateManager instance."""
     state_dir = get_state_dir(config)
     return StateManager(state_dir)
@@ -63,7 +63,7 @@ def _run_async(coro: Any) -> Any:
         return asyncio.run(coro)
 
 
-def _format_datetime(dt: Optional[datetime]) -> str:
+def _format_datetime(dt: datetime | None) -> str:
     """Format a datetime for display."""
     if dt is None:
         return "N/A"

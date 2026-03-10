@@ -9,12 +9,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _print_json
+from autoflow.core.config import Config
 
 
 @click.group()
@@ -37,7 +35,7 @@ def config_show(ctx: click.Context) -> None:
         autoflow config show
         autoflow config show --json
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)

@@ -13,12 +13,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _get_state_manager, _print_json
+from autoflow.core.config import Config
 
 
 @click.group()
@@ -36,7 +34,7 @@ def memory() -> None:
     help="Filter by category.",
 )
 @click.pass_context
-def memory_list(ctx: click.Context, category: Optional[str]) -> None:
+def memory_list(ctx: click.Context, category: str | None) -> None:
     """
     List memory entries.
 
@@ -48,7 +46,7 @@ def memory_list(ctx: click.Context, category: Optional[str]) -> None:
         autoflow memory list --category general
         autoflow memory list -c project
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -88,7 +86,7 @@ def memory_get(ctx: click.Context, key: str) -> None:
         autoflow memory get project_name
         autoflow memory get last_commit
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -130,7 +128,7 @@ def memory_set(ctx: click.Context, key: str, value: str, category: str) -> None:
         autoflow memory set last_commit abc123 --category git
         autoflow memory set status "in progress" -c workflow
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -160,7 +158,7 @@ def memory_delete(ctx: click.Context, key: str) -> None:
         autoflow memory delete old_key
         autoflow memory delete temp_data
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)

@@ -10,12 +10,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _get_state_manager, _print_json
+from autoflow.core.config import Config
 
 
 @click.command()
@@ -41,7 +39,7 @@ def init(ctx: click.Context, force: bool) -> None:
         .autoflow/runs/     Execution runs
         .autoflow/memory/   Persistent memory
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
     state_manager = _get_state_manager(config)
 
     if state_manager.state_dir.exists() and not force:
@@ -64,11 +62,11 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo("")
             click.echo("Directory structure:")
             click.echo(f"  {state_manager.state_dir}/")
-            click.echo(f"    specs/    - Specification files")
-            click.echo(f"    tasks/    - Task definitions")
-            click.echo(f"    runs/     - Execution runs")
-            click.echo(f"    memory/   - Persistent memory")
-            click.echo(f"    backups/  - Backup files")
+            click.echo("    specs/    - Specification files")
+            click.echo("    tasks/    - Task definitions")
+            click.echo("    runs/     - Execution runs")
+            click.echo("    memory/   - Persistent memory")
+            click.echo("    backups/  - Backup files")
         else:
             _print_json({
                 "status": "initialized",

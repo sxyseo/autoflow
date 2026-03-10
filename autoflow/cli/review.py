@@ -11,8 +11,6 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
 from autoflow.cli.utils import _print_json

@@ -11,12 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _print_json
+from autoflow.core.config import Config
 
 
 @click.group()
@@ -33,7 +31,7 @@ def agent_list(ctx: click.Context) -> None:
 
     Shows all configured AI agents and their status.
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -73,8 +71,13 @@ def agent_list(ctx: click.Context) -> None:
     for agent_info in agents:
         click.echo(f"\n{agent_info['name']}:")
         click.echo(f"  Command: {agent_info['command']}")
-        if agent_info["args"]:
-            click.echo(f"  Args: {' '.join(agent_info['args'])}")
+        args = agent_info.get("args", [])
+        if args:
+            # Format args for display - handle both list and string representations
+            if isinstance(args, list):
+                click.echo(f"  Args: {' '.join(str(a) for a in args)}")
+            else:
+                click.echo(f"  Args: {args}")
         click.echo(f"  Resume Mode: {agent_info['resume_mode']}")
         click.echo(f"  Timeout: {agent_info['timeout']}s")
 
@@ -95,7 +98,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
     """
     import shutil
 
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)

@@ -11,13 +11,11 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
-from autoflow.core.state import StateManager, TaskStatus
 from autoflow.cli.utils import _get_state_manager, _print_json
+from autoflow.core.config import Config
+from autoflow.core.state import TaskStatus
 
 
 @click.group()
@@ -52,8 +50,8 @@ def task() -> None:
 @click.pass_context
 def task_list(
     ctx: click.Context,
-    status_filter: Optional[str],
-    agent: Optional[str],
+    status_filter: str | None,
+    agent: str | None,
     limit: int,
 ) -> None:
     """
@@ -68,7 +66,7 @@ def task_list(
         autoflow task list --agent claude-code --limit 10
         autoflow task list -s in_progress -a codex
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -110,7 +108,7 @@ def task_show(ctx: click.Context, task_id: str) -> None:
         autoflow task show task-20240310153045
         autoflow task show task-20240310153045 --json
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)

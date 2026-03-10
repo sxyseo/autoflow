@@ -11,12 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _print_json
+from autoflow.core.config import Config
 
 
 @click.group()
@@ -52,7 +50,7 @@ def scheduler_start(ctx: click.Context, daemon: bool, port: int) -> None:
         autoflow scheduler start --daemon
         autoflow scheduler start --port 9000
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -105,7 +103,7 @@ def scheduler_status(ctx: click.Context) -> None:
     Examples:
         autoflow scheduler status
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)

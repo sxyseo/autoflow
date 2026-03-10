@@ -11,12 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _get_state_manager, _print_json
+from autoflow.core.config import Config
 
 
 @click.command()
@@ -39,7 +37,7 @@ def status(ctx: click.Context, detailed: bool) -> None:
         autoflow status --detailed
         autoflow status --json
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
     state_manager = _get_state_manager(config)
 
     try:
@@ -79,12 +77,17 @@ def status(ctx: click.Context, detailed: bool) -> None:
         click.echo(f"Memory Entries: {memory['total']} total")
 
         if detailed:
-            click.echo("")
-            click.echo("Configuration:")
-            click.echo(f"  OpenClaw Gateway: {config.openclaw.gateway_url}")
-            click.echo(f"  State Directory: {config.state_dir}")
-            click.echo(f"  Scheduler Enabled: {config.scheduler.enabled}")
-            click.echo(f"  CI Gates Required: {config.ci.require_all}")
+            if config is None:
+                click.echo("")
+                click.echo("Configuration:")
+                click.echo("  (Configuration not available)")
+            else:
+                click.echo("")
+                click.echo("Configuration:")
+                click.echo(f"  OpenClaw Gateway: {config.openclaw.gateway_url}")
+                click.echo(f"  State Directory: {config.state_dir}")
+                click.echo(f"  Scheduler Enabled: {config.scheduler.enabled}")
+                click.echo(f"  CI Gates Required: {config.ci.require_all}")
 
     except Exception as e:
         click.echo(f"Error getting status: {e}", err=True)

@@ -11,12 +11,11 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import click
 
-from autoflow.core.config import Config
 from autoflow.cli.utils import _print_json
+from autoflow.core.config import Config
 
 
 @click.group()
@@ -33,7 +32,7 @@ def skill() -> None:
     help="Directory containing skill definitions.",
 )
 @click.pass_context
-def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
+def skill_list(ctx: click.Context, skills_dir: Path | None) -> None:
     """
     List available skills.
 
@@ -44,7 +43,7 @@ def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
         autoflow skill list
         autoflow skill list --skills-dir /path/to/skills
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -54,7 +53,7 @@ def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
     skill_dirs = []
     if skills_dir:
         skill_dirs.append(skills_dir)
-    skill_dirs.extend(config.openclaw.extra_dirs)
+    skill_dirs.extend(Path(d) for d in config.openclaw.extra_dirs)
 
     skills = []
 
@@ -99,7 +98,7 @@ def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
     help="Directory containing skill definitions.",
 )
 @click.pass_context
-def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> None:
+def skill_show(ctx: click.Context, name: str, skills_dir: Path | None) -> None:
     """
     Show details of a specific skill.
 
@@ -110,7 +109,7 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
         autoflow skill show CONTINUOUS_ITERATOR
         autoflow skill show CODE_REVIEW --skills-dir /path/to/skills
     """
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
 
     if config is None:
         click.echo("Error: Configuration not loaded.", err=True)
@@ -120,7 +119,7 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
     skill_dirs = []
     if skills_dir:
         skill_dirs.append(skills_dir)
-    skill_dirs.extend(config.openclaw.extra_dirs)
+    skill_dirs.extend(Path(d) for d in config.openclaw.extra_dirs)
 
     for skill_dir in skill_dirs:
         skill_path = Path(skill_dir).expanduser() / name / "SKILL.md"

@@ -14,13 +14,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import click
 
+from autoflow.cli.utils import _get_state_manager, _print_json
 from autoflow.core.config import Config
 from autoflow.core.state import TaskStatus
-from autoflow.cli.utils import _get_state_manager, _print_json
 
 
 @click.command()
@@ -62,10 +61,10 @@ from autoflow.cli.utils import _get_state_manager, _print_json
 @click.pass_context
 def run(
     ctx: click.Context,
-    task: Optional[str],
+    task: str | None,
     agent: str,
-    skill: Optional[str],
-    workdir: Optional[Path],
+    skill: str | None,
+    workdir: Path | None,
     timeout: int,
     resume: bool,
 ) -> None:
@@ -86,7 +85,7 @@ def run(
         click.echo("Error: Either TASK, --skill, or --resume is required.", err=True)
         ctx.exit(1)
 
-    config: Optional[Config] = ctx.obj.get("config")
+    config: Config | None = ctx.obj.get("config")
     state_manager = _get_state_manager(config)
 
     try:

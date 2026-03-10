@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -30,7 +29,6 @@ from autoflow.cli.skill import skill
 from autoflow.cli.status import status
 from autoflow.cli.task import task
 from autoflow.core.config import Config, load_config
-
 
 # Click context settings
 CONTEXT_SETTINGS = {
@@ -83,8 +81,8 @@ CONTEXT_SETTINGS = {
 def main(
     ctx: click.Context,
     version: bool,
-    config_path: Optional[Path],
-    state_dir: Optional[Path],
+    config_path: Path | None,
+    state_dir: Path | None,
     output_json: bool,
     verbose: int,
 ) -> None:
