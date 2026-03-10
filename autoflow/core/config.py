@@ -5,10 +5,11 @@ Provides configuration loading with JSON5 support, allowing comments,
 trailing commas, and unquoted keys in configuration files.
 
 Usage:
-    from autoflow.core.config import load_config, load_system_config
+    from autoflow.core.config import load_config, load_system_config, RepositoryConfig
 
     config = load_config("config/settings.json5")
     system_config = load_system_config()
+    repo_config = RepositoryConfig(id="main", name="Main Repo", path=".")
 """
 
 from __future__ import annotations
@@ -18,7 +19,10 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
-import json5
+try:
+    import json5
+except ModuleNotFoundError:  # pragma: no cover - fallback for minimal envs
+    json5 = None
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -99,7 +103,6 @@ class CIConfig(BaseModel):
 
     gates: list[CIGateConfig] = Field(default_factory=list)
     require_all: bool = True
-
 
 class HealingConfig(BaseModel):
     """Self-healing workflow configuration."""
@@ -184,6 +187,31 @@ class CollaborationConfig(BaseModel):
     shared_workspaces: list[str] = Field(default_factory=list)
 
 
+class RepositoryConfig(BaseModel):
+    """Configuration for a single repository in multi-repository setup."""
+
+    id: str
+    name: str
+    path: str
+    url: str | None = None
+    branch: str = "main"
+    enabled: bool = True
+    priority: int = 0  # Higher priority repositories are processed first
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def expand_path(cls, v: str) -> str:
+        """Expand environment variables and user home in path."""
+        return os.path.expandvars(os.path.expanduser(v))
+
+
+class RepositoriesConfig(BaseModel):
+    """Multi-repository configuration."""
+
+    repositories: list[RepositoryConfig] = Field(default_factory=list)
+    default_repository_id: str | None = None
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -195,6 +223,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    repositories: RepositoriesConfig = Field(default_factory=RepositoriesConfig)
     sanitization: SanitizationConfig = Field(default_factory=SanitizationConfig)
     intake: IntakeConfig = Field(default_factory=IntakeConfig)
     parallel: ParallelConfig = Field(default_factory=ParallelConfig)
@@ -279,8 +308,10 @@ def _load_json5_file(file_path: Path) -> dict[str, Any]:
     try:
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
+        if json5 is None:
+            return json.loads(content)
         return json5.loads(content)
-    except json5.Json5DecoderError as e:
+    except (json.JSONDecodeError, getattr(json5, "Json5DecoderError", ValueError)) as e:
         raise ValueError(f"Invalid JSON5 in {file_path}: {e}") from e
 
 

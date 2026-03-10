@@ -39,6 +39,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,6 +49,10 @@ from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# Add ROOT to Python path for imports
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -56,6 +61,8 @@ LOGS_DIR = STATE_DIR / "logs"
 WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
 MEMORY_DIR = STATE_DIR / "memory"
 STRATEGY_MEMORY_DIR = MEMORY_DIR / "strategy"
+REPOSITORIES_DIR = STATE_DIR / "repositories"
+DEPENDENCIES_DIR = STATE_DIR / "dependencies"
 DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
 SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
 SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
@@ -74,6 +81,13 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
+
+
+def repository_manager():
+    """Load RepositoryManager only when repository features are used."""
+    from autoflow.core.repository import RepositoryManager
+
+    return RepositoryManager(STATE_DIR)
 
 
 def now_utc() -> datetime:
@@ -236,7 +250,18 @@ def ensure_state() -> None:
     - Memory directory
     - Strategy memory directory
     """
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
+    for path in [
+        STATE_DIR,
+        SPECS_DIR,
+        TASKS_DIR,
+        RUNS_DIR,
+        LOGS_DIR,
+        WORKTREES_DIR,
+        MEMORY_DIR,
+        STRATEGY_MEMORY_DIR,
+        REPOSITORIES_DIR,
+        DEPENDENCIES_DIR,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -468,18 +493,21 @@ def task_file(spec_slug: str) -> Path:
     return TASKS_DIR / f"{spec_slug}.json"
 
 
-def worktree_path(spec_slug: str) -> Path:
+def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
     """
     Get the worktree path for a spec.
 
     Args:
         spec_slug: Spec slug identifier
+        repository: Optional repository ID for multi-repo worktrees
 
     Returns:
         Path to the worktree directory
     """
     if not validate_slug_safe(spec_slug):
         raise SystemExit(f"invalid spec slug: {spec_slug}")
+    if repository:
+        return WORKTREES_DIR / repository / spec_slug
     return WORKTREES_DIR / spec_slug
 
 
@@ -1328,27 +1356,104 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     return read_json(path)
 
 
-def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
+def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
     """
-    Look up a task by ID within a tasks dictionary.
-
-    Searches through the tasks list to find a task with the matching ID.
-    This is useful for retrieving full task details given only a task ID.
+    Parse a dependency reference into (repository_id, task_id).
 
     Args:
-        data: Tasks dictionary containing a "tasks" key with a list of task objects
-        task_id: Unique identifier of the task to find
+        dep_ref: Dependency reference, either "task-id" or "repo-id/task-id"
 
     Returns:
-        Task dictionary containing all task details:
-        - id: Unique task identifier (str)
-        - title: Task title (str)
-        - status: Task status (str)
-        - ...additional task metadata
+        Tuple of (repository_id, task_id). repository_id is None for same-repo deps.
+
+    Examples:
+        >>> parse_dependency_ref("T1")
+        (None, 'T1')
+        >>> parse_dependency_ref("backend/T1")
+        ('backend', 'T1')
+    """
+    if "/" in dep_ref:
+        parts = dep_ref.split("/", 1)
+        return parts[0], parts[1]
+    return None, dep_ref
+
+
+def load_tasks_from_repository(repository_id: str, spec_slug: str) -> dict[str, Any]:
+    """
+    Load tasks from a spec in another repository.
+
+    Args:
+        repository_id: Repository ID containing the spec
+        spec_slug: Spec slug to load tasks from
+
+    Returns:
+        Tasks data dictionary
 
     Raises:
-        SystemExit: If no task with the given ID is found
+        SystemExit: If repository or task file doesn't exist
     """
+    # Validate repository exists
+    repo_manager = repository_manager()
+    if not repo_manager.repository_exists(repository_id):
+        raise SystemExit(
+            f"cannot load dependency: repository '{repository_id}' not found"
+        )
+
+    # Load repository configuration
+    repo_data = repo_manager.load_repository(repository_id)
+    if not repo_data:
+        raise SystemExit(f"cannot load dependency: repository '{repository_id}' not found")
+
+    # Resolve repository path
+    from autoflow.core.repository import Repository
+    repo = Repository(**repo_data)
+    repo_path = repo.get_resolved_path()
+
+    # Construct path to task file in other repository
+    other_tasks_file = repo_path / ".autoflow" / "tasks" / f"{spec_slug}.json"
+
+    if not other_tasks_file.exists():
+        raise SystemExit(
+            f"cannot load dependency: task file not found for spec '{spec_slug}' "
+            f"in repository '{repository_id}' at {other_tasks_file}"
+        )
+
+    return read_json(other_tasks_file)
+
+
+def task_lookup(data: dict[str, Any], task_id: str, spec_slug: str | None = None) -> dict[str, Any]:
+    """
+    Look up a task by ID, supporting cross-repository references.
+
+    Args:
+        data: Current spec's tasks data
+        task_id: Task ID, either "T1" or "repo-id/spec-slug/T1"
+        spec_slug: Current spec slug (required for cross-repo lookups)
+
+    Returns:
+        Task dictionary
+
+    Raises:
+        SystemExit: If task is not found
+    """
+    # Check if this is a cross-repo reference (format: repo-id/spec-slug/task-id)
+    if task_id.count("/") >= 2:
+        parts = task_id.split("/")
+        repo_id = parts[0]
+        other_spec_slug = parts[1]
+        other_task_id = "/".join(parts[2:])  # Handle case where task ID contains /
+
+        # Load tasks from other repository
+        other_tasks = load_tasks_from_repository(repo_id, other_spec_slug)
+        for task in other_tasks.get("tasks", []):
+            if task["id"] == other_task_id:
+                return task
+        raise SystemExit(
+            f"unknown task: {task_id} (in spec '{other_spec_slug}' "
+            f"in repository '{repo_id}')"
+        )
+
+    # Same-repo lookup
     for task in data.get("tasks", []):
         if task["id"] == task_id:
             return task
@@ -2682,6 +2787,27 @@ def default_tasks() -> list[dict[str, Any]]:
     ]
 
 
+def validate_spec_repository(repository_id: str) -> None:
+    """
+    Validate that a repository reference exists.
+
+    Args:
+        repository_id: The repository ID to validate
+
+    Raises:
+        SystemExit: If the repository doesn't exist
+    """
+    if not repository_id:
+        return
+
+    repo_manager = repository_manager()
+    if not repo_manager.repository_exists(repository_id):
+        raise SystemExit(
+            f"repository '{repository_id}' not found. "
+            f"Use 'repo-add' to register it first, or omit --repository to use the default repository."
+        )
+
+
 def create_spec(args: argparse.Namespace) -> None:
     """
     Create a new spec directory with markdown, metadata, and initial task files.
@@ -2763,6 +2889,9 @@ Describe the problem this system is solving.
             "base_branch": detect_base_branch(),
         },
     }
+    if getattr(args, "repository", None):
+        validate_spec_repository(args.repository)
+        metadata["repository"] = args.repository
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
     files["spec"].write_text(spec_markdown, encoding="utf-8")
     files["handoff"].write_text(handoff, encoding="utf-8")
@@ -2830,7 +2959,8 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
                 continue
         blocked = False
         for dep in task.get("depends_on", []):
-            dep_task = task_lookup(tasks, dep)
+            # task_lookup now handles both same-repo and cross-repo dependencies
+            dep_task = task_lookup(tasks, dep, spec_slug=spec_slug)
             if dep_task["status"] != "done":
                 blocked = True
                 break
@@ -3100,7 +3230,7 @@ def build_prompt(
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
-    selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
+    selected_task = task_lookup(tasks, task_id, spec_slug=spec_slug) if task_id else next_task_data(spec_slug, role)
     review_summary = review_status_summary(spec_slug)
     fix_request = load_fix_request(spec_slug)
     fix_request_data = load_fix_request_data(spec_slug)
@@ -3312,7 +3442,7 @@ def create_run(args: argparse.Namespace) -> None:
             raise SystemExit("no ready task for this role")
         chosen_task = next_candidate["id"]
     tasks = load_tasks(args.spec)
-    task = task_lookup(tasks, chosen_task)
+    task = task_lookup(tasks, chosen_task, spec_slug=args.spec)
     expected_role = "reviewer" if task["status"] == "in_review" and args.role == "reviewer" else task["owner_role"]
     if expected_role != args.role:
         raise SystemExit(f"task {chosen_task} belongs to role {task['owner_role']}, not {args.role}")
@@ -3360,7 +3490,7 @@ def resume_run(args: argparse.Namespace) -> None:
             "spec review approval is not valid; approve the current planning contract before resuming implementation"
         )
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
+    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     task["status"] = "in_progress"
     task.setdefault("notes", []).append({"at": now_stamp(), "note": f"retry created from {args.run}"})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
@@ -3415,7 +3545,7 @@ def complete_run(args: argparse.Namespace) -> None:
     (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
 
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
+    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     if metadata["role"] == "reviewer":
         next_status = "done" if args.result == "success" else args.result
     elif args.result == "success":
@@ -3940,17 +4070,23 @@ def create_worktree(args: argparse.Namespace) -> None:
          "base_branch": "main"}
     """
     ensure_state()
-    path = worktree_path(args.spec)
+    repository = getattr(args, "repository", None)
+    if repository:
+        validate_spec_repository(repository)
+    path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
 
     if path.exists():
-        metadata["worktree"] = {
+        worktree_metadata = {
             "path": str(path),
             "branch": branch,
             "base_branch": base_branch,
         }
+        if repository:
+            worktree_metadata["repository"] = repository
+        metadata["worktree"] = worktree_metadata
         write_json(spec_files(args.spec)["metadata"], metadata)
         print_json(metadata["worktree"])
         return
@@ -3964,11 +4100,14 @@ def create_worktree(args: argparse.Namespace) -> None:
     else:
         run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch])
 
-    metadata["worktree"] = {
+    worktree_metadata = {
         "path": str(path),
         "branch": branch,
         "base_branch": base_branch,
     }
+    if repository:
+        worktree_metadata["repository"] = repository
+    metadata["worktree"] = worktree_metadata
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.created", metadata["worktree"])
     print_json(metadata["worktree"])
@@ -3984,28 +4123,29 @@ def remove_worktree(args: argparse.Namespace) -> None:
     Args:
         args: Namespace with attributes:
             - spec: Spec slug identifier
+            - repository: Optional repository ID for multi-repo worktrees
             - delete_branch: If True, delete the associated git branch
-              (defaults to False from argparse)
 
     Side Effects:
         - Removes git worktree directory if it exists
         - Deletes the associated branch if delete_branch is True
         - Updates spec metadata to clear worktree path
         - Records worktree.removed event
-
-    Example:
-        >>> args = argparse.Namespace(spec="feature-auth", delete_branch=True)
-        >>> remove_worktree(args)
-        {"path": "", "branch": "codex/feature-auth", "base_branch": "main"}
     """
-    path = worktree_path(args.spec)
+    repository = getattr(args, "repository", None)
+    if repository:
+        validate_spec_repository(repository)
+    path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     if path.exists():
         run_cmd(["git", "worktree", "remove", "--force", str(path)])
     if args.delete_branch:
         run_cmd(["git", "branch", "-D", branch], check=False)
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
-    metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    if repository:
+        worktree_metadata["repository"] = repository
+    metadata["worktree"] = worktree_metadata
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
     print_json(metadata["worktree"])
@@ -4120,7 +4260,7 @@ def workflow_state(args: argparse.Namespace) -> None:
     ready = []
     blocked = []
     for task in data.get("tasks", []):
-        deps_done = all(task_lookup(data, dep)["status"] == "done" for dep in task.get("depends_on", []))
+        deps_done = all(task_lookup(data, dep, spec_slug=args.spec)["status"] == "done" for dep in task.get("depends_on", []))
         entry = {
             "id": task["id"],
             "title": task["title"],
@@ -4200,6 +4340,101 @@ def list_runs(args: argparse.Namespace) -> None:
     print(json.dumps(runs, indent=2, ensure_ascii=True))
 
 
+def repo_add_cmd(args: argparse.Namespace) -> None:
+    """Add a repository to the registry."""
+    ensure_state()
+    repo_id = args.id
+    repo_file = REPOSITORIES_DIR / f"{repo_id}.json"
+
+    if repo_file.exists():
+        raise SystemExit(f"repository already exists: {repo_id}")
+
+    # Build repository data
+    repo_data = {
+        "id": repo_id,
+        "name": args.name,
+        "path": args.path,
+        "url": args.url if args.url else None,
+        "description": args.description if args.description else None,
+        "enabled": True,
+        "branch": {
+            "default": args.branch if args.branch else "main",
+            "current": None,
+            "protected": ["main", "master"]
+        }
+    }
+
+    write_json(repo_file, repo_data)
+    print(f"Repository '{repo_id}' added successfully")
+
+
+def repo_list_cmd(_: argparse.Namespace) -> None:
+    """List all registered repositories."""
+    items = []
+    for repo_path in sorted(REPOSITORIES_DIR.glob("*.json")):
+        repo_data = read_json(repo_path)
+        items.append(repo_data)
+    print(json.dumps(items, indent=2, ensure_ascii=True))
+
+
+def repo_validate_cmd(args: argparse.Namespace) -> None:
+    """Validate repositories and dependencies."""
+    ensure_state()
+
+    # Create repository manager
+    manager = repository_manager()
+
+    # Check if validating specific repository or all
+    if args.repo:
+        # Validate single repository
+        errors = manager.validate(args.repo)
+        if errors:
+            print(f"❌ Repository '{args.repo}' validation failed:")
+            for error in errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print(f"✅ Repository '{args.repo}' is valid")
+    else:
+        # Validate all repositories and dependencies
+        print("Validating repositories...")
+        repo_results = manager.validate_all()
+
+        # Count errors
+        total_repos = len(repo_results)
+        invalid_repos = {repo_id: errs for repo_id, errs in repo_results.items() if errs}
+        valid_repos = total_repos - len(invalid_repos)
+
+        # Print repository results
+        if invalid_repos:
+            print(f"\n❌ Found {len(invalid_repos)} invalid repositories:")
+            for repo_id, errors in invalid_repos.items():
+                print(f"\n  {repo_id}:")
+                for error in errors:
+                    print(f"    - {error}")
+        else:
+            if total_repos > 0:
+                print(f"✅ All {total_repos} repositories are valid")
+            else:
+                print("⚠️  No repositories registered")
+
+        # Validate dependencies
+        print("\nValidating dependencies...")
+        dep_errors = manager.validate_dependencies()
+
+        if dep_errors:
+            print(f"❌ Found {len(dep_errors)} dependency errors:")
+            for error in dep_errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print("✅ All dependencies are valid")
+
+        # Exit with error if any repositories are invalid
+        if invalid_repos:
+            raise SystemExit(1)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Build and configure the Autoflow CLI argument parser.
@@ -4259,6 +4494,7 @@ def build_parser() -> argparse.ArgumentParser:
     spec_cmd.add_argument("--slug", default="")
     spec_cmd.add_argument("--title", required=True)
     spec_cmd.add_argument("--summary", required=True)
+    spec_cmd.add_argument("--repository", default="", help="repository ID for multi-repo specs")
     spec_cmd.set_defaults(func=create_spec)
 
     tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
@@ -4316,11 +4552,13 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
     worktree_create_cmd.add_argument("--spec", required=True)
     worktree_create_cmd.add_argument("--base-branch", default="")
+    worktree_create_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
     worktree_create_cmd.set_defaults(func=create_worktree)
 
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
     worktree_remove_cmd.add_argument("--spec", required=True)
     worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
+    worktree_remove_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
     worktree_remove_cmd.set_defaults(func=remove_worktree)
 
     list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
@@ -4328,6 +4566,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
+
+    repo_add_cmd_parser = sub.add_parser("repo-add", help="register a repository with autoflow")
+    repo_add_cmd_parser.add_argument("--id", required=True, help="unique repository identifier")
+    repo_add_cmd_parser.add_argument("--name", required=True, help="human-readable repository name")
+    repo_add_cmd_parser.add_argument("--path", required=True, help="filesystem path to the repository")
+    repo_add_cmd_parser.add_argument("--url", default="", help="git remote URL (optional)")
+    repo_add_cmd_parser.add_argument("--description", default="", help="repository description (optional)")
+    repo_add_cmd_parser.add_argument("--branch", default="", help="default branch name (default: main)")
+    repo_add_cmd_parser.set_defaults(func=repo_add_cmd)
+
+    repo_list_cmd_parser = sub.add_parser("repo-list", help="list all registered repositories")
+    repo_list_cmd_parser.set_defaults(func=repo_list_cmd)
+
+    repo_validate_cmd_parser = sub.add_parser("repo-validate", help="validate repositories and dependencies")
+    repo_validate_cmd_parser.add_argument("--repo", default="", help="validate specific repository (validates all if not specified)")
+    repo_validate_cmd_parser.set_defaults(func=repo_validate_cmd)
 
     init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
     init_system_cmd.set_defaults(func=init_system_config)

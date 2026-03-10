@@ -209,6 +209,8 @@ class StateManager:
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
+    REPOSITORIES_DIR = "repositories"
+    DEPENDENCIES_DIR = "dependencies"
     PARALLEL_DIR = "parallel"
     WORKSPACES_DIR = "workspaces"
     ACTIVITIES_DIR = "activities"
@@ -252,10 +254,21 @@ class StateManager:
         return self.state_dir / self.MEMORY_DIR
 
     @property
+    def repositories_dir(self) -> Path:
+        """Path to repositories directory."""
+        return self.state_dir / self.REPOSITORIES_DIR
+
+    @property
+    def dependencies_dir(self) -> Path:
+        """Path to dependencies directory."""
+        return self.state_dir / self.DEPENDENCIES_DIR
+
+    @property
     def parallel_dir(self) -> Path:
         """Path to parallel groups directory."""
         return self.state_dir / self.PARALLEL_DIR
 
+    @property
     def workspaces_dir(self) -> Path:
         """Path to workspaces directory."""
         return self.state_dir / self.WORKSPACES_DIR
@@ -289,6 +302,8 @@ class StateManager:
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
+        self.repositories_dir.mkdir(exist_ok=True)
+        self.dependencies_dir.mkdir(exist_ok=True)
         self.parallel_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         self.activities_dir.mkdir(exist_ok=True)

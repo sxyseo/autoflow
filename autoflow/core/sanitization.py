@@ -20,7 +20,46 @@ from __future__ import annotations
 import re
 from typing import Any, Optional, Set, Union
 
-from pydantic import BaseModel, Field
+try:
+    from pydantic import BaseModel, Field
+except ModuleNotFoundError:
+    class _FieldDefault:
+        """Minimal Field replacement when pydantic is unavailable."""
+
+        def __init__(self, default: Any = None, default_factory: Any = None) -> None:
+            self.default = default
+            self.default_factory = default_factory
+
+
+    def Field(*, default: Any = None, default_factory: Any = None) -> _FieldDefault:
+        """Mirror the subset of pydantic.Field used in this module."""
+        return _FieldDefault(default=default, default_factory=default_factory)
+
+
+    class BaseModel:
+        """Minimal BaseModel replacement for lightweight import contexts."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            annotations: dict[str, Any] = {}
+            for cls in reversed(type(self).__mro__):
+                annotations.update(getattr(cls, "__annotations__", {}))
+
+            for name in annotations:
+                if name in kwargs:
+                    value = kwargs.pop(name)
+                else:
+                    default = getattr(type(self), name, None)
+                    if isinstance(default, _FieldDefault):
+                        if default.default_factory is not None:
+                            value = default.default_factory()
+                        else:
+                            value = default.default
+                    else:
+                        value = default
+                setattr(self, name, value)
+
+            for name, value in kwargs.items():
+                setattr(self, name, value)
 
 
 # Default redaction marker
