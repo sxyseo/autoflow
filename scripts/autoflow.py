@@ -44,6 +44,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import TypedDict
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -72,6 +74,162 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
+
+
+# === TypedDict Definitions for Scripts State Structures ===
+# These provide type hints for dictionary representations used throughout
+# the scripts module, particularly for JSON serialization/deserialization.
+
+
+class ReviewState(TypedDict, total=False):
+    """
+    TypedDict for review state structure.
+
+    Represents the approval and review state of a spec implementation,
+    tracking approval status, approver information, and review history.
+
+    Attributes:
+        approved: Whether the review is approved
+        approved_by: Username of the approver
+        approved_at: ISO timestamp of approval
+        spec_hash: Hash of the spec at approval time
+        review_count: Number of reviews performed
+        feedback: List of feedback comments
+        invalidated_at: ISO timestamp of invalidation
+        invalidated_reason: Reason for invalidation
+    """
+
+    approved: bool
+    approved_by: str
+    approved_at: str
+    spec_hash: str
+    review_count: int
+    feedback: list[str]
+    invalidated_at: str
+    invalidated_reason: str
+
+
+class StrategyMemoryStats(TypedDict, total=False):
+    """
+    TypedDict for strategy memory statistics.
+
+    Nested structure within StrategyMemory that tracks various metrics
+    across different dimensions like roles, results, finding categories,
+    severity levels, and files.
+
+    Attributes:
+        by_role: Counters grouped by agent role
+        by_result: Counters grouped by task result type
+        finding_categories: Counters for review finding categories
+        severity: Counters for finding severity levels
+        files: Counters for files mentioned in findings
+    """
+
+    by_role: dict[str, int]
+    by_result: dict[str, int]
+    finding_categories: dict[str, int]
+    severity: dict[str, int]
+    files: dict[str, int]
+
+
+class StrategyMemory(TypedDict, total=False):
+    """
+    TypedDict for strategy memory structure.
+
+    Represents the persistent memory store for workflow reflections,
+    planner notes, statistics, and actionable recommendations.
+
+    Attributes:
+        updated_at: ISO 8601 timestamp of last update
+        reflections: List of reflection entries from workflow reviews
+        planner_notes: List of notes added by the planner agent
+        stats: Statistics and metrics tracked across workflow runs
+        playbook: List of actionable recommendations derived from patterns
+    """
+
+    updated_at: str
+    reflections: list[dict[str, Any]]
+    planner_notes: list[dict[str, Any]]
+    stats: StrategyMemoryStats
+    playbook: list[dict[str, Any]]
+
+
+class SystemConfigMemory(TypedDict, total=False):
+    """
+    TypedDict for system memory configuration.
+
+    Memory settings in the system configuration.
+
+    Attributes:
+        enabled: Whether memory capture is enabled
+        auto_capture_run_results: Whether to automatically capture run results
+        global_file: Path to the global memory file
+        spec_dir: Path to the spec-specific memory directory
+    """
+
+    enabled: bool
+    auto_capture_run_results: bool
+    global_file: str
+    spec_dir: str
+
+
+class SystemConfigModels(TypedDict, total=False):
+    """
+    TypedDict for system models configuration.
+
+    Model profile configurations for different task types.
+
+    Attributes:
+        profiles: Dictionary mapping profile names to model identifiers
+    """
+
+    profiles: dict[str, str]
+
+
+class SystemConfigTools(TypedDict, total=False):
+    """
+    TypedDict for system tools configuration.
+
+    Tool profile configurations for different agent types.
+
+    Attributes:
+        profiles: Dictionary mapping profile names to allowed tool lists
+    """
+
+    profiles: dict[str, list[str]]
+
+
+class SystemConfigRegistry(TypedDict, total=False):
+    """
+    TypedDict for system registry configuration.
+
+    Registry settings for agent discovery and configuration.
+
+    Attributes:
+        acp_agents: List of discovered ACP agents
+    """
+
+    acp_agents: list[dict[str, Any]]
+
+
+class SystemConfig(TypedDict, total=False):
+    """
+    TypedDict for system configuration structure.
+
+    Represents the complete system configuration including memory settings,
+    model profiles, tool configurations, and registry settings.
+
+    Attributes:
+        memory: Memory configuration settings
+        models: Model profile configurations
+        tools: Tool profile configurations
+        registry: Registry settings including agent discovery
+    """
+
+    memory: SystemConfigMemory
+    models: SystemConfigModels
+    tools: SystemConfigTools
+    registry: SystemConfigRegistry
 
 
 def now_utc() -> datetime:
