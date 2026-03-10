@@ -42,6 +42,10 @@ VALID_TASK_STATUSES = {
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
 
+# Module-level cache for prompt context to avoid repeated I/O
+# Format: {cache_key: {"data": Any, "mtime": float}}
+_prompt_context_cache: dict[str, dict[str, Any]] = {}
+
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
