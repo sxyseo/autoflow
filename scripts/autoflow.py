@@ -42,6 +42,10 @@ VALID_TASK_STATUSES = {
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
 
+# Cache for file hashes and modification times to avoid redundant computations
+_file_hash_cache: dict[Path, str] = {}
+_file_mtime_cache: dict[Path, float] = {}
+
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
@@ -62,6 +66,13 @@ def slugify(value: str) -> str:
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug or "spec"
+
+
+def get_file_mtime(path: Path) -> float:
+    """Get file modification time, or 0 if file doesn't exist."""
+    if not path.exists():
+        return 0.0
+    return path.stat().st_mtime
 
 
 def write_json(path: Path, data: Any) -> None:
