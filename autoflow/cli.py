@@ -32,6 +32,17 @@ from autoflow import __version__
 from autoflow.analytics.cli import analytics
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
+from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
+from autoflow.skills.validation import SkillValidator, ValidationResult
+from autoflow.skills.templates import TemplateLoader, TemplateCategory
+from autoflow.skills.sharing import (
+    SkillPackager,
+    SkillImporter,
+    SkillPackage,
+    PackageFormat,
+    ImportConflictResolution,
+    PackageError,
+)
 from autoflow.collaboration.team import TeamManager
 from autoflow.collaboration.workspace import WorkspaceManager
 from autoflow.collaboration.models import RoleType
@@ -712,6 +723,671 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
 
     click.echo(f"Error: Skill '{name}' not found.", err=True)
     ctx.exit(1)
+
+
+@skill.command("create")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    default=None,
+    help="Skill name in UPPER_SNAKE_CASE (e.g., MY_CUSTOM_SKILL). If not provided, enters interactive mode.",
+)
+@click.option(
+    "--template",
+    "-t",
+    type=str,
+    default=None,
+    help="Template to use (e.g., planner, implementer, reviewer).",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output directory for the skill.",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite existing skill directory.",
+)
+@click.option(
+    "--variable",
+    "-v",
+    type=str,
+    multiple=True,
+    help="Template variables as key=value pairs. Can be used multiple times.",
+)
+@click.pass_context
+def skill_create(
+    ctx: click.Context,
+    name: Optional[str],
+    template: Optional[str],
+    output_dir: Optional[Path],
+    overwrite: bool,
+    variable: tuple[str, ...],
+) -> None:
+    """
+    Create a new custom skill.
+
+    Creates a new skill from a template. Can run interactively or with explicit parameters.
+
+    \b
+    Interactive mode:
+        autoflow skill create
+
+    \b
+    Non-interactive mode:
+        autoflow skill create --name MY_SKILL --template implementer
+        autoflow skill create -n MY_SKILL -t reviewer -o ./skills --overwrite
+
+    \b
+    With template variables:
+        autoflow skill create --name MY_SKILL --template implementer \\
+            --variable description="My custom skill" \\
+            --variable version="1.0.0"
+    """
+    config: Config = ctx.obj["config"]
+
+    # Parse variables
+    variables = {}
+    for var in variable:
+        if "=" not in var:
+            click.echo(f"Error: Invalid variable format '{var}'. Use key=value", err=True)
+            ctx.exit(1)
+        key, value = var.split("=", 1)
+        variables[key] = value
+
+    # Create builder config
+    builder_config = BuilderConfig(
+        output_dir=str(output_dir) if output_dir else "skills",
+        overwrite=overwrite,
+        use_defaults=False,
+    )
+
+    builder = SkillBuilder(config=builder_config)
+
+    try:
+        if name is None:
+            # Interactive mode
+            if ctx.obj["output_json"]:
+                click.echo("Error: JSON output not supported in interactive mode", err=True)
+                ctx.exit(1)
+
+            if variable:
+                click.echo("Warning: --variable options are ignored in interactive mode", err=True)
+
+            skill_path = builder.build_interactive(output_dir=output_dir)
+        else:
+            # Non-interactive mode
+            if template is None:
+                click.echo("Error: --template is required in non-interactive mode", err=True)
+                ctx.exit(1)
+
+            skill_path = builder.build(
+                name=name,
+                template=template,
+                variables=variables,
+                output_dir=output_dir,
+            )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "created",
+                "name": name,
+                "path": str(skill_path),
+                "template": template,
+            })
+        else:
+            click.echo(f"\n✓ Skill created successfully!")
+            click.echo(f"  Name: {name if name else skill_path.name}")
+            click.echo(f"  Path: {skill_path}")
+            click.echo(f"  Template: {template if template else 'interactive'}")
+            click.echo(f"\nNext steps:")
+            click.echo(f"  1. Review the skill at: {skill_path}/SKILL.md")
+            click.echo(f"  2. Test the skill: autoflow skill run {name if name else skill_path.name}")
+            click.echo(f"  3. Validate: autoflow skill validate {name if name else skill_path.name}")
+
+    except SkillBuilderError as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+    except Exception as e:
+        if ctx.obj["verbose"]:
+            import traceback
+            traceback.print_exc()
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+
+
+@skill.command("validate")
+@click.argument("name", type=str)
+@click.option(
+    "--skills-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Directory containing skill definitions.",
+)
+@click.option(
+    "--strict",
+    "-s",
+    is_flag=True,
+    help="Treat warnings as errors.",
+)
+@click.pass_context
+def skill_validate(
+    ctx: click.Context,
+    name: str,
+    skills_dir: Optional[Path],
+    strict: bool,
+) -> None:
+    """
+    Validate a skill definition.
+
+    Checks a skill for proper structure, required sections, and formatting issues.
+
+    \b
+    Examples:
+        autoflow skill validate MY_SKILL
+        autoflow skill validate MY_SKILL --strict
+        autoflow skill validate MY_SKILL --skills-dir ./custom-skills
+    """
+    config: Config = ctx.obj["config"]
+
+    # Determine skills directories
+    skill_dirs = []
+    if skills_dir:
+        skill_dirs.append(skills_dir)
+    skill_dirs.extend(config.openclaw.extra_dirs)
+
+    # Find the skill
+    skill_path = None
+    for skill_dir in skill_dirs:
+        potential_path = Path(skill_dir).expanduser() / name / "SKILL.md"
+        if potential_path.exists():
+            skill_path = potential_path
+            break
+
+    if not skill_path:
+        click.echo(f"Error: Skill '{name}' not found.", err=True)
+        click.echo(f"Searched directories: {', '.join(str(d) for d in skill_dirs)}", err=True)
+        ctx.exit(1)
+
+    # Read skill content
+    try:
+        content = skill_path.read_text(encoding="utf-8")
+    except Exception as e:
+        click.echo(f"Error reading skill file: {e}", err=True)
+        ctx.exit(1)
+
+    # Validate the skill
+    validator = SkillValidator()
+
+    # Run both content and structure validation
+    content_result = validator.validate_content(content)
+    structure_result = validator.validate_structure(content)
+
+    # Combine results
+    all_errors = content_result.errors.copy()
+    all_errors.extend(structure_result.errors)
+    all_warnings = content_result.warnings.copy()
+    all_warnings.extend(structure_result.warnings)
+
+    # Determine overall validity
+    is_valid = len(all_errors) == 0 and (not strict or len(all_warnings) == 0)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "skill": name,
+            "path": str(skill_path),
+            "valid": is_valid,
+            "errors": [
+                {
+                    "message": e.message,
+                    "severity": e.severity.value,
+                    "section": e.section,
+                    "line": e.line_number,
+                }
+                for e in all_errors
+            ],
+            "warnings": [
+                {
+                    "message": w.message,
+                    "severity": w.severity.value,
+                    "section": w.section,
+                    "line": w.line_number,
+                }
+                for w in all_warnings
+            ],
+            "sections": {
+                "present": content_result.present_sections,
+                "missing": content_result.missing_sections,
+            },
+        })
+        return
+
+    # Human-readable output
+    click.echo(f"Validating skill: {name}")
+    click.echo(f"Path: {skill_path}")
+    click.echo("=" * 60)
+
+    if is_valid and len(all_warnings) == 0:
+        click.echo("\n✓ Skill is valid!\n")
+    elif is_valid and len(all_warnings) > 0:
+        click.echo(f"\n⚠ Skill is valid with {len(all_warnings)} warning(s)\n")
+    else:
+        click.echo(f"\n✗ Skill validation failed\n")
+
+    # Show sections
+    click.echo("Sections:")
+    click.echo(f"  Present: {', '.join(content_result.present_sections) or 'None'}")
+    if content_result.missing_sections:
+        click.echo(f"  Missing: {', '.join(content_result.missing_sections)}")
+    click.echo("")
+
+    # Show errors
+    if all_errors:
+        click.echo(f"Errors ({len(all_errors)}):")
+        for error in all_errors:
+            click.echo(f"  ✗ {error}")
+        click.echo("")
+
+    # Show warnings
+    if all_warnings:
+        click.echo(f"Warnings ({len(all_warnings)}):")
+        for warning in all_warnings:
+            click.echo(f"  ⚠ {warning}")
+        click.echo("")
+
+    # Exit with error code if validation failed
+    if not is_valid:
+        ctx.exit(1)
+
+
+@skill.group()
+def template() -> None:
+    """Manage skill templates."""
+    pass
+
+
+@template.command("list")
+@click.option(
+    "--category",
+    "-c",
+    type=click.Choice([c.value for c in TemplateCategory]),
+    default=None,
+    help="Filter by template category.",
+)
+@click.pass_context
+def skill_template_list(ctx: click.Context, category: Optional[str]) -> None:
+    """
+    List available skill templates.
+
+    Shows all templates available for creating new skills.
+    Can be filtered by category.
+
+    \b
+    Examples:
+        autoflow skill template list
+        autoflow skill template list --category workflow
+        autoflow skill template list -c planning
+    """
+    loader = TemplateLoader()
+
+    # Filter by category if specified
+    category_enum = TemplateCategory(category) if category else None
+    templates = loader.list_templates(category=category_enum)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "templates": [
+                {
+                    "name": t.name,
+                    "display_name": t.display_name,
+                    "description": t.description,
+                    "category": t.category.value,
+                    "variables": t.get_required_variables(),
+                }
+                for t in templates
+            ],
+            "count": len(templates),
+        })
+        return
+
+    click.echo("Available Templates")
+    click.echo("=" * 60)
+
+    if not templates:
+        if category:
+            click.echo(f"No templates found in category '{category}'.")
+        else:
+            click.echo("No templates found.")
+        return
+
+    # Group by category
+    categories = {}
+    for template in templates:
+        if template.category not in categories:
+            categories[template.category] = []
+        categories[template.category].append(template)
+
+    # Display by category
+    for cat in sorted(categories.keys(), key=lambda c: c.value):
+        click.echo(f"\n{cat.value.upper()}")
+        for template in categories[cat]:
+            click.echo(f"  {template.name:12} - {template.display_name}")
+            click.echo(f"                {template.description}")
+
+
+@template.command("show")
+@click.argument("name", type=str)
+@click.pass_context
+def skill_template_show(ctx: click.Context, name: str) -> None:
+    """
+    Show details of a specific template.
+
+    Displays the full template definition including variables and content structure.
+
+    \b
+    Examples:
+        autoflow skill template show planner
+        autoflow skill template show implementer
+        autoflow skill template show reviewer
+    """
+    loader = TemplateLoader()
+    template = loader.get_template(name)
+
+    if not template:
+        click.echo(f"Error: Template '{name}' not found.", err=True)
+        click.echo("Run 'autoflow skill template list' to see available templates.", err=True)
+        ctx.exit(1)
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "name": template.name,
+            "display_name": template.display_name,
+            "description": template.description,
+            "category": template.category.value,
+            "variables": template.get_required_variables(),
+            "content": template.content,
+            "metadata_template": template.metadata_template,
+        })
+        return
+
+    click.echo(f"Template: {template.display_name}")
+    click.echo(f"Name: {template.name}")
+    click.echo(f"Category: {template.category.value}")
+    click.echo("=" * 60)
+    click.echo(f"\nDescription:\n  {template.description}")
+
+    variables = template.get_required_variables()
+    click.echo(f"\nRequired Variables:")
+    if variables:
+        for var in variables:
+            click.echo(f"  - {var}")
+    else:
+        click.echo("  (None)")
+
+    click.echo(f"\nContent Preview:")
+    click.echo("-" * 60)
+    # Show first 20 lines of content
+    lines = template.content.split("\n")[:20]
+    click.echo("\n".join(lines))
+    if len(template.content.split("\n")) > 20:
+        click.echo("\n... (content truncated)")
+
+
+@skill.command("export")
+@click.argument("name", type=str)
+@click.option(
+    "--output",
+    "-o",
+    "output_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output path for the package (default: <name>-<version>.tar.gz).",
+)
+@click.option(
+    "--format",
+    "-f",
+    "package_format",
+    type=click.Choice([f.value for f in PackageFormat]),
+    default=PackageFormat.TAR_GZ.value,
+    help="Package format.",
+)
+@click.option(
+    "--version",
+    "-v",
+    type=str,
+    default=None,
+    help="Package version (default: version from skill metadata).",
+)
+@click.option(
+    "--description",
+    "-d",
+    type=str,
+    default=None,
+    help="Package description.",
+)
+@click.option(
+    "--skills-dir",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Directory containing skill definitions.",
+)
+@click.pass_context
+def skill_export(
+    ctx: click.Context,
+    name: str,
+    output_path: Optional[Path],
+    package_format: str,
+    version: Optional[str],
+    description: Optional[str],
+    skills_dir: Optional[Path],
+) -> None:
+    """
+    Export a skill to a distributable package.
+
+    Creates a distributable package containing the skill definition and metadata.
+    Packages can be shared across teams and projects.
+
+    \b
+    Examples:
+        autoflow skill export MY_SKILL
+        autoflow skill export MY_SKILL -o my-skill.tar.gz
+        autoflow skill export MY_SKILL -f dir -o ./dist/
+        autoflow skill export MY_SKILL -v 1.0.0 -d "My custom skill"
+    """
+    config: Config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
+
+    # Determine skills directory
+    if skills_dir is None:
+        skills_dir = config.skills_dir
+
+    try:
+        # Initialize packager with registry
+        from autoflow.skills.registry import SkillRegistry
+
+        registry = SkillRegistry([skills_dir], auto_load=True)
+        packager = SkillPackager(registry)
+
+        # Generate default output path if not specified
+        if output_path is None:
+            skill = registry.get_skill(name)
+            if not skill:
+                click.echo(f"Error: Skill '{name}' not found.", err=True)
+                ctx.exit(1)
+
+            skill_version = version or skill.metadata.version or "1.0.0"
+            extension = f".{package_format}" if package_format != "dir" else ""
+            output_path = Path(f"{name.lower()}-{skill_version}{extension}")
+
+        # Export the skill
+        package = packager.export_skill(
+            skill_name=name,
+            output_path=output_path,
+            format=PackageFormat(package_format),
+            version=version,
+            description=description,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "exported",
+                "skill": name,
+                "package": str(package.path),
+                "format": package.format.value,
+                "version": package.metadata.version,
+                "size": package.size,
+            })
+        else:
+            click.echo(f"✓ Skill exported successfully")
+            click.echo(f"  Name: {name}")
+            click.echo(f"  Package: {package.path}")
+            click.echo(f"  Format: {package.format.value}")
+            click.echo(f"  Version: {package.metadata.version}")
+            if package.size > 0:
+                click.echo(f"  Size: {package.size:,} bytes")
+
+    except PackageError as e:
+        click.echo(f"Error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+
+
+@skill.command("import")
+@click.argument("package", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--target-dir",
+    "-t",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Target directory for imported skills (default: configured skills directory).",
+)
+@click.option(
+    "--conflict-resolution",
+    "-c",
+    "conflict_resolution",
+    type=click.Choice([r.value for r in ImportConflictResolution]),
+    default=ImportConflictResolution.ERROR.value,
+    help="Strategy for handling version conflicts.",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Overwrite existing skills without prompting.",
+)
+@click.pass_context
+def skill_import(
+    ctx: click.Context,
+    package: Path,
+    target_dir: Optional[Path],
+    conflict_resolution: str,
+    force: bool,
+) -> None:
+    """
+    Import a skill package.
+
+    Imports a previously exported skill package into the skills directory.
+    Handles version conflicts based on the specified resolution strategy.
+
+    \b
+    Examples:
+        autoflow skill import my-skill-1.0.0.tar.gz
+        autoflow skill import my-skill-1.0.0.tar.gz -t ./custom-skills/
+        autoflow skill import my-skill.tar.gz -c overwrite
+        autoflow skill import ./my-skill-dir/ -f
+    """
+    config: Config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
+
+    # Determine target directory
+    if target_dir is None:
+        target_dir = config.skills_dir
+
+    try:
+        # Initialize importer
+        from autoflow.skills.registry import SkillRegistry
+
+        registry = SkillRegistry([target_dir], auto_load=True)
+        importer = SkillImporter()
+
+        # Import the package
+        result = importer.import_package(
+            package_path=package,
+            target_dir=target_dir,
+            conflict_resolution=ImportConflictResolution(conflict_resolution),
+            registry=registry,
+        )
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "imported",
+                "imported": result.imported,
+                "skipped": result.skipped,
+                "conflicts": result.conflicts,
+                "errors": result.errors,
+                "backup_paths": {str(k): str(v) for k, v in result.backup_paths.items()},
+            })
+        else:
+            click.echo(f"✓ Package imported successfully")
+            click.echo(f"  Package: {package}")
+
+            if result.imported:
+                click.echo(f"\nImported Skills:")
+                for skill_name in result.imported:
+                    click.echo(f"  ✓ {skill_name}")
+
+            if result.skipped:
+                click.echo(f"\nSkipped Skills:")
+                for skill_name in result.skipped:
+                    click.echo(f"  ⊘ {skill_name}")
+
+            if result.conflicts:
+                click.echo(f"\nConflicts:")
+                for skill_name in result.conflicts:
+                    click.echo(f"  ⚠ {skill_name}")
+
+            if result.backup_paths:
+                click.echo(f"\nBackups Created:")
+                for skill_name, backup_path in result.backup_paths.items():
+                    click.echo(f"  • {skill_name}: {backup_path}")
+
+    except PackageError as e:
+        click.echo(f"Error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        if verbose:
+            import traceback
+            click.echo(traceback.format_exc(), err=True)
+        ctx.exit(1)
 
 
 # === Task Commands ===
