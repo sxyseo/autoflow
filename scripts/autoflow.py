@@ -2532,6 +2532,27 @@ def invalidate_agents_cache() -> None:
     _agents_config_cache = None
 
 
+def invalidate_config_cache() -> None:
+    """Invalidate all configuration caches.
+
+    Call this function whenever any configuration is modified to ensure
+    all caches remain consistent with the filesystem state. This is a
+    comprehensive invalidation that clears both system and agents caches.
+
+    Cache Invalidation Strategy:
+        - Comprehensive: clears all config-related caches
+        - Safe: ensures cache consistency after any config modification
+        - Lazy: data is reloaded on next access (not immediately)
+        - Called by: commands that modify system or agents configuration
+
+    Note: Configuration modifications are rare (e.g., init-system-config,
+    sync-agents), so aggressive invalidation is acceptable. The caches will
+    be repopulated on the next access.
+    """
+    invalidate_system_config_cache()
+    invalidate_agents_cache()
+
+
 def _populate_tasks_cache(spec_slug: str) -> None:
     """Load task metadata for a specific spec_slug into the cache.
 
