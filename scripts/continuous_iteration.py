@@ -5,13 +5,112 @@ import argparse
 import json
 import shlex
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Optional
 
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
+
+
+class CommandExecutionError(Exception):
+    """
+    Exception raised for command execution errors.
+
+    Attributes:
+        message: Error message
+        exit_code: Command exit code
+        command: Command that failed
+        spec: Spec slug being processed
+    """
+
+    def __init__(
+        self,
+        message: str,
+        exit_code: Optional[int] = None,
+        command: Optional[str] = None,
+        spec: Optional[str] = None,
+    ):
+        self.message = message
+        self.exit_code = exit_code
+        self.command = command
+        self.spec = spec
+        super().__init__(message)
+
+
+class InvalidCommandError(Exception):
+    """
+    Exception raised for invalid command strings.
+
+    Attributes:
+        message: Error message
+        command: Invalid command string
+        reason: Specific reason for invalidity
+    """
+
+    def __init__(
+        self,
+        message: str,
+        command: Optional[str] = None,
+        reason: Optional[str] = None,
+    ):
+        self.message = message
+        self.command = command
+        self.reason = reason
+        super().__init__(message)
+
+
+@dataclass
+class CommandResult:
+    """
+    Result of a command execution.
+
+    Attributes:
+        command: The command string that was executed
+        success: Whether the command succeeded (exit code 0)
+        exit_code: Process exit code
+        stdout: Standard output (stripped)
+        stderr: Standard error output (stripped)
+        error: Error message if execution failed
+    """
+
+    command: str
+    success: bool = False
+    exit_code: int = 0
+    stdout: str = ""
+    stderr: str = ""
+    error: Optional[str] = None
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        status = "✓" if self.success else "✗"
+        return f"{status} {self.command} (exit={self.exit_code})"
+
+
+@dataclass
+class VerifyCommandsResult:
+    """
+    Result of running verification commands.
+
+    Attributes:
+        commands_run: Number of commands executed
+        all_success: Whether all commands succeeded
+        results: List of individual command results
+        stopped_at: Index of command where execution stopped (if failed early)
+    """
+
+    commands_run: int = 0
+    all_success: bool = True
+    results: list[CommandResult] = None
+    stopped_at: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        """Initialize results if not provided."""
+        if self.results is None:
+            self.results = []
 
 
 def validate_slug_safe(slug: str) -> bool:
@@ -84,40 +183,213 @@ def git_branch() -> str:
     return result.stdout.strip()
 
 
-def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
+def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
+    """
+    Run verification commands with proper error handling.
+
+    Executes a list of commands in sequence, stopping at the first failure.
+    Commands support a {spec} placeholder that is replaced with the spec slug.
+
+    Args:
+        commands: List of command templates (may contain {spec} placeholder)
+        spec: Spec slug to substitute into commands
+
+    Returns:
+        VerifyCommandsResult containing execution results for all commands
+
+    Raises:
+        InvalidCommandError: If a command template is invalid or cannot be parsed
+        CommandExecutionError: If a critical system error occurs during execution
+
+    Example:
+        >>> result = run_verify_commands(["pytest tests/", "flake8 src/"], "my-spec")
+        >>> if result.all_success:
+        ...     print("All checks passed")
+        >>> else:
+        ...     for cmd_result in result.results:
+        ...         if not cmd_result.success:
+        ...             print(f"Failed: {cmd_result.command}")
+        ...             print(f"Error: {cmd_result.stderr}")
+    """
+    if not commands:
+        return VerifyCommandsResult(commands_run=0, all_success=True, results=[])
+
     results = []
-    for command in commands:
-        rendered = command.replace("{spec}", spec)
-        cmd_list = shlex.split(rendered)
-        proc = subprocess.run(
-            cmd_list,
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-        )
-        results.append(
-            {
-                "command": rendered,
-                "returncode": proc.returncode,
-                "stdout": proc.stdout.strip(),
-                "stderr": proc.stderr.strip(),
-            }
-        )
-        if proc.returncode != 0:
-            break
-    return results
+    for idx, command in enumerate(commands):
+        try:
+            # Render the command template
+            rendered = command.replace("{spec}", spec)
+
+            # Validate command before parsing
+            if not rendered or not rendered.strip():
+                raise InvalidCommandError(
+                    message="Empty command after rendering",
+                    command=command,
+                    reason="Command resulted in empty string after spec substitution",
+                )
+
+            # Parse command using shlex for proper shell-like splitting
+            try:
+                cmd_list = shlex.split(rendered)
+            except ValueError as e:
+                raise InvalidCommandError(
+                    message=f"Failed to parse command: {e}",
+                    command=rendered,
+                    reason=str(e),
+                )
+
+            # Validate command list is not empty
+            if not cmd_list:
+                raise InvalidCommandError(
+                    message="Command parsed to empty list",
+                    command=rendered,
+                    reason="shlex.split produced no arguments",
+                )
+
+            # Execute the command
+            try:
+                proc = subprocess.run(
+                    cmd_list,
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    timeout=300,  # 5 minute timeout per command
+                )
+            except subprocess.TimeoutExpired as e:
+                # Command timed out - treat as failure but continue
+                cmd_result = CommandResult(
+                    command=rendered,
+                    success=False,
+                    exit_code=-1,
+                    stdout="",
+                    stderr=f"Command timed out after 300 seconds",
+                    error="timeout",
+                )
+                results.append(cmd_result)
+                return VerifyCommandsResult(
+                    commands_run=idx + 1,
+                    all_success=False,
+                    results=results,
+                    stopped_at=idx,
+                )
+            except FileNotFoundError as e:
+                # Command executable not found - critical error
+                raise CommandExecutionError(
+                    message=f"Command not found: {cmd_list[0]}",
+                    exit_code=None,
+                    command=rendered,
+                    spec=spec,
+                ) from e
+            except Exception as e:
+                # Unexpected subprocess error
+                raise CommandExecutionError(
+                    message=f"Unexpected error executing command: {e}",
+                    exit_code=None,
+                    command=rendered,
+                    spec=spec,
+                ) from e
+
+            # Build result object
+            cmd_result = CommandResult(
+                command=rendered,
+                success=(proc.returncode == 0),
+                exit_code=proc.returncode,
+                stdout=proc.stdout.strip(),
+                stderr=proc.stderr.strip(),
+                error=None if proc.returncode == 0 else proc.stderr.strip(),
+            )
+            results.append(cmd_result)
+
+            # Stop on first failure
+            if proc.returncode != 0:
+                return VerifyCommandsResult(
+                    commands_run=idx + 1,
+                    all_success=False,
+                    results=results,
+                    stopped_at=idx,
+                )
+
+        except (InvalidCommandError, CommandExecutionError):
+            # Re-raise custom exceptions as-is
+            raise
+        except Exception as e:
+            # Catch any other unexpected errors and wrap them
+            raise CommandExecutionError(
+                message=f"Unexpected error during verification: {e}",
+                command=command if 'command' in locals() else None,
+                spec=spec,
+            ) from e
+
+    return VerifyCommandsResult(
+        commands_run=len(results),
+        all_success=True,
+        results=results,
+        stopped_at=None,
+    )
 
 
 def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
+    """
+    Attempt to commit and push changes with verification.
+
+    Args:
+        config: Continuous iteration configuration
+        spec: Spec slug being processed
+        push: Whether to push commits to remote
+        state: Current workflow state
+
+    Returns:
+        dict with commit status, push status, and verification results
+
+    Raises:
+        InvalidCommandError: If verification commands are invalid
+        CommandExecutionError: If critical errors occur during verification
+    """
     commit_cfg = config.get("commit", {})
     if state.get("active_runs") and not commit_cfg.get("allow_during_active_runs", False):
         return {"committed": False, "reason": "active_run_exists"}
+
     verify_commands = config.get("verify_commands", [])
-    verify_results = run_verify_commands(verify_commands, spec) if verify_commands else []
-    if any(item["returncode"] != 0 for item in verify_results):
-        return {"committed": False, "reason": "verification_failed", "verification": verify_results}
+    verify_results = run_verify_commands(verify_commands, spec) if verify_commands else VerifyCommandsResult(commands_run=0, all_success=True, results=[])
+
+    if not verify_results.all_success:
+        # Convert CommandResult objects to dicts for JSON serialization
+        verification_dict = [
+            {
+                "command": r.command,
+                "success": r.success,
+                "exit_code": r.exit_code,
+                "stdout": r.stdout,
+                "stderr": r.stderr,
+                "error": r.error,
+            }
+            for r in verify_results.results
+        ]
+        return {
+            "committed": False,
+            "reason": "verification_failed",
+            "verification": verification_dict,
+        }
+
     if not git_dirty():
-        return {"committed": False, "reason": "clean_worktree", "verification": verify_results}
+        # Convert to dicts even for clean worktree
+        verification_dict = [
+            {
+                "command": r.command,
+                "success": r.success,
+                "exit_code": r.exit_code,
+                "stdout": r.stdout,
+                "stderr": r.stderr,
+                "error": r.error,
+            }
+            for r in verify_results.results
+        ]
+        return {
+            "committed": False,
+            "reason": "clean_worktree",
+            "verification": verification_dict,
+        }
+
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     message_prefix = commit_cfg.get("message_prefix", "autoflow")
     message = f"{message_prefix}: {spec} iteration @ {timestamp}"
@@ -127,11 +399,25 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     if push or commit_cfg.get("push", False):
         run(["git", "push", "origin", git_branch()])
         pushed = True
+
+    # Convert to dicts for successful commit
+    verification_dict = [
+        {
+            "command": r.command,
+            "success": r.success,
+            "exit_code": r.exit_code,
+            "stdout": r.stdout,
+            "stderr": r.stderr,
+            "error": r.error,
+        }
+        for r in verify_results.results
+    ]
+
     return {
         "committed": True,
         "pushed": pushed,
         "message": message,
-        "verification": verify_results,
+        "verification": verification_dict,
     }
 
 

