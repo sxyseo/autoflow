@@ -744,7 +744,7 @@ class SyncManager:
                 return
 
             data = self.state.read_json(mappings_file, default={})
-            mappings_data = data.get("mappings", {})
+            mappings_data = (data or {}).get("mappings", {})
 
             self._mappings = {}
             for task_id, mapping_data in mappings_data.items():

@@ -88,7 +88,7 @@ class QAFinding:
     context: Optional[str] = None
     rule_id: Optional[str] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert finding to dictionary for JSON serialization."""
         return {
             "file": self.file,
@@ -148,7 +148,7 @@ class QAFindingReport:
     timestamp: str = ""
     source: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert report to dictionary for JSON serialization."""
         return {
             "findings": [f.to_dict() for f in self.findings],

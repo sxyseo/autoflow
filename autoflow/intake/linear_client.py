@@ -261,7 +261,7 @@ class LinearClient(IssueClient):
             return result
 
         # Extract issue data from GraphQL response
-        issue_data = result.data.get("data", {}).get("issue")
+        issue_data = (result.data or {}).get("data", {}).get("issue")
 
         if not issue_data:
             return IssueResult.from_error(
@@ -396,7 +396,7 @@ class LinearClient(IssueClient):
             return result
 
         # Extract issues from GraphQL response
-        issues_data = result.data.get("data", {}).get("issues", {})
+        issues_data = (result.data or {}).get("data", {}).get("issues", {})
         issues = issues_data.get("nodes", [])
         page_info = issues_data.get("pageInfo", {})
 
@@ -468,7 +468,7 @@ class LinearClient(IssueClient):
 
         # Extract comment data from response
         comment_data = (
-            result.data
+            (result.data or {})
             .get("data", {})
             .get("commentCreate", {})
         )
@@ -551,7 +551,7 @@ class LinearClient(IssueClient):
 
         # Find the state ID for the desired state type
         team_states = (
-            query_result.data
+            (query_result.data or {})
             .get("data", {})
             .get("issue", {})
             .get("team", {})
@@ -606,7 +606,7 @@ class LinearClient(IssueClient):
 
         # Extract updated issue data
         update_data = (
-            result.data
+            (result.data or {})
             .get("data", {})
             .get("issueUpdate", {})
         )
@@ -765,7 +765,7 @@ class LinearClient(IssueClient):
 
         # Extract comments from response
         comments = (
-            result.data
+            (result.data or {})
             .get("data", {})
             .get("issue", {})
             .get("comments", {})
@@ -810,7 +810,7 @@ class LinearClient(IssueClient):
         if not fetch_result.success:
             return fetch_result
 
-        issue_data = fetch_result.data.get("issue", {})
+        issue_data = (fetch_result.data or {}).get("issue", {})
         team_id = issue_data.get("team", {}).get("id")
 
         if not team_id:
@@ -841,7 +841,7 @@ class LinearClient(IssueClient):
 
         # Build a map of label names to IDs
         team_labels = (
-            query_result.data
+            (query_result.data or {})
             .get("data", {})
             .get("team", {})
             .get("labels", {})
@@ -903,7 +903,7 @@ class LinearClient(IssueClient):
             return result
 
         update_data = (
-            result.data
+            (result.data or {})
             .get("data", {})
             .get("issueUpdate", {})
         )
@@ -952,7 +952,7 @@ class LinearClient(IssueClient):
         if not fetch_result.success:
             return fetch_result
 
-        issue_data = fetch_result.data.get("issue", {})
+        issue_data = (fetch_result.data or {}).get("issue", {})
         team_id = issue_data.get("team", {}).get("id")
 
         if not team_id:
@@ -982,7 +982,7 @@ class LinearClient(IssueClient):
             return query_result
 
         team_labels = (
-            query_result.data
+            (query_result.data or {})
             .get("data", {})
             .get("team", {})
             .get("labels", {})
@@ -1029,7 +1029,7 @@ class LinearClient(IssueClient):
             return result
 
         update_data = (
-            result.data
+            (result.data or {})
             .get("data", {})
             .get("issueUpdate", {})
         )

@@ -54,6 +54,11 @@ class MetadataDict(TypedDict, total=False):
     version: str
 
 
+def _empty_metadata() -> MetadataDict:
+    """Return empty metadata dict."""
+    return {}
+
+
 class ArtifactType(str, Enum):
     """Types of artifacts that can be required."""
 
@@ -90,7 +95,7 @@ class ArtifactSpec:
     required: bool = True
     description: str = ""
     content_check: Optional[str] = None
-    metadata: MetadataDict = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
 
     def exists(self, root: Optional[Union[Path, str]] = None) -> bool:
         """
@@ -250,7 +255,7 @@ class ArtifactCollection:
 
     artifacts: list[ArtifactSpec] = field(default_factory=list)
     name: str = ""
-    metadata: MetadataDict = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
 
     def add_artifact(self, artifact: ArtifactSpec) -> None:
         """

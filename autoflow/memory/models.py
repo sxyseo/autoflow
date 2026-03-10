@@ -91,6 +91,11 @@ class MetadataDict(TypedDict, total=False):
     priority: int
 
 
+def _empty_metadata() -> MetadataDict:
+    """Return empty metadata dict."""
+    return {}
+
+
 class MemoryData(TypedDict, total=False):
     """
     TypedDict for memory data structure.
@@ -231,7 +236,7 @@ class EnhancedMemory(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: Optional[datetime] = None
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
     source: str = "manual"
     confidence: float = 1.0
@@ -442,7 +447,7 @@ class Pattern(BaseModel):
     reinforcement: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -546,7 +551,7 @@ class Convention(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -638,7 +643,7 @@ class ConsolidationRecord(BaseModel):
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     error: Optional[str] = None
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
 
     def start(self) -> None:
         """Mark consolidation as started."""

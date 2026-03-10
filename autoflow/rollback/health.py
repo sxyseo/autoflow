@@ -54,7 +54,7 @@ class HealthCheck:
         severity: HealthStatus,
         timeout: int = 120,
         cwd: Path | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Run a verification command and categorize the result.
 
         Args:
@@ -113,9 +113,9 @@ class HealthCheck:
 
     def run_checks(
         self,
-        checks: list[dict],
+        checks: list[dict[str, Any]],
         timeout: int = 120,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Run multiple health checks and aggregate results.
 
         Args:

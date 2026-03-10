@@ -55,7 +55,7 @@ class VerificationResult:
     timestamp: str = ""
     duration_seconds: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary for JSON serialization."""
         return {
             "success": self.success,
@@ -129,7 +129,7 @@ class VerificationConfig:
     work_dir: str = "."
     config_path: Optional[str] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return asdict(self)
 

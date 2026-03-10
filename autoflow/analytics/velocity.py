@@ -69,7 +69,7 @@ class TaskRecord:
     lead_time: float | None = None
     task_type: str | None = None
     complexity: int | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -201,7 +201,7 @@ class VelocityTracker:
         task_id: str,
         task_type: str | None = None,
         complexity: int | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         created_at: datetime | None = None,
     ) -> None:
         """Record the creation of a new task.
@@ -911,7 +911,7 @@ class VelocityTracker:
 
         return None
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """Get current tracking statistics.
 
         Returns:

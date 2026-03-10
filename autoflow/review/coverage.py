@@ -205,7 +205,7 @@ class CoverageReport:
     files: Dict[str, float] = field(default_factory=dict)
     timestamp: str = field(default_factory="")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert report to dictionary for JSON serialization."""
         return {
             "total": self.total,

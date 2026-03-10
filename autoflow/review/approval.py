@@ -40,7 +40,7 @@ class ApprovalToken:
     git_commit: Optional[str] = None
     metadata: Dict = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert token to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -88,7 +88,7 @@ class ApprovalGateConfig:
     token_expiry_hours: int = 24
     token_path: str = ".autoflow/approval_token.json"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return asdict(self)
 

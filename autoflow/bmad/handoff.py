@@ -60,6 +60,11 @@ class MetadataDict(TypedDict, total=False):
     priority: int
 
 
+def _empty_metadata() -> MetadataDict:
+    """Return empty metadata dict."""
+    return {}
+
+
 class HandoffStatus(str, Enum):
     """Status of a role handoff."""
 
@@ -86,7 +91,7 @@ class HandoffContext:
 
     task_description: str = ""
     artifacts: ArtifactCollection = field(default_factory=ArtifactCollection)
-    metadata: MetadataDict = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,7 +175,7 @@ class Handoff:
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     validation_errors: list[str] = field(default_factory=list)
-    metadata: MetadataDict = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
 
     @property
     def from_role(self) -> str:

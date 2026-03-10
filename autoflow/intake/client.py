@@ -140,8 +140,8 @@ class IssueResult(BaseModel):
     @classmethod
     def from_success(
         cls,
-        data: dict[str, Any],
-        status_code: int = 200,
+        data: Optional[dict[str, Any]] = None,
+        status_code: Optional[int] = None,
         rate_limit_remaining: Optional[int] = None,
         raw_response: Optional[str] = None,
     ) -> IssueResult:
