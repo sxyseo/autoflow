@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -868,6 +870,190 @@ class AgentRunnerTests(unittest.TestCase):
                     "../../../etc/passwd"
                 ])
             self.assertIn("Invalid", str(cm.exception))
+
+    def test_tampered_prompt_md_raises_system_exit(self) -> None:
+        """Test that tampered prompt.md file is detected and raises SystemExit."""
+        # Import integrity module to compute hash
+        from scripts.integrity import hash_file_content
+
+        # Compute the original hash of the prompt file
+        original_hash = hash_file_content(str(self.prompt_file))
+
+        # Create run metadata with integrity hash
+        run_file = Path(self.temp_dir.name) / "run.json"
+        run_file.write_text(
+            json.dumps(
+                {
+                    "resume_from": "run-1",
+                    "agent_config": {"command": "claude", "args": []},
+                    "integrity": {"prompt.md": original_hash},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # Tamper with the prompt file
+        self.prompt_file.write_text("MALICIOUS CONTENT", encoding="utf-8")
+
+        # Verify that integrity check fails
+        agents_file = Path(self.temp_dir.name) / "agents.json"
+        agents_file.write_text(
+            json.dumps({"agents": {"test-agent": {"command": "claude", "args": []}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        argv = [
+            "agent_runner.py",
+            str(agents_file),
+            "test-agent",
+            str(self.prompt_file),
+            str(run_file),
+        ]
+
+        with patch.object(sys, "argv", argv):
+            with self.assertRaises(SystemExit) as context:
+                self.module.main()
+
+            # Verify the error message mentions integrity check failure
+            self.assertIn("integrity check failed", str(context.exception))
+            self.assertIn("tampered with", str(context.exception))
+
+    def test_tampered_run_sh_raises_error(self) -> None:
+        """Test that tampered run.sh file is detected and raises an error."""
+        # Import integrity module to compute hash
+        from scripts.integrity import hash_file_content
+
+        # Get the repo root
+        repo_root = Path(__file__).resolve().parents[1]
+
+        # Create .autoflow directory and agents.json if it doesn't exist
+        autoflow_dir = repo_root / ".autoflow"
+        autoflow_dir.mkdir(exist_ok=True)
+        agents_file = autoflow_dir / "agents.json"
+
+        # Save original agents.json if it exists
+        original_agents = None
+        if agents_file.exists():
+            original_agents = agents_file.read_text(encoding="utf-8")
+
+        try:
+            # Create test agents.json
+            agents_file.write_text(
+                json.dumps({"agents": {"test-agent": {"command": "echo", "args": ["test"]}}}) + "\n",
+                encoding="utf-8",
+            )
+
+            # Create a run directory structure
+            run_dir = Path(self.temp_dir.name) / "run"
+            run_dir.mkdir()
+
+            # Create run.sh file
+            run_script = run_dir / "run.sh"
+            run_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo 'Original content'\n",
+                encoding="utf-8",
+            )
+            run_script.chmod(0o755)
+
+            # Create prompt.md file
+            prompt_file = run_dir / "prompt.md"
+            prompt_file.write_text("Implement the selected task.", encoding="utf-8")
+
+            # Compute the original hash of run.sh
+            original_hash = hash_file_content(str(run_script))
+
+            # Create run metadata with integrity hash
+            run_file = run_dir / "run.json"
+            run_file.write_text(
+                json.dumps(
+                    {
+                        "resume_from": "run-1",
+                        "agent_config": {"command": "echo", "args": ["test"]},
+                        "integrity": {"run.sh": original_hash},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            # Tamper with run.sh
+            run_script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "echo 'MALICIOUS CONTENT'\n",
+                encoding="utf-8",
+            )
+
+            # Get the path to run-agent.sh
+            run_agent_script = repo_root / "scripts" / "run-agent.sh"
+
+            # Call run-agent.sh and verify it exits with error
+            result = subprocess.run(
+                [
+                    str(run_agent_script),
+                    "test-agent",
+                    str(prompt_file),
+                    str(run_file),
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            # Verify the script failed
+            self.assertNotEqual(result.returncode, 0)
+
+            # Verify the error message mentions integrity check failure
+            self.assertIn("integrity check failed", result.stderr)
+            self.assertIn("tampered with", result.stderr)
+        finally:
+            # Restore original agents.json
+            if original_agents is not None:
+                agents_file.write_text(original_agents, encoding="utf-8")
+            elif agents_file.exists():
+                agents_file.unlink()
+
+    def test_missing_integrity_hash_allows_execution(self) -> None:
+        """Test that missing integrity hash in run metadata allows execution to proceed."""
+        # Create run metadata WITHOUT integrity field
+        run_file = Path(self.temp_dir.name) / "run.json"
+        run_file.write_text(
+            json.dumps(
+                {
+                    "resume_from": "run-1",
+                    "agent_config": {"command": "claude", "args": []},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # Verify that execution proceeds without error
+        agents_file = Path(self.temp_dir.name) / "agents.json"
+        agents_file.write_text(
+            json.dumps({"agents": {"test-agent": {"command": "claude", "args": []}}}) + "\n",
+            encoding="utf-8",
+        )
+
+        argv = [
+            "agent_runner.py",
+            str(agents_file),
+            "test-agent",
+            str(self.prompt_file),
+            str(run_file),
+        ]
+
+        with patch.object(sys, "argv", argv):
+            with patch.object(self.module.os, "execvp") as execvp:
+                self.module.main()
+
+        # Verify execvp was called (meaning execution proceeded)
+        execvp.assert_called_once_with(
+            "claude",
+            ["claude", "Implement the selected task."],
+        )
 
 
 if __name__ == "__main__":

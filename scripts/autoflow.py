@@ -45,14 +45,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from autoflow.core.sanitization import sanitize_dict, sanitize_value
-
-
 ROOT = Path(__file__).resolve().parent.parent
-# Add ROOT to Python path for imports
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.integrity import hash_file_content, verify_file_integrity
+from autoflow.core.sanitization import sanitize_dict, sanitize_value
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -3357,6 +3355,7 @@ def create_run_record(
         build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
         encoding="utf-8",
     )
+    prompt_hash = hash_file_content(prompt_path)
     branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
     target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
@@ -3377,6 +3376,7 @@ def create_run_record(
     summary_path = run_dir / "summary.md"
     summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
     os.chmod(run_script, 0o755)
+    run_script_hash = hash_file_content(run_script)
     metadata = {
         "id": run_id,
         "spec": spec_slug,
@@ -3397,6 +3397,10 @@ def create_run_record(
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
+        },
+        "integrity": {
+            "prompt.md": prompt_hash,
+            "run.sh": run_script_hash,
         },
     }
     write_json(run_json_path, metadata)
