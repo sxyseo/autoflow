@@ -17,6 +17,7 @@ from autoflow.healing.actions import (
     RollbackManager,
     get_global_registry,
 )
+from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
 from autoflow.healing.config import HealingConfig, HealingThreshold
 from autoflow.healing.diagnostic import (
     ConfidenceLevel,
@@ -44,6 +45,15 @@ from autoflow.healing.orchestrator import (
     HealingSession,
     OrchestratorState,
 )
+from autoflow.healing.pattern_store import PatternStore
+from autoflow.healing.recovery_learner import (
+    LearnedStrategy,
+    PatternConfidence,
+    RecoveryAttempt,
+    RecoveryLearner,
+    RecoveryOutcome,
+    RecoveryPattern,
+)
 
 __all__ = [
     "HealingConfig",
@@ -70,6 +80,7 @@ __all__ = [
     "ActionRegistry",
     "RollbackManager",
     "get_global_registry",
+    "AdaptiveRetryExecutor",
     "HealingOrchestrator",
     "OrchestratorState",
     "HealingOutcome",
@@ -77,4 +88,12 @@ __all__ = [
     "HealingSession",
     "HealingEventLogger",
     "EscalationManager",
+    # Recovery learning
+    "RecoveryLearner",
+    "PatternStore",
+    "PatternConfidence",
+    "RecoveryOutcome",
+    "RecoveryAttempt",
+    "RecoveryPattern",
+    "LearnedStrategy",
 ]

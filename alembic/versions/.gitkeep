@@ -1,0 +1,2 @@
+# This directory stores Alembic migration scripts
+# Each migration is a Python file that upgrades or downgrades the database schema

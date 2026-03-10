@@ -1,0 +1,807 @@
+{
+  "feature": "Team Collaboration Features",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a multi-component feature requiring data models, permissions, workspaces, activity tracking, and notifications. Following service dependency order, we build core models first, then add functionality layers, and integrate at the end.",
+  "phases": [
+    {
+      "id": "phase-1-data-models",
+      "name": "Data Models",
+      "type": "implementation",
+      "description": "Create Pydantic data models for users, teams, workspaces, roles, and permissions. These foundational models will be used by all other collaboration features.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create User and Team models with basic fields and validation",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/__init__.py",
+            "autoflow/collaboration/models.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.models import User, Team; print('Models imported successfully')\"",
+            "expected": "Models imported successfully"
+          },
+          "status": "completed",
+          "notes": "Successfully created User and Team models with all required fields and validation. Also created supporting models (Workspace, Role, Permission, ActivityEvent, Notification) for future phases. All models follow patterns from autoflow/core/state.py with Pydantic BaseModel, proper type hints, and datetime timestamps. Verification passed: models import successfully and all methods work correctly.",
+          "updated_at": "2026-03-08T12:30:26.290196+00:00"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Create Workspace model with team association and metadata",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/models.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.models import Workspace; w = Workspace(id='test', name='Test'); print(f'Workspace: {w.name}')\"",
+            "expected": "Workspace: Test"
+          },
+          "status": "completed",
+          "notes": "Workspace model was already implemented as part of subtask-1-1. The model includes team association (team_id field), metadata field, settings dict, and follows all patterns from state.py (Pydantic BaseModel, Field with default_factory, datetime timestamps, touch() method). Verification passed: Workspace model imports successfully and all fields are properly defined.",
+          "updated_at": "2026-03-08T12:35:00.000000+00:00"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Create Role and Permission models with enum-based definitions",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/models.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.models import Role, Permission, RoleType; print(f'Roles: {[r.value for r in RoleType]}')\"",
+            "expected": "Roles:"
+          },
+          "status": "completed",
+          "notes": "Role and Permission models were already implemented as part of subtask-1-1. RoleType enum defines OWNER, ADMIN, MEMBER, REVIEWER, VIEWER. Permission enum defines comprehensive permissions for tasks, specs, reviews, team/workspace management, and general actions. Role model includes user_id, role_type, team_id, workspace_id, granted_by, granted_at, expires_at, metadata, and is_expired() method. All models follow patterns from state.py (str, Enum inheritance, Pydantic BaseModel, Field with default_factory, proper docstrings). Verification passed: RoleType enum values are accessible.",
+          "updated_at": "2026-03-08T12:45:00.000000+00:00"
+        },
+        {
+          "id": "subtask-1-4",
+          "description": "Create ActivityEvent and Notification models for tracking actions",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/models.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.models import ActivityEvent, Notification; print('Event models imported')\"",
+            "expected": "Event models imported"
+          },
+          "status": "completed",
+          "notes": "ActivityEvent and Notification models were already implemented as part of subtask-1-1. ActivityEvent model tracks user actions with fields for event_type, user_id, workspace_id, team_id, entity_type, entity_id, description, metadata, and created_at. ActivityEventType enum defines comprehensive event types for tasks, specs, reviews, and team/workspace events. Notification model alerts users with fields for user_id, notification_type, title, message, workspace_id, team_id, status, created_at, read_at, expires_at, and metadata. NotificationType and NotificationStatus enums define notification categories and states. Notification model includes mark_as_read() and is_expired() helper methods. All models follow patterns from state.py (Pydantic BaseModel, Field with default_factory, datetime timestamps, comprehensive docstrings with examples). Verification passed: models import successfully and all methods work correctly.",
+          "updated_at": "2026-03-08T12:46:00.000000+00:00"
+        },
+        {
+          "id": "subtask-1-5",
+          "description": "Add unit tests for all collaboration data models",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_collaboration_models.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration_models.py -v",
+            "expected": "passed"
+          },
+          "status": "completed",
+          "notes": "Created comprehensive unit tests for all collaboration models following the pattern from test_state.py. Tests include: 1) Enum tests for RoleType, Permission, ActivityEventType, NotificationStatus, and NotificationType (5 test classes), 2) Model tests for User, Team, Workspace, Role, ActivityEvent, and Notification (6 test classes), 3) Model method tests (touch, add_member, remove_member, has_member, is_expired, mark_as_read), 4) Integration tests for model relationships, 5) Edge case tests (unicode, many members, complex settings, etc.). Total: 66 tests across 13 test classes, all passing. Test coverage includes minimal and full initialization, method functionality, timestamps, metadata, expiration logic, and various edge cases. All tests follow pytest conventions with fixtures, descriptive names, and proper assertions.",
+          "updated_at": "2026-03-08T20:48:00.000000+00:00"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-permissions",
+      "name": "Permissions System",
+      "type": "implementation",
+      "description": "Implement role-based permission checking system that controls who can perform actions (dispatch, review, modify specs, etc.)",
+      "depends_on": [
+        "phase-1-data-models"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Create PermissionManager class with role checking methods",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/permissions.py"
+          ],
+          "patterns_from": [
+            "autoflow/review/approval.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.permissions import PermissionManager; print('PermissionManager imported')\"",
+            "expected": "PermissionManager imported"
+          },
+          "status": "completed",
+          "notes": "Successfully created PermissionManager class with role checking methods. Implementation follows patterns from approval.py with PermissionConfig dataclass, role-based permission checking, workspace/team role inheritance, and role expiration support. Methods include: can_dispatch, can_review, can_modify_spec, can_approve, can_manage_members, can_delete_workspace, get_user_permissions, check_permissions, and has_permission. All methods properly check role hierarchies and workspace-specific vs team-level roles. Verification passed: PermissionManager imports successfully.",
+          "updated_at": "2026-03-08T13:45:50.739077+00:00"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Implement can_dispatch, can_review, can_modify_spec permission checks",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/permissions.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/review/approval.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.permissions import PermissionManager; pm = PermissionManager(); print('Methods:', [m for m in dir(pm) if 'can_' in m])\"",
+            "expected": "Methods:"
+          },
+          "status": "completed",
+          "notes": "Successfully implemented can_dispatch, can_review, and can_modify_spec permission checks in PermissionManager class. All three methods follow the same pattern: they accept user_id, optional workspace_id, optional team_id, and optional roles parameters, then delegate to the has_permission method with the appropriate Permission enum value (DISPATCH_TASK, REVIEW_TASK, MODIFY_SPEC respectively). The methods return boolean results indicating whether the user has the requested permission. Implementation follows patterns from approval.py with proper docstrings, parameter documentation, and return value descriptions. Syntax verification passed. All methods correctly integrate with the role-based permission system.",
+          "updated_at": "2026-03-08T21:00:00.000000+00:00"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add unit tests for permission checking logic",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_collaboration_permissions.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration_permissions.py -v",
+            "expected": "passed"
+          },
+          "status": "completed",
+          "notes": "Created comprehensive unit tests for PermissionManager and PermissionConfig classes. Test suite includes: 1) PermissionConfig tests (6 tests) - default values, custom values, to_dict/from_dict serialization, roundtrip conversion, 2) PermissionManager initialization tests (3 tests) - default config, custom config, role permissions constant validation, 3) User role retrieval tests (6 tests) - filtering by workspace, team, multiple roles, no match, null list, wrong context, 4) Effective role type tests (6 tests) - single role, workspace priority, expired filtering, expiry disabled, no roles, team fallback, 5) Highest priority role tests (4 tests) - owner priority, admin priority, full order, single role, 6) Permission checking tests (10 tests) - owner has all permissions, admin lacks workspace delete, member has basic permissions, reviewer permissions, viewer read-only, no role default deny/allow, expired role denied, workspace role priority, 7) Convenience method tests (6 tests) - can_dispatch, can_review, can_modify_spec, can_approve, can_manage_members, can_delete_workspace, 8) User permissions retrieval tests (6 tests) - owner/admin/member/viewer/no role/expired role permissions, 9) Multiple permission checking tests (5 tests) - all present, some missing, all missing, empty list, no role, 10) Edge cases and integration tests (7 tests) - workspace inheritance disabled, multiple users same workspace, user different workspaces, role priority with mixed roles, all permission types, role without expiration, permission immutability. Total: 59 tests across 10 test classes, all passing. Tests follow pytest conventions with fixtures, descriptive test names, comprehensive assertions, and proper edge case coverage.",
+          "updated_at": "2026-03-08T21:02:00.000000+00:00"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-workspace",
+      "name": "Workspace Management",
+      "type": "implementation",
+      "description": "Implement shared workspace functionality where teams can collaborate on specs with shared state and access control",
+      "depends_on": [
+        "phase-1-data-models",
+        "phase-2-permissions"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create WorkspaceManager class with CRUD operations for workspaces",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/workspace.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.workspace import WorkspaceManager; print('WorkspaceManager imported')\"",
+            "expected": "WorkspaceManager imported"
+          },
+          "status": "completed",
+          "notes": "Successfully created WorkspaceManager class with CRUD operations. Implementation follows patterns from state.py including: 1) Pydantic model integration with Workspace model, 2) Atomic file operations using write-to-temporary-and-rename pattern, 3) Comprehensive CRUD methods (create_workspace, get_workspace, list_workspaces, update_workspace, delete_workspace), 4) Utility methods (workspace_exists, get_workspace_count), 5) Backup/restore functionality for crash safety, 6) Proper error handling with try/except blocks, 7) Full docstrings with examples following Google style. All verification tests pass: import works, functional tests demonstrate all CRUD operations work correctly. Added WorkspaceManager to collaboration module exports in __init__.py.",
+          "updated_at": "2026-03-08T21:15:00.000000+00:00"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Implement workspace member management (add/remove members, assign roles)",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/workspace.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.workspace import WorkspaceManager; wm = WorkspaceManager(); print('Member methods:', [m for m in dir(wm) if 'member' in m])\"",
+            "expected": "Member methods:"
+          },
+          "status": "completed",
+          "notes": "Successfully implemented workspace member management in WorkspaceManager class. Added 7 new methods: add_member() (with role assignment, expiration, and metadata support), remove_member() (with backup before deletion), update_member_role() (for role changes), get_member_role() (retrieve specific member role), list_members() (with optional role type filtering, excludes expired roles), is_member() (check membership including expiration), and get_member_role_count() (count active members). Implementation follows patterns from state.py: atomic file operations using write-to-temporary-and-rename pattern, roles stored in workspace_roles/ directory with filename pattern {workspace_id}_{user_id}.json, proper error handling with ValueError for duplicates and non-existent workspaces, comprehensive docstrings with examples following Google style, and use of Role model from models.py. Added RoleType import to workspace.py. Updated module docstring to include member management usage examples. All functional tests passed: add/remove/update members, list with filters, check membership, handle expired roles, error handling for duplicates and non-existent workspaces. Verification passed: all 7 member methods are present and accessible.",
+          "updated_at": "2026-03-08T22:00:00.000000+00:00"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Integrate workspace state with StateManager for persistent storage",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('.autoflow'); print(hasattr(sm, 'workspaces_dir'))\"",
+            "expected": "True"
+          },
+          "status": "completed",
+          "notes": "Successfully integrated workspace state with StateManager. Added WORKSPACES_DIR constant ('workspaces'), workspaces_dir property that returns state_dir/workspaces, updated initialize() method to create workspaces directory, updated get_status() to include workspaces count, and updated class docstring to document the workspaces directory. Implementation follows the exact pattern used for specs, tasks, runs, and memory directories. Verification passed: workspaces_dir attribute is present and accessible on StateManager instances. All changes maintain consistency with existing code patterns and conventions.",
+          "updated_at": "2026-03-08T22:15:00.000000+00:00"
+        },
+        {
+          "id": "subtask-3-4",
+          "description": "Add unit tests for workspace management",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_collaboration_workspace.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration_workspace.py -v",
+            "expected": "passed"
+          },
+          "status": "completed",
+          "notes": "Created comprehensive unit tests for WorkspaceManager class. Test suite includes: 1) WorkspaceManager initialization tests (4 tests) - path initialization, string initialization, directory creation, idempotent initialization, 2) Workspace creation tests (5 tests) - minimal creation, full creation, persistence to disk, duplicate detection, timestamps, 3) Workspace retrieval tests (3 tests) - existing workspace, nonexistent workspace, after update, 4) Workspace listing tests (6 tests) - all workspaces, filter by team, with limit, sorted by created_at, empty list, get count, 5) Workspace update tests (8 tests) - name, description, settings, metadata, multiple fields, timestamp update, nonexistent workspace, partial update, 6) Workspace deletion tests (5 tests) - existing workspace, nonexistent workspace, backup creation, workspace_exists check, after deletion, 7) Member management tests (14 tests) - add member, add with role, add with expiration, duplicate member, nonexistent workspace, remove member, remove nonexistent, update role, update nonexistent, get role, get nonexistent, list members, list with filter, exclude expired, 8) Backup and recovery tests (2 tests) - workspace update creates backup, role update creates backup, 9) Edge cases and error handling tests (11 tests) - unicode support, complex settings, many workspaces, many members, special ID, member persistence, workspace/members independence, role metadata, workspace metadata persistence, empty member list, settings replacement, 10) Integration tests (2 tests) - full workspace lifecycle, multi-workspace scenario. Total: 63 tests across 10 test classes, all passing. Tests follow pytest conventions with fixtures, descriptive names, comprehensive assertions, proper edge case coverage, and temporary directories for isolation. All tests ensure WorkspaceManager works correctly with persistent storage, atomic operations, backup creation, and role-based member management.",
+          "updated_at": "2026-03-08T22:30:00.000000+00:00"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-activity",
+      "name": "Activity Feed",
+      "type": "implementation",
+      "description": "Implement activity tracking system that logs all team member actions (dispatches, reviews, spec changes) for audit trail and visibility",
+      "depends_on": [
+        "phase-1-data-models",
+        "phase-3-workspace"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Create ActivityTracker class with event logging methods",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/activity.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.activity import ActivityTracker; print('ActivityTracker imported')\"",
+            "expected": "ActivityTracker imported"
+          },
+          "status": "completed",
+          "notes": "Successfully created ActivityTracker class with comprehensive event logging methods. Implementation follows patterns from state.py including: 1) Pydantic model integration with ActivityEvent, 2) Atomic file operations using write-to-temporary-and-rename pattern, 3) Date-organized event storage (activities/YYYY-MM/event_id.json), 4) 20 event logging methods covering all activity types (tasks, specs, reviews, workspace/team management), 5) Query methods (get_recent_activities with filters, get_activity_count), 6) Proper error handling with try/except blocks, 7) Full docstrings with examples following Google style, 8) Backup functionality for crash safety. All event logging methods have sensible defaults for descriptions and include relevant metadata (e.g., assigned_to for task assignments, reviewer_id for review requests). Updated collaboration module exports in __init__.py to include ActivityTracker. Verification passed: ActivityTracker imports successfully, all 20 log methods present and functional, query methods work correctly.",
+          "updated_at": "2026-03-08T14:03:02.916154+00:00"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Implement activity feed querying with filters (user, workspace, event type, date range)",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/activity.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.activity import ActivityTracker; at = ActivityTracker(); print('Query methods:', [m for m in dir(at) if 'query' in m or 'get' in m])\"",
+            "expected": "Query methods:"
+          },
+          "status": "completed",
+          "notes": "Successfully implemented comprehensive activity feed querying with filters. Added 6 new query methods to ActivityTracker: 1) query_activities() - Main query method with filters for user_id, workspace_id, team_id, event_type, entity_type, entity_id, start_date, end_date, limit, and sort_descending, 2) get_activities_by_user() - Filter activities by user ID with optional date range and limit, 3) get_activities_by_workspace() - Filter activities by workspace ID with optional date range and limit, 4) get_activities_by_type() - Filter activities by event type with optional workspace filter, date range, and limit, 5) get_activities_in_date_range() - Filter activities within a date range with optional workspace/team filters and limit, 6) get_activities_for_entity() - Filter activities by entity type and entity_id with optional date range and limit. All methods follow existing code patterns from state.py with proper type hints, comprehensive docstrings with examples, error handling with try/except blocks, and return sorted lists of ActivityEvent objects. Implementation walks through date-organized directories (YYYY-MM), applies all filters efficiently, and handles JSON parsing errors gracefully. Verification passed: All 12 query/get methods are present and accessible (query_activities, get_activities_by_type, get_activities_by_user, get_activities_by_workspace, get_activities_for_entity, get_activities_in_date_range, get_recent_activities, get_activity_count, plus inherited methods).",
+          "updated_at": "2026-03-08T22:45:00.000000+00:00"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Integrate activity tracking into StateManager for persistent storage",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('.autoflow'); print(hasattr(sm, 'activities_dir'))\"",
+            "expected": "True"
+          },
+          "status": "completed",
+          "notes": "Successfully integrated activity tracking into StateManager for persistent storage. Added: 1) ACTIVITIES_DIR = 'activities' constant following existing pattern (SPECS_DIR, TASKS_DIR, etc.), 2) activities_dir property that returns Path to activities directory, 3) activities directory creation in initialize() method alongside other state directories, 4) activities count in get_status() method for monitoring, 5) Updated class docstring to document activities/ directory in state organization. Implementation follows exact same patterns as existing directories (specs, tasks, runs, memory, workspaces). Activities directory will be used by ActivityTracker for persistent storage of activity events in date-organized subdirectories (YYYY-MM format). Verification passed: hasattr(StateManager('.autoflow'), 'activities_dir') returns True.",
+          "updated_at": "2026-03-08T22:50:00.000000+00:00"
+        },
+        {
+          "id": "subtask-4-4",
+          "description": "Add unit tests for activity tracking",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_collaboration_activity.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration_activity.py -v",
+            "expected": "passed"
+          },
+          "status": "completed",
+          "notes": "Created comprehensive unit tests for ActivityTracker class following test_state.py patterns. Test suite includes: 1) ActivityTracker initialization tests (4 tests) - path/string initialization, directory creation, idempotent initialization, 2) Event ID generation tests (2 tests) - uniqueness and format validation, 3) Event path tests (2 tests) - path structure and different months, 4) Generic event logging tests (4 tests) - minimal/full parameters, file persistence, metadata handling, 5) Task event logging tests (7 tests) - all task events (created, updated, deleted, assigned, completed, failed), 6) Spec event logging tests (3 tests) - created, updated, deleted, 7) Review event logging tests (4 tests) - requested, submitted, approved, rejected, 8) Member and role event logging tests (3 tests) - member added/removed, role changed, 9) Workspace event logging tests (3 tests) - created, updated, deleted, 10) Query method tests (25 tests) - get_recent_activities with filters, query_activities with advanced filters, get_activities_by_user/workspace/type/date_range/entity, get_activity_count, 11) JSON operations tests (6 tests) - write/read JSON, atomic writes, parent directory creation, backup creation, 12) Backup operations tests (3 tests) - backup path generation, backup creation, nonexistent files, 13) Edge cases and error handling tests (7 tests) - multiple events same task, multiple filters, events across month boundaries, unicode support, empty/large metadata, limit zero. Total: 70 tests across 13 test classes, all passing. Tests ensure ActivityTracker correctly logs all event types, persists to date-organized directories, queries with various filters, handles atomic writes with backups, and manages edge cases properly. Also fixed a bug in activity.py where event.model_dump() did not serialize datetime objects to JSON - changed to event.model_dump(mode=\"json\"). All 70 tests passing.",
+          "updated_at": "2026-03-08T14:10:46.872530+00:00"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-notifications",
+      "name": "Notifications",
+      "type": "implementation",
+      "description": "Implement notification system that alerts team members about relevant events (review requests, mentions, spec updates)",
+      "depends_on": [
+        "phase-1-data-models",
+        "phase-4-activity"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Create NotificationManager class with notification creation and delivery methods",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/notifications.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.notifications import NotificationManager; print('NotificationManager imported')\"",
+            "expected": "NotificationManager imported"
+          },
+          "status": "completed",
+          "completed_at": "2026-03-08T14:13:30.690402"
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Implement notification methods for review requests, mentions, and workspace updates",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/notifications.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/collaboration/activity.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.notifications import NotificationManager; nm = NotificationManager(); print('Notify methods:', [m for m in dir(nm) if 'notify' in m])\"",
+            "expected": "Notify methods:"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-5-3",
+          "description": "Integrate notification storage with StateManager",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('.autoflow'); print(hasattr(sm, 'notifications_dir'))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-5-4",
+          "notes": "Created 52 comprehensive tests covering all NotificationManager functionality including CRUD operations, filtering, helper methods, and edge cases. All tests pass.",
+          "description": "Add unit tests for notification system",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_collaboration_notifications.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration_notifications.py -v",
+            "expected": "passed"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-6-review-workflow",
+      "name": "Collaborative Review Workflow",
+      "type": "implementation",
+      "description": "Extend existing review system to support multiple reviewers with role-based approval requirements and discussion threads",
+      "depends_on": [
+        "phase-1-data-models",
+        "phase-2-permissions",
+        "phase-5-notifications"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-6-1",
+          "description": "Create CollaborativeReview class extending cross-review with multiple reviewers",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/review.py"
+          ],
+          "patterns_from": [
+            "autoflow/review/cross_review.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.review import CollaborativeReview; print('CollaborativeReview imported')\"",
+            "expected": "CollaborativeReview imported"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-6-2",
+          "description": "Implement multi-reviewer approval workflow with role-based voting",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/review.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/review/cross_review.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.collaboration.review import CollaborativeReview; cr = CollaborativeReview(); print('Review methods:', [m for m in dir(cr) if not m.startswith('_')])\"",
+            "expected": "Review methods:"
+          },
+          "status": "completed",
+          "notes": "Implemented multi-reviewer approval workflow with role-based voting. Added DEFAULT_ROLE_WEIGHTS, get/set role weight methods, enhanced _determine_approval() and _calculate_consensus() for role-based voting, added helper methods for voting power and approval breakdown."
+        },
+        {
+          "id": "subtask-6-3",
+          "description": "Integrate notifications with review requests and approvals",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/review.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/collaboration/notifications.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review code to verify notification integration in review workflow"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-7-integration",
+      "name": "Integration",
+      "type": "integration",
+      "description": "Integrate all collaboration features into CLI commands and verify end-to-end functionality",
+      "depends_on": [
+        "phase-3-workspace",
+        "phase-4-activity",
+        "phase-5-notifications",
+        "phase-6-review-workflow"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-7-1",
+          "description": "Add CLI commands for workspace management (workspace create, list, members)",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow workspace --help",
+            "expected": "Usage: autoflow workspace [OPTIONS] COMMAND [ARGS]..."
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-7-2",
+          "description": "Add CLI commands for activity feed and notifications (activity list, notifications list)",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow activity --help",
+            "expected": "Usage: autoflow activity [OPTIONS] COMMAND [ARGS]..."
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-7-3",
+          "description": "Add CLI commands for team management (team create, add-member, set-role)",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow team --help",
+            "expected": "Usage: autoflow team [OPTIONS] COMMAND [ARGS]..."
+          },
+          "status": "completed",
+          "notes": "Successfully added CLI commands for team management. Created TeamManager class with CRUD operations (create_team, get_team, list_teams, update_team, delete_team) and member management (add_member, remove_member, set_member_role, list_members, get_member_role, is_member, get_member_count). Added CLI commands: team create, team list, team add-member, team set-role, team members, team remove-member. All commands follow existing CLI patterns with proper error handling, JSON output support, and user-friendly messages. Implementation follows patterns from WorkspaceManager with atomic file operations, backup creation, and proper docstrings. Verification passed: team command help shows all expected subcommands."
+        },
+        {
+          "id": "subtask-7-4",
+          "description": "Update configuration system to support collaboration settings",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/config.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/config.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.config import Config; c = Config(); print(hasattr(c, 'collaboration'))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-7-5",
+          "description": "End-to-end verification: create workspace, add members, dispatch task, review, verify activity feed",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Create a workspace using CLI",
+              "Add team members with different roles",
+              "Create and dispatch a task",
+              "Verify permissions control access",
+              "Review task as multiple reviewers",
+              "Check activity feed shows all actions",
+              "Verify notifications were created"
+            ]
+          },
+          "status": "completed",
+          "notes": "End-to-end verification completed successfully. Fixed CLI bug where --state-dir option was not being respected by collaboration commands. Added _get_state_manager_from_ctx() helper function. Created comprehensive verification script testing team creation, workspace creation, member management, permissions, activity feed, and role updates. All 17 tests passing (100% success rate).",
+          "updated_at": "2026-03-08T22:40:08.387972"
+        },
+        {
+          "id": "subtask-7-6",
+          "description": "Run all tests to verify integration",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_collaboration*.py -v",
+            "expected": "passed"
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 7,
+    "total_subtasks": 28,
+    "services_involved": [
+      "autoflow"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 3,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-2-permissions",
+            "phase-3-workspace"
+          ],
+          "reason": "Both depend only on phase-1 (data models) and operate on different subsystems"
+        },
+        {
+          "phases": [
+            "phase-4-activity",
+            "phase-5-notifications"
+          ],
+          "reason": "Phase-4 depends on phase-3, phase-5 depends on phase-4, so these are sequential"
+        }
+      ],
+      "recommended_workers": 2,
+      "speedup_estimate": "1.5x faster than sequential"
+    },
+    "startup_command": "python -m pytest tests/ -v"
+  },
+  "verification_strategy": {
+    "risk_level": "high",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration"
+    ],
+    "security_scanning_required": true,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All existing tests pass",
+      "New collaboration features have unit test coverage",
+      "Permissions system correctly restricts access",
+      "Activity feed tracks all team actions",
+      "Notifications are created for relevant events",
+      "No security vulnerabilities detected"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "pytest tests/test_collaboration*.py -v",
+        "expected_outcome": "All collaboration tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Integration Tests",
+        "command": "pytest tests/ -k collaboration -v",
+        "expected_outcome": "All integration tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Existing Tests",
+        "command": "pytest tests/ -v --ignore=tests/test_collaboration*.py",
+        "expected_outcome": "All existing tests still pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Security Scan",
+        "command": "bandit -r autoflow/collaboration/ -f json",
+        "expected_outcome": "No high severity security issues",
+        "type": "security",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "CLI Commands Verification",
+        "command": "autoflow --help | grep -E 'workspace|team|activity|notification'",
+        "expected_outcome": "All new CLI commands are available",
+        "type": "command",
+        "required": true,
+        "blocking": false
+      }
+    ],
+    "reasoning": "High risk change adding new multi-user features with permissions and access control. Requires comprehensive unit and integration tests plus security scanning to ensure permission system works correctly and doesn't introduce vulnerabilities."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/test_collaboration_models.py -v",
+        "pytest tests/test_collaboration_workspace.py -v",
+        "pytest tests/test_collaboration_permissions.py -v",
+        "pytest tests/test_collaboration_activity.py -v",
+        "pytest tests/test_collaboration_notifications.py -v"
+      ],
+      "minimum_coverage": 80
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/ -k collaboration -v"
+      ],
+      "services_to_test": [
+        "autoflow"
+      ]
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    },
+    "cli_verification": {
+      "required": true,
+      "commands": [
+        {
+          "command": "autoflow workspace --help",
+          "expected_output": "Usage: autoflow workspace"
+        },
+        {
+          "command": "autoflow team --help",
+          "expected_output": "Usage: autoflow team"
+        },
+        {
+          "command": "autoflow activity --help",
+          "expected_output": "Usage: autoflow activity"
+        }
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-08T14:40:49.788Z",
+  "last_updated": "2026-03-08T14:03:02.916167+00:00",
+  "recoveryNote": "Task recovered from stuck state at 2026-03-08T13:43:51.783Z"
+}
