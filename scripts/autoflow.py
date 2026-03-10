@@ -42,7 +42,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from typing_extensions import TypedDict
 
@@ -230,6 +230,64 @@ class SystemConfig(TypedDict, total=False):
     models: SystemConfigModels
     tools: SystemConfigTools
     registry: SystemConfigRegistry
+
+
+class TaskData(TypedDict, total=False):
+    """
+    TypedDict for task data structure.
+
+    Represents a single task within a tasks file, including its status,
+    dependencies, acceptance criteria, and metadata.
+
+    Attributes:
+        id: Unique task identifier
+        title: Task title
+        status: Task status from VALID_TASK_STATUSES
+        depends_on: List of task IDs this task depends on
+        owner_role: Role responsible for this task
+        acceptance_criteria: List of acceptance criteria for the task
+        notes: List of notes associated with the task
+        description: Optional detailed description
+        priority: Optional task priority
+        created_at: Optional ISO timestamp of creation
+        updated_at: Optional ISO timestamp of last update
+        assigned_agent: Optional agent assigned to the task
+        labels: Optional list of labels
+        metadata: Optional additional metadata
+    """
+
+    id: str
+    title: str
+    status: str
+    depends_on: list[str]
+    owner_role: str
+    acceptance_criteria: list[str]
+    notes: list[str]
+    description: str
+    priority: int
+    created_at: str
+    updated_at: str
+    assigned_agent: str
+    labels: list[str]
+    metadata: dict[str, Any]
+
+
+class TasksData(TypedDict, total=False):
+    """
+    TypedDict for tasks data structure.
+
+    Represents the complete tasks file for a spec, including metadata
+    and the list of all tasks.
+
+    Attributes:
+        spec_slug: Spec slug identifier
+        updated_at: ISO timestamp of last update
+        tasks: List of task dictionaries
+    """
+
+    spec_slug: str
+    updated_at: str
+    tasks: list[TaskData]
 
 
 def now_utc() -> datetime:
@@ -1432,7 +1490,7 @@ def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
     write_json(spec_files(spec_slug)["review_state"], state)
 
 
-def load_tasks(spec_slug: str) -> dict[str, Any]:
+def load_tasks(spec_slug: str) -> TasksData:
     """
     Load the tasks file for a spec.
 
@@ -1443,13 +1501,18 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
         spec_slug: Spec slug identifier
 
     Returns:
-        Tasks dictionary with the following structure:
+        TasksData dictionary with the following structure:
+        - spec_slug: Spec slug identifier (str)
+        - updated_at: ISO timestamp of last update (str)
         - tasks: List of task dictionaries, each containing:
             - id: Unique task identifier (str)
             - title: Task title (str)
             - status: Task status from VALID_TASK_STATUSES (str)
-            - ...additional task metadata
-        - ...other top-level keys
+            - depends_on: List of task IDs this task depends on (list[str])
+            - owner_role: Role responsible for this task (str)
+            - acceptance_criteria: List of acceptance criteria (list[str])
+            - notes: List of notes associated with the task (list[str])
+            - ...additional optional task metadata
 
     Raises:
         SystemExit: If the tasks file doesn't exist
@@ -1457,10 +1520,10 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     path = task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
-    return read_json(path)
+    return cast(TasksData, read_json(path))
 
 
-def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
+def task_lookup(data: TasksData, task_id: str) -> TaskData:
     """
     Look up a task by ID within a tasks dictionary.
 
@@ -1468,15 +1531,19 @@ def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
     This is useful for retrieving full task details given only a task ID.
 
     Args:
-        data: Tasks dictionary containing a "tasks" key with a list of task objects
+        data: TasksData dictionary containing a list of task objects
         task_id: Unique identifier of the task to find
 
     Returns:
-        Task dictionary containing all task details:
+        TaskData dictionary containing all task details:
         - id: Unique task identifier (str)
         - title: Task title (str)
         - status: Task status (str)
-        - ...additional task metadata
+        - depends_on: List of task IDs this task depends on (list[str])
+        - owner_role: Role responsible for this task (str)
+        - acceptance_criteria: List of acceptance criteria (list[str])
+        - notes: List of notes associated with the task (list[str])
+        - ...additional optional task metadata
 
     Raises:
         SystemExit: If no task with the given ID is found
@@ -2019,7 +2086,7 @@ def review_status_summary(spec_slug: str) -> dict[str, Any]:
     }
 
 
-def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
+def save_tasks(spec_slug: str, data: TasksData, *, reason: str = "task_state_updated") -> None:
     """
     Save task data for a spec and synchronize review state.
 
@@ -2029,7 +2096,10 @@ def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_stat
 
     Args:
         spec_slug: Slug identifier for the spec
-        data: Task data dictionary to save
+        data: TasksData dictionary to save containing:
+            - spec_slug: Spec slug identifier
+            - updated_at: ISO timestamp of last update
+            - tasks: List of task dictionaries
         reason: Optional reason for task state update (default: "task_state_updated")
     """
     data["updated_at"] = now_stamp()
@@ -2930,7 +3000,7 @@ def list_tasks(args: argparse.Namespace) -> None:
     print(json.dumps(tasks, indent=2, ensure_ascii=True))
 
 
-def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | None:
+def next_task_data(spec_slug: str, role: str | None = None) -> TaskData | None:
     """
     Find the next available task for a given role.
 
@@ -2945,7 +3015,7 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
             available task. If "reviewer", returns tasks in review status.
 
     Returns:
-        Task dictionary if an available task is found, None otherwise
+        TaskData dictionary if an available task is found, None otherwise
 
     Side Effects:
         None
