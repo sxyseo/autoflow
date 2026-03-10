@@ -396,9 +396,7 @@ class TestAutoflowOrchestratorProperties:
         """Test config property loads config lazily."""
         orchestrator = AutoflowOrchestrator(state_dir=temp_state_dir)
 
-        with patch(
-            "autoflow.core.orchestrator.load_config"
-        ) as mock_load:
+        with patch("autoflow.core.orchestrator.load_config") as mock_load:
             mock_load.return_value = MagicMock()
             _ = orchestrator.config
 
@@ -419,9 +417,7 @@ class TestAutoflowOrchestratorInitialize:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test successful initialization."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
 
             await orchestrator.initialize()
@@ -434,9 +430,7 @@ class TestAutoflowOrchestratorInitialize:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test initialization fails with no adapters."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {}
 
             with pytest.raises(OrchestratorError) as exc_info:
@@ -451,9 +445,7 @@ class TestAutoflowOrchestratorInitialize:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test initialization sets status correctly."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
 
             # Start initialization
@@ -484,17 +476,13 @@ class TestAutoflowOrchestratorRunTask:
         temp_skills_dir: Path,
     ) -> None:
         """Test successful task execution."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
 
             await orchestrator.initialize()
 
         # Mock skill executor
-        with patch.object(
-            orchestrator, "skill_executor", mock_skill_executor
-        ):
+        with patch.object(orchestrator, "skill_executor", mock_skill_executor):
             result = await orchestrator.run_task(
                 task="Fix the bug in app.py",
                 skill_name="IMPLEMENTER",
@@ -520,9 +508,7 @@ class TestAutoflowOrchestratorRunTask:
             )
         )
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -544,9 +530,7 @@ class TestAutoflowOrchestratorRunTask:
         temp_skills_dir: Path,
     ) -> None:
         """Test run_task updates orchestrator status."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -593,9 +577,7 @@ class TestAutoflowOrchestratorRunTask:
         context_file = tmp_path / "context.py"
         context_file.write_text("# Context file")
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -628,9 +610,7 @@ class TestAutoflowOrchestratorSpawn:
         mock_openclaw_adapter: MagicMock,
     ) -> None:
         """Test spawning a sub-agent."""
-        with patch.object(
-            orchestrator, "openclaw_adapter", mock_openclaw_adapter
-        ):
+        with patch.object(orchestrator, "openclaw_adapter", mock_openclaw_adapter):
             result = await orchestrator.spawn_subagent(
                 task="Implement feature X",
                 label="feature-x",
@@ -654,9 +634,7 @@ class TestAutoflowOrchestratorSpawn:
             "Connection failed"
         )
 
-        with patch.object(
-            orchestrator, "openclaw_adapter", mock_openclaw_adapter
-        ):
+        with patch.object(orchestrator, "openclaw_adapter", mock_openclaw_adapter):
             with pytest.raises(OrchestratorError) as exc_info:
                 await orchestrator.spawn_subagent(
                     task="Test task",
@@ -672,9 +650,7 @@ class TestAutoflowOrchestratorSpawn:
         mock_openclaw_adapter: MagicMock,
     ) -> None:
         """Test spawning an ACP agent."""
-        with patch.object(
-            orchestrator, "openclaw_adapter", mock_openclaw_adapter
-        ):
+        with patch.object(orchestrator, "openclaw_adapter", mock_openclaw_adapter):
             result = await orchestrator.spawn_acp_agent(
                 task="Test ACP task",
                 agent_id="codex-agent",
@@ -697,9 +673,7 @@ class TestAutoflowOrchestratorSpawn:
             "ACP not available"
         )
 
-        with patch.object(
-            orchestrator, "openclaw_adapter", mock_openclaw_adapter
-        ):
+        with patch.object(orchestrator, "openclaw_adapter", mock_openclaw_adapter):
             with pytest.raises(OrchestratorError) as exc_info:
                 await orchestrator.spawn_acp_agent(
                     task="Test",
@@ -724,9 +698,7 @@ class TestAutoflowOrchestratorCycle:
         mock_skill_executor: MagicMock,
     ) -> None:
         """Test successful cycle execution."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -740,16 +712,12 @@ class TestAutoflowOrchestratorCycle:
         )
 
         with patch.object(orchestrator, "skill_executor", mock_skill_executor):
-            with patch.object(
-                orchestrator, "_run_tests"
-            ) as mock_run_tests:
+            with patch.object(orchestrator, "_run_tests") as mock_run_tests:
                 mock_run_tests.return_value = ExecutionResult(
                     status=ExecutionStatus.SUCCESS
                 )
 
-                with patch.object(
-                    orchestrator, "_commit_changes"
-                ) as mock_commit:
+                with patch.object(orchestrator, "_commit_changes") as mock_commit:
                     mock_commit.return_value = ExecutionResult(
                         status=ExecutionStatus.SUCCESS
                     )
@@ -779,9 +747,7 @@ class TestAutoflowOrchestratorCycle:
             )
         )
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -818,24 +784,18 @@ class TestAutoflowOrchestratorCycle:
 
         mock_skill_executor.execute_skill = AsyncMock(side_effect=mock_execute)
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
         with patch.object(orchestrator, "skill_executor", mock_skill_executor):
-            with patch.object(
-                orchestrator, "_run_tests"
-            ) as mock_run_tests:
+            with patch.object(orchestrator, "_run_tests") as mock_run_tests:
                 mock_run_tests.return_value = ExecutionResult(
                     status=ExecutionStatus.FAILURE,
                     error="Test failed",
                 )
 
-                with patch.object(
-                    orchestrator, "_commit_changes"
-                ) as mock_commit:
+                with patch.object(orchestrator, "_commit_changes") as mock_commit:
                     mock_commit.return_value = ExecutionResult(
                         status=ExecutionStatus.SUCCESS
                     )
@@ -862,16 +822,12 @@ class TestAutoflowOrchestratorContinuousIteration:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test starting and stopping continuous iteration."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
         # Mock _get_next_task to return None (no tasks)
-        with patch.object(
-            orchestrator, "_get_next_task", return_value=None
-        ):
+        with patch.object(orchestrator, "_get_next_task", return_value=None):
             # Start continuous iteration
             start_task = asyncio.create_task(
                 orchestrator.start_continuous_iteration(
@@ -905,9 +861,7 @@ class TestAutoflowOrchestratorContinuousIteration:
             )
         )
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -989,15 +943,11 @@ class TestAutoflowOrchestratorStatusSummary:
         mock_skill_registry: MagicMock,
     ) -> None:
         """Test getting status summary."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
-        with patch.object(
-            orchestrator, "skill_registry", mock_skill_registry
-        ):
+        with patch.object(orchestrator, "skill_registry", mock_skill_registry):
             summary = await orchestrator.get_status_summary()
 
             assert "orchestrator" in summary
@@ -1016,9 +966,7 @@ class TestAutoflowOrchestratorStatusSummary:
         mock_skill_registry: MagicMock,
     ) -> None:
         """Test status summary with current task."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -1026,9 +974,7 @@ class TestAutoflowOrchestratorStatusSummary:
         orchestrator._current_task = MagicMock()
         orchestrator._current_task.id = "task-123"
 
-        with patch.object(
-            orchestrator, "skill_registry", mock_skill_registry
-        ):
+        with patch.object(orchestrator, "skill_registry", mock_skill_registry):
             summary = await orchestrator.get_status_summary()
 
             assert summary["orchestrator"]["current_task"] == "task-123"
@@ -1063,9 +1009,7 @@ class TestAutoflowOrchestratorCleanup:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test async context manager usage."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
 
             async with orchestrator as orch:
@@ -1080,14 +1024,10 @@ class TestAutoflowOrchestratorCleanup:
         """Test cleanup is called on error in context manager."""
         orchestrator._tmux_manager = mock_tmux_manager
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
 
-            with patch.object(
-                orchestrator, "cleanup"
-            ) as mock_cleanup:
+            with patch.object(orchestrator, "cleanup") as mock_cleanup:
                 mock_cleanup.return_value = None
 
                 try:
@@ -1150,11 +1090,9 @@ class TestCreateOrchestrator:
     ) -> None:
         """Test creating orchestrator with config path."""
         config_path = tmp_path / "config.json5"
-        config_path.write_text('{}')
+        config_path.write_text("{}")
 
-        with patch(
-            "autoflow.core.orchestrator.load_config"
-        ) as mock_load:
+        with patch("autoflow.core.orchestrator.load_config") as mock_load:
             mock_load.return_value = MagicMock()
 
             create_orchestrator(
@@ -1283,9 +1221,7 @@ class TestAutoflowOrchestratorInternalMethods:
         task_file = tmp_path / "tasks.txt"
         task_file.write_text("Task from file")
 
-        task = await orchestrator._get_next_task(
-            task_source=str(task_file)
-        )
+        task = await orchestrator._get_next_task(task_source=str(task_file))
 
         assert task == "Task from file"
 
@@ -1334,9 +1270,7 @@ class TestAutoflowOrchestratorEdgeCases:
             side_effect=Exception("Unexpected error")
         )
 
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
@@ -1353,19 +1287,13 @@ class TestAutoflowOrchestratorEdgeCases:
         orchestrator: AutoflowOrchestrator,
     ) -> None:
         """Test starting continuous iteration twice is safe."""
-        with patch.object(
-            orchestrator, "_get_available_adapters"
-        ) as mock_adapters:
+        with patch.object(orchestrator, "_get_available_adapters") as mock_adapters:
             mock_adapters.return_value = {"claude-code": MagicMock()}
             await orchestrator.initialize()
 
-        with patch.object(
-            orchestrator, "_get_next_task", return_value=None
-        ):
+        with patch.object(orchestrator, "_get_next_task", return_value=None):
             # Start first
-            task1 = asyncio.create_task(
-                orchestrator.start_continuous_iteration()
-            )
+            task1 = asyncio.create_task(orchestrator.start_continuous_iteration())
 
             await asyncio.sleep(0.01)
 

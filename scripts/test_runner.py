@@ -45,8 +45,8 @@ def load_quarantine_config() -> dict:
             "metadata": {
                 "description": "Flaky tests that have been quarantined.",
                 "created_at": None,
-                "last_updated": None
-            }
+                "last_updated": None,
+            },
         }
 
     with open(FLAKY_TESTS_CONFIG_PATH) as f:
@@ -86,7 +86,7 @@ def add_to_quarantine(test_name: str, pass_rate: float, runs: int, passed: int) 
         "runs": runs,
         "passed": passed,
         "failed": runs - passed,
-        "quarantined_at": datetime.now(UTC).isoformat()
+        "quarantined_at": datetime.now(UTC).isoformat(),
     }
 
     save_quarantine_config(config)
@@ -179,7 +179,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         test_paths=test_paths,
         auto_retry=auto_retry,
         max_attempts=max_attempts,
-        verbose=True
+        verbose=True,
     )
 
     print(f"\n{'='*60}")
@@ -262,9 +262,13 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
     print(f"Found {len(flaky_tests)} flaky tests:\n")
 
     quarantined_count = 0
-    for test_name, info in sorted(flaky_tests.items(), key=lambda x: -x[1]["pass_rate"]):
+    for test_name, info in sorted(
+        flaky_tests.items(), key=lambda x: -x[1]["pass_rate"]
+    ):
         print(f"  {test_name}")
-        print(f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']})")
+        print(
+            f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']})"
+        )
         print(f"    Quarantine recommended: {'Yes' if info['is_flaky'] else 'No'}")
 
         # Auto-quarantine if flag is set and test is flaky
@@ -273,7 +277,7 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
                 test_name=test_name,
                 pass_rate=info["pass_rate"],
                 runs=info["runs"],
-                passed=info["passed"]
+                passed=info["passed"],
             )
             print("    Status: QUARANTINED")
             quarantined_count += 1
@@ -282,7 +286,9 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
 
     if quarantine and quarantined_count > 0:
         print(f"\n{quarantined_count} test(s) have been quarantined.")
-        print("Run 'python3 scripts/test_runner.py quarantine list' to view all quarantined tests.")
+        print(
+            "Run 'python3 scripts/test_runner.py quarantine list' to view all quarantined tests."
+        )
 
     return 0
 
@@ -306,7 +312,9 @@ def cmd_quarantine_list(args: argparse.Namespace) -> int:
 
     for test_name, info in sorted(quarantined.items()):
         print(f"  {test_name}")
-        print(f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']} passed)")
+        print(
+            f"    Pass rate: {info['pass_rate']*100:.1f}% ({info['passed']}/{info['runs']} passed)"
+        )
         print(f"    Quarantined at: {info.get('quarantined_at', 'unknown')}")
         print()
 
@@ -373,102 +381,68 @@ Examples:
     python3 scripts/test_runner.py detect-flaky --runs 5 --quarantine
     python3 scripts/test_runner.py quarantine list
     python3 scripts/test_runner.py quarantine remove "tests/test_file.py::test_name"
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Discover command
-    subparsers.add_parser(
-        "discover",
-        help="Discover and list all test files"
-    )
+    subparsers.add_parser("discover", help="Discover and list all test files")
 
     # Run command
-    run_parser = subparsers.add_parser(
-        "run",
-        help="Run tests with optional auto-retry"
-    )
+    run_parser = subparsers.add_parser("run", help="Run tests with optional auto-retry")
     run_parser.add_argument(
-        "--auto-retry",
-        action="store_true",
-        help="Enable auto-retry for failed tests"
+        "--auto-retry", action="store_true", help="Enable auto-retry for failed tests"
     )
     run_parser.add_argument(
         "--max-attempts",
         type=int,
         default=3,
-        help="Maximum retry attempts (default: 3)"
+        help="Maximum retry attempts (default: 3)",
     )
-    run_parser.add_argument(
-        "tests",
-        nargs="*",
-        help="Specific test paths to run"
-    )
+    run_parser.add_argument("tests", nargs="*", help="Specific test paths to run")
 
     # Coverage command
     coverage_parser = subparsers.add_parser(
-        "coverage",
-        help="Run tests with coverage tracking"
+        "coverage", help="Run tests with coverage tracking"
     )
     coverage_parser.add_argument(
-        "--threshold",
-        type=int,
-        help="Coverage threshold percentage (default: 80)"
+        "--threshold", type=int, help="Coverage threshold percentage (default: 80)"
     )
 
     # Detect-flaky command
-    flaky_parser = subparsers.add_parser(
-        "detect-flaky",
-        help="Detect flaky tests"
-    )
+    flaky_parser = subparsers.add_parser("detect-flaky", help="Detect flaky tests")
     flaky_parser.add_argument(
-        "--runs",
-        type=int,
-        help="Number of runs to detect flaky tests (default: 3)"
+        "--runs", type=int, help="Number of runs to detect flaky tests (default: 3)"
     )
-    flaky_parser.add_argument(
-        "--test",
-        type=str,
-        help="Specific test path to check"
-    )
+    flaky_parser.add_argument("--test", type=str, help="Specific test path to check")
     flaky_parser.add_argument(
         "--quarantine",
         action="store_true",
-        help="Automatically quarantine detected flaky tests"
+        help="Automatically quarantine detected flaky tests",
     )
 
     # Quarantine command (with subcommands)
     quarantine_parser = subparsers.add_parser(
-        "quarantine",
-        help="Manage quarantined flaky tests"
+        "quarantine", help="Manage quarantined flaky tests"
     )
     quarantine_subparsers = quarantine_parser.add_subparsers(
-        dest="quarantine_command",
-        help="Quarantine action"
+        dest="quarantine_command", help="Quarantine action"
     )
 
     # Quarantine list
-    quarantine_subparsers.add_parser(
-        "list",
-        help="List all quarantined tests"
-    )
+    quarantine_subparsers.add_parser("list", help="List all quarantined tests")
 
     # Quarantine remove
     quarantine_remove_parser = quarantine_subparsers.add_parser(
-        "remove",
-        help="Remove a test from quarantine"
+        "remove", help="Remove a test from quarantine"
     )
     quarantine_remove_parser.add_argument(
-        "test_name",
-        help="Full test name to remove from quarantine"
+        "test_name", help="Full test name to remove from quarantine"
     )
 
     # Quarantine clear
-    quarantine_subparsers.add_parser(
-        "clear",
-        help="Clear all tests from quarantine"
-    )
+    quarantine_subparsers.add_parser("clear", help="Clear all tests from quarantine")
 
     args = parser.parse_args()
 

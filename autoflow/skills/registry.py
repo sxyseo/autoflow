@@ -68,9 +68,7 @@ class SkillMetadata(BaseModel):
         if not v:
             raise ValueError("Skill name cannot be empty")
         if not re.match(r"^[A-Z][A-Z0-9_]*$", v):
-            raise ValueError(
-                f"Skill name must be UPPER_SNAKE_CASE: {v}"
-            )
+            raise ValueError(f"Skill name must be UPPER_SNAKE_CASE: {v}")
         return v
 
 
@@ -167,10 +165,7 @@ class SkillRegistry:
     """
 
     # Pattern to match YAML frontmatter
-    FRONTMATTER_PATTERN = re.compile(
-        r"^---\s*\n(.*?)\n---\s*\n(.*)$",
-        re.DOTALL
-    )
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 
     def __init__(
         self,
@@ -271,9 +266,7 @@ class SkillRegistry:
                         f"Invalid skill '{skill.name}': {', '.join(skill.errors)}"
                     )
             except Exception as e:
-                self._errors.append(
-                    f"Failed to load skill from {skill_file}: {e}"
-                )
+                self._errors.append(f"Failed to load skill from {skill_file}: {e}")
 
         # Also check for SKILL.md files directly in the directory
         for skill_file in skills_dir.glob("SKILL.md"):
@@ -283,9 +276,7 @@ class SkillRegistry:
                     self._skills[skill.name] = skill
                     loaded_count += 1
             except Exception as e:
-                self._errors.append(
-                    f"Failed to load skill from {skill_file}: {e}"
-                )
+                self._errors.append(f"Failed to load skill from {skill_file}: {e}")
 
         return loaded_count
 

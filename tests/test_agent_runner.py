@@ -21,7 +21,9 @@ def load_module(path: Path, name: str):
 class AgentRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parents[1]
-        self.module = load_module(self.repo_root / "scripts" / "agent_runner.py", "agent_runner_test")
+        self.module = load_module(
+            self.repo_root / "scripts" / "agent_runner.py", "agent_runner_test"
+        )
         self.temp_dir = tempfile.TemporaryDirectory()
         self.prompt_file = Path(self.temp_dir.name) / "prompt.md"
         self.prompt_file.write_text("Implement the selected task.", encoding="utf-8")
@@ -42,14 +44,24 @@ class AgentRunnerTests(unittest.TestCase):
             {
                 "command": "codex",
                 "args": ["--full-auto"],
-                "resume": {"mode": "subcommand", "subcommand": "resume", "args": ["--last"]},
+                "resume": {
+                    "mode": "subcommand",
+                    "subcommand": "resume",
+                    "args": ["--last"],
+                },
             },
             str(self.prompt_file),
             run_metadata={"resume_from": "run-1"},
         )
         self.assertEqual(
             command,
-            ["codex", "--full-auto", "resume", "--last", "Implement the selected task."],
+            [
+                "codex",
+                "--full-auto",
+                "resume",
+                "--last",
+                "Implement the selected task.",
+            ],
         )
 
     def test_claude_resume_uses_continue_flag(self) -> None:
@@ -62,7 +74,9 @@ class AgentRunnerTests(unittest.TestCase):
             str(self.prompt_file),
             run_metadata={"resume_from": "run-2"},
         )
-        self.assertEqual(command, ["claude", "--continue", "Implement the selected task."])
+        self.assertEqual(
+            command, ["claude", "--continue", "Implement the selected task."]
+        )
 
     def test_model_and_tools_are_applied(self) -> None:
         command = self.module.build_command(
@@ -102,13 +116,16 @@ class AgentRunnerTests(unittest.TestCase):
             str(self.prompt_file),
             run_metadata=None,
         )
-        self.assertEqual(command, ["acp-agent", "--serve", "Implement the selected task."])
+        self.assertEqual(
+            command, ["acp-agent", "--serve", "Implement the selected task."]
+        )
 
     def test_main_uses_resolved_agent_config_from_run_metadata(self) -> None:
         agents_file = Path(self.temp_dir.name) / "agents.json"
         run_file = Path(self.temp_dir.name) / "run.json"
         agents_file.write_text(
-            json.dumps({"agents": {"claude-review": {"command": "claude", "args": []}}}) + "\n",
+            json.dumps({"agents": {"claude-review": {"command": "claude", "args": []}}})
+            + "\n",
             encoding="utf-8",
         )
         run_file.write_text(

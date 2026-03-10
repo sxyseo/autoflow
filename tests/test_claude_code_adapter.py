@@ -238,9 +238,7 @@ class TestClaudeCodeAdapterExecute:
         temp_workdir: Path,
     ) -> None:
         """Test handling when command is not found."""
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError()
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):
             result = await adapter.execute(
                 prompt="Fix the bug",
                 workdir=temp_workdir,

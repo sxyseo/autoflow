@@ -808,10 +808,7 @@ class GateRunner:
 
         if use_parallel:
             # Run all gates in parallel
-            tasks = [
-                gate.run(workdir=workdir)
-                for gate in self._gates.values()
-            ]
+            tasks = [gate.run(workdir=workdir) for gate in self._gates.values()]
             gate_results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for gate_name, gate_result in zip(self._gates.keys(), gate_results):

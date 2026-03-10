@@ -148,9 +148,7 @@ class SkillExecutionResult:
         self.agent_result = agent_result
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -518,10 +516,7 @@ class SkillExecutor:
             }
 
             result.mark_complete(
-                status=status_map.get(
-                    agent_result.status,
-                    SkillExecutionStatus.ERROR
-                ),
+                status=status_map.get(agent_result.status, SkillExecutionStatus.ERROR),
                 agent_result=agent_result,
                 error=agent_result.error,
             )

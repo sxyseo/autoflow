@@ -17,10 +17,7 @@ class TestRunner:
     """Test runner with automatic discovery and configurable suites."""
 
     def __init__(
-        self,
-        test_dir: str = "tests",
-        pattern: str = "test*.py",
-        verbose: bool = False
+        self, test_dir: str = "tests", pattern: str = "test*.py", verbose: bool = False
     ):
         """
         Initialize test runner.
@@ -53,9 +50,7 @@ class TestRunner:
         return {}
 
     def discover_tests(
-        self,
-        suite: str | None = None,
-        modules: list[str] | None = None
+        self, suite: str | None = None, modules: list[str] | None = None
     ) -> unittest.TestSuite:
         """
         Discover tests based on suite or module filters.
@@ -76,8 +71,7 @@ class TestRunner:
                 module_path = self.test_dir / module
                 if module_path.exists():
                     tests = loader.loadTestsFromName(
-                        f"{module.replace('/', '.')}",
-                        module=None
+                        f"{module.replace('/', '.')}", module=None
                     )
                     suite_obj.addTests(tests)
             return suite_obj
@@ -88,24 +82,16 @@ class TestRunner:
             suite_obj = unittest.TestSuite()
 
             for pattern in suite_config.get("patterns", []):
-                tests = loader.discover(
-                    start_dir=str(self.test_dir),
-                    pattern=pattern
-                )
+                tests = loader.discover(start_dir=str(self.test_dir), pattern=pattern)
                 suite_obj.addTests(tests)
 
             return suite_obj
 
         # Default: discover all tests
-        return loader.discover(
-            start_dir=str(self.test_dir),
-            pattern=self.pattern
-        )
+        return loader.discover(start_dir=str(self.test_dir), pattern=self.pattern)
 
     def run_tests(
-        self,
-        suite: str | None = None,
-        modules: list[str] | None = None
+        self, suite: str | None = None, modules: list[str] | None = None
     ) -> unittest.TestResult:
         """
         Run tests and return results.
@@ -120,8 +106,7 @@ class TestRunner:
         test_suite = self.discover_tests(suite, modules)
 
         runner = unittest.TextTestRunner(
-            verbosity=2 if self.verbose else 1,
-            stream=sys.stdout
+            verbosity=2 if self.verbose else 1, stream=sys.stdout
         )
 
         return runner.run(test_suite)
@@ -136,7 +121,7 @@ class TestRunner:
         for suite_name, suite_config in self.suites_config.items():
             print(f"\n  {suite_name}:")
             print(f"    Description: {suite_config.get('description', 'N/A')}")
-            patterns = suite_config.get('patterns', ['test*.py'])
+            patterns = suite_config.get("patterns", ["test*.py"])
             print(f"    Patterns: {', '.join(patterns)}")
 
 
@@ -158,13 +143,11 @@ Examples:
   %(prog)s --module test_example    Run specific test module
   %(prog)s --list-suites            List available test suites
   %(prog)s --verbose                Run with detailed output
-        """
+        """,
     )
 
     parser.add_argument(
-        "--suite",
-        "-s",
-        help="Test suite to run (from config/qa_gates.json)"
+        "--suite", "-s", help="Test suite to run (from config/qa_gates.json)"
     )
 
     parser.add_argument(
@@ -172,32 +155,27 @@ Examples:
         "-m",
         action="append",
         dest="modules",
-        help="Specific test module to run (can be specified multiple times)"
+        help="Specific test module to run (can be specified multiple times)",
     )
 
     parser.add_argument(
-        "--list-suites",
-        action="store_true",
-        help="List available test suites"
+        "--list-suites", action="store_true", help="List available test suites"
     )
 
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose output"
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
 
     parser.add_argument(
         "--test-dir",
         default="tests",
-        help="Directory containing tests (default: tests)"
+        help="Directory containing tests (default: tests)",
     )
 
     parser.add_argument(
         "--pattern",
         default="test*.py",
-        help="File pattern for test discovery (default: test*.py)"
+        help="File pattern for test discovery (default: test*.py)",
     )
 
     return parser.parse_args()
@@ -214,14 +192,14 @@ def main() -> int:
 
     # Validate test directory exists
     if not Path(args.test_dir).exists():
-        print(f"Error: Test directory '{args.test_dir}' does not exist", file=sys.stderr)
+        print(
+            f"Error: Test directory '{args.test_dir}' does not exist", file=sys.stderr
+        )
         return 1
 
     # Create test runner
     runner = TestRunner(
-        test_dir=args.test_dir,
-        pattern=args.pattern,
-        verbose=args.verbose
+        test_dir=args.test_dir, pattern=args.pattern, verbose=args.verbose
     )
 
     # Handle list-suites

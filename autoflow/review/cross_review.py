@@ -279,9 +279,7 @@ class CrossReviewResult:
         self.approved = approved
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
@@ -630,9 +628,7 @@ class CrossReviewer:
             )
 
             # Calculate consensus
-            result.consensus_score = self._calculate_consensus(
-                result.reviewer_results
-            )
+            result.consensus_score = self._calculate_consensus(result.reviewer_results)
 
             # Determine approval based on strategy
             approved = self._determine_approval(
@@ -642,7 +638,9 @@ class CrossReviewer:
             )
 
             # Mark complete
-            final_status = ReviewStatus.APPROVED if approved else ReviewStatus.CHANGES_REQUESTED
+            final_status = (
+                ReviewStatus.APPROVED if approved else ReviewStatus.CHANGES_REQUESTED
+            )
             result.mark_complete(status=final_status, approved=approved)
 
         except CrossReviewerError:
@@ -712,7 +710,11 @@ class CrossReviewer:
                 f.severity in (ReviewSeverity.INFO, ReviewSeverity.WARNING)
                 for f in findings
             )
-            reviewer_result.status = ReviewStatus.APPROVED if reviewer_result.approved else ReviewStatus.CHANGES_REQUESTED
+            reviewer_result.status = (
+                ReviewStatus.APPROVED
+                if reviewer_result.approved
+                else ReviewStatus.CHANGES_REQUESTED
+            )
             reviewer_result.comments = self._generate_review_summary(findings)
 
         except Exception as e:
@@ -721,9 +723,7 @@ class CrossReviewer:
 
         finally:
             end_time = datetime.utcnow()
-            reviewer_result.duration_seconds = (
-                end_time - start_time
-            ).total_seconds()
+            reviewer_result.duration_seconds = (end_time - start_time).total_seconds()
 
         return reviewer_result
 
@@ -773,15 +773,17 @@ class CrossReviewer:
                 parts.append("```")
             parts.append("")
 
-        parts.extend([
-            "## Review Output Format",
-            "",
-            "Provide your review as:",
-            "1. APPROVED or CHANGES_REQUESTED",
-            "2. List of findings with severity (info/warning/error/critical)",
-            "3. Specific line numbers and suggestions for issues",
-            "4. Overall confidence in your review (0.0 to 1.0)",
-        ])
+        parts.extend(
+            [
+                "## Review Output Format",
+                "",
+                "Provide your review as:",
+                "1. APPROVED or CHANGES_REQUESTED",
+                "2. List of findings with severity (info/warning/error/critical)",
+                "3. Specific line numbers and suggestions for issues",
+                "4. Overall confidence in your review (0.0 to 1.0)",
+            ]
+        )
 
         return "\n".join(parts)
 
@@ -828,9 +830,7 @@ class CrossReviewer:
                     )
                 )
                 findings.extend(
-                    self._check_code_quality(
-                        content, change.file_path, reviewer_type
-                    )
+                    self._check_code_quality(content, change.file_path, reviewer_type)
                 )
 
         return findings
@@ -999,7 +999,9 @@ class CrossReviewer:
         finding_groups: dict[str, list[ReviewFinding]] = {}
         for finding in all_findings:
             # Create a key based on file, line, and message
-            key = f"{finding.file_path}:{finding.line_start or 0}:{finding.message[:50]}"
+            key = (
+                f"{finding.file_path}:{finding.line_start or 0}:{finding.message[:50]}"
+            )
             if key not in finding_groups:
                 finding_groups[key] = []
             finding_groups[key].append(finding)
@@ -1013,7 +1015,9 @@ class CrossReviewer:
                 # Merge findings, using highest severity and average confidence
                 best = max(group, key=lambda f: f.severity.value)
                 avg_confidence = sum(f.confidence for f in group) / len(group)
-                best.confidence = min(avg_confidence * 1.1, 1.0)  # Boost for corroboration
+                best.confidence = min(
+                    avg_confidence * 1.1, 1.0
+                )  # Boost for corroboration
                 aggregated.append(best)
 
         # Sort by severity
@@ -1104,7 +1108,9 @@ class CrossReviewer:
                 r.confidence for r in reviewer_results if r.approved
             )
             weighted_total = sum(r.confidence for r in reviewer_results)
-            return weighted_approvals > weighted_total / 2 if weighted_total > 0 else False
+            return (
+                weighted_approvals > weighted_total / 2 if weighted_total > 0 else False
+            )
 
         return False
 
@@ -1132,15 +1138,15 @@ class CrossReviewer:
             total = self._stats.total_reviews
             current_avg = self._stats.average_review_duration
             self._stats.average_review_duration = (
-                (current_avg * (total - 1) + result.duration_seconds) / total
-            )
+                current_avg * (total - 1) + result.duration_seconds
+            ) / total
 
         if result.reviewer_count:
             total = self._stats.total_reviews
             current_avg = self._stats.average_reviewers_per_review
             self._stats.average_reviewers_per_review = (
-                (current_avg * (total - 1) + result.reviewer_count) / total
-            )
+                current_avg * (total - 1) + result.reviewer_count
+            ) / total
 
     def get_active_reviews(self) -> list[CrossReviewResult]:
         """

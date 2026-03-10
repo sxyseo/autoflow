@@ -191,7 +191,9 @@ class DiagnosticResult:
             "timestamp": self.timestamp.isoformat(),
             "health_status": self.health_status.value,
             "root_causes": [cause.to_dict() for cause in self.root_causes],
-            "primary_cause": self.primary_cause.to_dict() if self.primary_cause else None,
+            "primary_cause": (
+                self.primary_cause.to_dict() if self.primary_cause else None
+            ),
             "degradation_signals": self.degradation_signals,
             "metadata": self.metadata,
             "healing_plan": self.healing_plan,
@@ -213,13 +215,15 @@ class DiagnosticResult:
         ]
 
         if self.primary_cause:
-            lines.extend([
-                "Primary Root Cause:",
-                f"  Category: {self.primary_cause.category.value}",
-                f"  Description: {self.primary_cause.description}",
-                f"  Confidence: {self.primary_cause.confidence.value}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "Primary Root Cause:",
+                    f"  Category: {self.primary_cause.category.value}",
+                    f"  Description: {self.primary_cause.description}",
+                    f"  Confidence: {self.primary_cause.confidence.value}",
+                    "",
+                ]
+            )
 
         if self.root_causes:
             lines.append(f"Identified Root Causes ({len(self.root_causes)}):")
@@ -388,9 +392,9 @@ class StrategySelector:
         return self._create_healing_plan(
             diagnostic=diagnostic,
             selected_evaluation=best_strategy,
-            fallback_evaluations=[
-                s for s in possible_strategies if s != best_strategy
-            ][: self.config.max_healing_attempts - 1],
+            fallback_evaluations=[s for s in possible_strategies if s != best_strategy][
+                : self.config.max_healing_attempts - 1
+            ],
         )
 
     def _get_possible_strategies(
@@ -525,7 +529,9 @@ class StrategySelector:
                 applicability = 0.9
                 estimated_success = 1.0  # Human intervention always succeeds eventually
                 risk_level = "low"
-                rationale.append("Unknown or low-confidence issues require human expertise")
+                rationale.append(
+                    "Unknown or low-confidence issues require human expertise"
+                )
 
         # Apply penalties based on health status
         from autoflow.healing.monitor import WorkflowHealthStatus
@@ -693,72 +699,86 @@ class StrategySelector:
         steps = []
 
         if strategy == HealingStrategy.RETRY:
-            steps.extend([
-                "Identify failed task or operation",
-                "Check retry count is below maximum",
-                "Apply exponential backoff delay",
-                "Re-execute the failed operation",
-                "Verify operation completed successfully",
-            ])
+            steps.extend(
+                [
+                    "Identify failed task or operation",
+                    "Check retry count is below maximum",
+                    "Apply exponential backoff delay",
+                    "Re-execute the failed operation",
+                    "Verify operation completed successfully",
+                ]
+            )
 
         elif strategy == HealingStrategy.ROLLBACK:
-            steps.extend([
-                "Identify last known-good checkpoint",
-                "Verify checkpoint integrity",
-                "Stop current workflow execution",
-                "Restore state from checkpoint",
-                "Restart workflow from restored state",
-                "Verify workflow resumes correctly",
-            ])
+            steps.extend(
+                [
+                    "Identify last known-good checkpoint",
+                    "Verify checkpoint integrity",
+                    "Stop current workflow execution",
+                    "Restore state from checkpoint",
+                    "Restart workflow from restored state",
+                    "Verify workflow resumes correctly",
+                ]
+            )
 
         elif strategy == HealingStrategy.RECONFIGURE:
-            steps.extend([
-                "Identify problematic configuration parameters",
-                "Calculate optimal new values",
-                "Validate new configuration values",
-                "Apply configuration changes",
-                "Reload affected services",
-                "Verify configuration is active",
-            ])
+            steps.extend(
+                [
+                    "Identify problematic configuration parameters",
+                    "Calculate optimal new values",
+                    "Validate new configuration values",
+                    "Apply configuration changes",
+                    "Reload affected services",
+                    "Verify configuration is active",
+                ]
+            )
 
         elif strategy == HealingStrategy.RESTART:
-            steps.extend([
-                "Identify affected services or components",
-                "Perform graceful shutdown",
-                "Clear any cached state",
-                "Restart services",
-                "Verify services start correctly",
-                "Check health endpoints",
-            ])
+            steps.extend(
+                [
+                    "Identify affected services or components",
+                    "Perform graceful shutdown",
+                    "Clear any cached state",
+                    "Restart services",
+                    "Verify services start correctly",
+                    "Check health endpoints",
+                ]
+            )
 
         elif strategy == HealingStrategy.SCALE:
-            steps.extend([
-                "Analyze current resource utilization",
-                "Calculate required resource increase",
-                "Provision additional resources",
-                "Update service configuration",
-                "Redistribute load",
-                "Verify scaling is effective",
-            ])
+            steps.extend(
+                [
+                    "Analyze current resource utilization",
+                    "Calculate required resource increase",
+                    "Provision additional resources",
+                    "Update service configuration",
+                    "Redistribute load",
+                    "Verify scaling is effective",
+                ]
+            )
 
         elif strategy == HealingStrategy.ISOLATE:
-            steps.extend([
-                "Identify failing component",
-                "Determine isolation boundary",
-                "Route traffic away from component",
-                "Quarantine component if necessary",
-                "Monitor for cascade effects",
-                "Verify system stability",
-            ])
+            steps.extend(
+                [
+                    "Identify failing component",
+                    "Determine isolation boundary",
+                    "Route traffic away from component",
+                    "Quarantine component if necessary",
+                    "Monitor for cascade effects",
+                    "Verify system stability",
+                ]
+            )
 
         elif strategy == HealingStrategy.ESCALATE:
-            steps.extend([
-                "Compile diagnostic information",
-                "Create incident report",
-                "Notify on-call engineer",
-                "Provide context and recommendations",
-                "Await human intervention",
-            ])
+            steps.extend(
+                [
+                    "Compile diagnostic information",
+                    "Create incident report",
+                    "Notify on-call engineer",
+                    "Provide context and recommendations",
+                    "Await human intervention",
+                ]
+            )
 
         return steps
 
@@ -921,52 +941,66 @@ class StrategySelector:
         side_effects = []
 
         if strategy == HealingStrategy.RETRY:
-            side_effects.extend([
-                "May delay detection of persistent issues",
-                "Could increase load on failing services",
-            ])
+            side_effects.extend(
+                [
+                    "May delay detection of persistent issues",
+                    "Could increase load on failing services",
+                ]
+            )
 
         elif strategy == HealingStrategy.ROLLBACK:
-            side_effects.extend([
-                "May lose recent valid changes",
-                "Could cause temporary service interruption",
-                "May not resolve issue if root cause persists",
-            ])
+            side_effects.extend(
+                [
+                    "May lose recent valid changes",
+                    "Could cause temporary service interruption",
+                    "May not resolve issue if root cause persists",
+                ]
+            )
 
         elif strategy == HealingStrategy.RECONFIGURE:
-            side_effects.extend([
-                "New configuration may introduce different issues",
-                "May require service restart",
-                "Could have unintended interactions",
-            ])
+            side_effects.extend(
+                [
+                    "New configuration may introduce different issues",
+                    "May require service restart",
+                    "Could have unintended interactions",
+                ]
+            )
 
         elif strategy == HealingStrategy.RESTART:
-            side_effects.extend([
-                "Temporary service interruption",
-                "May lose in-memory state",
-                "Could trigger cascading restarts",
-            ])
+            side_effects.extend(
+                [
+                    "Temporary service interruption",
+                    "May lose in-memory state",
+                    "Could trigger cascading restarts",
+                ]
+            )
 
         elif strategy == HealingStrategy.SCALE:
-            side_effects.extend([
-                "Increased resource costs",
-                "May take time to provision resources",
-                "Could over-provision temporarily",
-            ])
+            side_effects.extend(
+                [
+                    "Increased resource costs",
+                    "May take time to provision resources",
+                    "Could over-provision temporarily",
+                ]
+            )
 
         elif strategy == HealingStrategy.ISOLATE:
-            side_effects.extend([
-                "Reduced system capacity",
-                "May affect user experience",
-                "Could mask underlying issue",
-            ])
+            side_effects.extend(
+                [
+                    "Reduced system capacity",
+                    "May affect user experience",
+                    "Could mask underlying issue",
+                ]
+            )
 
         elif strategy == HealingStrategy.ESCALATE:
-            side_effects.extend([
-                "Resolution time depends on human availability",
-                "May interrupt on-call engineer",
-                "Creates incident record requiring follow-up",
-            ])
+            side_effects.extend(
+                [
+                    "Resolution time depends on human availability",
+                    "May interrupt on-call engineer",
+                    "Creates incident record requiring follow-up",
+                ]
+            )
 
         return side_effects
 
@@ -1212,25 +1246,31 @@ class RootCauseAnalyzer:
 
         # Add health metrics
         if health_assessment.metrics:
-            prompt_parts.extend([
-                "## Health Metrics",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Health Metrics",
+                ]
+            )
             for metric_name, metric_value in health_assessment.metrics.items():
                 prompt_parts.append(f"- {metric_name}: {metric_value}")
             prompt_parts.append("")
 
         # Add degradation signals
         if degradation_signals:
-            prompt_parts.extend([
-                "## Degradation Signals",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Degradation Signals",
+                ]
+            )
             for i, signal in enumerate(degradation_signals, 1):
-                prompt_parts.extend([
-                    f"### Signal {i}",
-                    f"Description: {signal.description}",
-                    f"Severity: {signal.severity.value}",
-                    f"Type: {signal.signal_type.value}",
-                ])
+                prompt_parts.extend(
+                    [
+                        f"### Signal {i}",
+                        f"Description: {signal.description}",
+                        f"Severity: {signal.severity.value}",
+                        f"Type: {signal.signal_type.value}",
+                    ]
+                )
                 if signal.evidence:
                     prompt_parts.append("Evidence:")
                     for evidence in signal.evidence:
@@ -1239,26 +1279,30 @@ class RootCauseAnalyzer:
 
         # Add context
         if context:
-            prompt_parts.extend([
-                "## Additional Context",
-            ])
+            prompt_parts.extend(
+                [
+                    "## Additional Context",
+                ]
+            )
             for key, value in context.items():
                 prompt_parts.append(f"- {key}: {value}")
             prompt_parts.append("")
 
         # Add analysis instructions
-        prompt_parts.extend([
-            "## Analysis Required",
-            "",
-            "Please provide:",
-            "1. Root cause identification with failure categories",
-            "2. Evidence supporting each root cause",
-            "3. Confidence levels for each diagnosis",
-            "4. Affected components",
-            "5. Suggested healing strategies",
-            "",
-            "Format your response as structured analysis that can be parsed.",
-        ])
+        prompt_parts.extend(
+            [
+                "## Analysis Required",
+                "",
+                "Please provide:",
+                "1. Root cause identification with failure categories",
+                "2. Evidence supporting each root cause",
+                "3. Confidence levels for each diagnosis",
+                "4. Affected components",
+                "5. Suggested healing strategies",
+                "",
+                "Format your response as structured analysis that can be parsed.",
+            ]
+        )
 
         return "\n".join(prompt_parts)
 
@@ -1288,36 +1332,44 @@ class RootCauseAnalyzer:
         # Analyze each degradation signal
         for i, signal in enumerate(degradation_signals, 1):
             cause = self._analyze_signal(signal, context)
-            analysis_parts.extend([
-                f"### {i}. {cause['category'].upper().replace('_', ' ')}",
-                f"**Description**: {cause['description']}",
-                f"**Confidence**: {cause['confidence'].value}",
-                "**Evidence**:",
-            ])
-            for evidence in cause['evidence']:
+            analysis_parts.extend(
+                [
+                    f"### {i}. {cause['category'].upper().replace('_', ' ')}",
+                    f"**Description**: {cause['description']}",
+                    f"**Confidence**: {cause['confidence'].value}",
+                    "**Evidence**:",
+                ]
+            )
+            for evidence in cause["evidence"]:
                 analysis_parts.append(f"  - {evidence}")
-            analysis_parts.extend([
-                f"**Affected Components**: {', '.join(cause['components'])}",
-                f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
-                "",
-            ])
+            analysis_parts.extend(
+                [
+                    f"**Affected Components**: {', '.join(cause['components'])}",
+                    f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
+                    "",
+                ]
+            )
 
         # If no signals, analyze health status
         if not degradation_signals:
             cause = self._analyze_health_status(health_assessment, context)
-            analysis_parts.extend([
-                f"### 1. {cause['category'].upper().replace('_', ' ')}",
-                f"**Description**: {cause['description']}",
-                f"**Confidence**: {cause['confidence'].value}",
-                "**Evidence**:",
-            ])
-            for evidence in cause['evidence']:
+            analysis_parts.extend(
+                [
+                    f"### 1. {cause['category'].upper().replace('_', ' ')}",
+                    f"**Description**: {cause['description']}",
+                    f"**Confidence**: {cause['confidence'].value}",
+                    "**Evidence**:",
+                ]
+            )
+            for evidence in cause["evidence"]:
                 analysis_parts.append(f"  - {evidence}")
-            analysis_parts.extend([
-                f"**Affected Components**: {', '.join(cause['components'])}",
-                f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
-                "",
-            ])
+            analysis_parts.extend(
+                [
+                    f"**Affected Components**: {', '.join(cause['components'])}",
+                    f"**Suggested Strategies**: {', '.join([s.value for s in cause['strategies']])}",
+                    "",
+                ]
+            )
 
         return "\n".join(analysis_parts)
 
@@ -1367,7 +1419,11 @@ class RootCauseAnalyzer:
             confidence = ConfidenceLevel.LOW
 
         # Identify affected components
-        components = signal.affected_components if hasattr(signal, 'affected_components') else ["workflow"]
+        components = (
+            signal.affected_components
+            if hasattr(signal, "affected_components")
+            else ["workflow"]
+        )
 
         # Suggest strategies based on category
         strategies = self._get_strategies_for_category(category)
@@ -1418,7 +1474,10 @@ class RootCauseAnalyzer:
         return {
             "category": category,
             "description": description,
-            "evidence": [f"Health status: {status.value}", f"Overall score: {health_assessment.overall_score:.2f}"],
+            "evidence": [
+                f"Health status: {status.value}",
+                f"Overall score: {health_assessment.overall_score:.2f}",
+            ],
             "confidence": confidence,
             "components": ["workflow"],
             "strategies": strategies,
@@ -1503,15 +1562,17 @@ class RootCauseAnalyzer:
 
         if ai_result.status != ExecutionStatus.SUCCESS:
             # If AI analysis failed, create unknown root cause
-            root_causes.append(RootCause(
-                category=FailureCategory.UNKNOWN,
-                description="AI analysis failed - unable to determine root cause",
-                evidence=[f"Analysis error: {ai_result.error}"],
-                confidence=ConfidenceLevel.LOW,
-                affected_components=["workflow"],
-                related_metrics=[],
-                suggested_strategies=[HealingStrategy.ESCALATE],
-            ))
+            root_causes.append(
+                RootCause(
+                    category=FailureCategory.UNKNOWN,
+                    description="AI analysis failed - unable to determine root cause",
+                    evidence=[f"Analysis error: {ai_result.error}"],
+                    confidence=ConfidenceLevel.LOW,
+                    affected_components=["workflow"],
+                    related_metrics=[],
+                    suggested_strategies=[HealingStrategy.ESCALATE],
+                )
+            )
             return root_causes
 
         # Parse AI analysis content to extract root causes
@@ -1532,15 +1593,17 @@ class RootCauseAnalyzer:
         if not root_causes and degradation_signals:
             for signal in degradation_signals:
                 analysis = self._analyze_signal(signal, {})
-                root_causes.append(RootCause(
-                    category=analysis["category"],
-                    description=analysis["description"],
-                    evidence=analysis["evidence"],
-                    confidence=analysis["confidence"],
-                    affected_components=analysis["components"],
-                    related_metrics=[signal.description],
-                    suggested_strategies=analysis["strategies"],
-                ))
+                root_causes.append(
+                    RootCause(
+                        category=analysis["category"],
+                        description=analysis["description"],
+                        evidence=analysis["evidence"],
+                        confidence=analysis["confidence"],
+                        affected_components=analysis["components"],
+                        related_metrics=[signal.description],
+                        suggested_strategies=analysis["strategies"],
+                    )
+                )
 
         return root_causes
 
@@ -1558,7 +1621,9 @@ class RootCauseAnalyzer:
 
             # Extract category from first line (e.g., "### RESOURCE EXHAUSTION")
             first_line = lines[0].strip()
-            category_str = first_line.replace("###", "").strip().lower().replace(" ", "_")
+            category_str = (
+                first_line.replace("###", "").strip().lower().replace(" ", "_")
+            )
             try:
                 category = FailureCategory(category_str)
             except ValueError:
@@ -1576,7 +1641,11 @@ class RootCauseAnalyzer:
                 if line.startswith("**Description**"):
                     description = line.split(":", 1)[1].strip() if ":" in line else ""
                 elif line.startswith("**Confidence**"):
-                    conf_str = line.split(":", 1)[1].strip().lower() if ":" in line else "medium"
+                    conf_str = (
+                        line.split(":", 1)[1].strip().lower()
+                        if ":" in line
+                        else "medium"
+                    )
                     confidence = ConfidenceLevel(conf_str)
                 elif line.startswith("**Evidence**"):
                     # Next lines are evidence
@@ -1715,7 +1784,10 @@ class RootCauseAnalyzer:
             return True
 
         # Escalate if ESCALATE is the only suggested strategy
-        return bool(len(primary_cause.suggested_strategies) == 1 and primary_cause.suggested_strategies[0] == HealingStrategy.ESCALATE)
+        return bool(
+            len(primary_cause.suggested_strategies) == 1
+            and primary_cause.suggested_strategies[0] == HealingStrategy.ESCALATE
+        )
 
     def clear_cache(self) -> None:
         """Clear the analysis cache.

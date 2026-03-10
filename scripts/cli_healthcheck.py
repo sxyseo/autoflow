@@ -56,7 +56,14 @@ def probe_binary(name: str) -> dict[str, Any]:
 def tmux_sessions() -> list[dict[str, Any]]:
     if not shutil.which("tmux"):
         return []
-    result = run(["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"])
+    result = run(
+        [
+            "tmux",
+            "list-sessions",
+            "-F",
+            "#{session_name}:#{session_windows}:#{session_attached}",
+        ]
+    )
     if result.returncode != 0:
         return []
     sessions = []
@@ -84,7 +91,9 @@ def build_report() -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Report local Codex/Claude/tmux health")
+    parser = argparse.ArgumentParser(
+        description="Report local Codex/Claude/tmux health"
+    )
     parser.add_argument("--require", action="append", default=[])
     args = parser.parse_args()
 

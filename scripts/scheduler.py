@@ -32,8 +32,7 @@ from typing import Any
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("scheduler")
 
@@ -41,14 +40,19 @@ logger = logging.getLogger("scheduler")
 try:
     from apscheduler import AsyncScheduler
     from apscheduler.triggers.cron import CronTrigger
+
     APSCHEDULER_AVAILABLE = True
 except ImportError:
     APSCHEDULER_AVAILABLE = False
-    logger.warning("APScheduler 4.x not available. Install with: pip install apscheduler>=4.0.0")
+    logger.warning(
+        "APScheduler 4.x not available. Install with: pip install apscheduler>=4.0.0"
+    )
 
 
 # Path to scheduler configuration
-SCHEDULER_CONFIG_PATH = Path(__file__).parent.parent / "config" / "scheduler_config.json"
+SCHEDULER_CONFIG_PATH = (
+    Path(__file__).parent.parent / "config" / "scheduler_config.json"
+)
 
 
 class SchedulerConfig:
@@ -81,39 +85,39 @@ class SchedulerConfig:
                 "timezone": "UTC",
                 "max_instances": 3,
                 "coalesce": True,
-                "misfire_grace_time": 300
+                "misfire_grace_time": 300,
             },
             "jobs": {
                 "continuous_iteration": {
                     "enabled": True,
                     "cron": "*/5 * * * *",
                     "max_instances": 1,
-                    "description": "Run continuous iteration loop every 5 minutes"
+                    "description": "Run continuous iteration loop every 5 minutes",
                 },
                 "nightly_maintenance": {
                     "enabled": True,
                     "cron": "0 2 * * *",
                     "max_instances": 1,
-                    "description": "Run maintenance tasks at 2 AM daily"
+                    "description": "Run maintenance tasks at 2 AM daily",
                 },
                 "weekly_consolidation": {
                     "enabled": True,
                     "cron": "0 3 * * 0",
                     "max_instances": 1,
-                    "description": "Run memory consolidation on Sundays at 3 AM"
+                    "description": "Run memory consolidation on Sundays at 3 AM",
                 },
                 "monthly_dependency_update": {
                     "enabled": True,
                     "cron": "0 4 1 * *",
                     "max_instances": 1,
-                    "description": "Check for dependency updates on the 1st of each month"
-                }
+                    "description": "Check for dependency updates on the 1st of each month",
+                },
             },
             "job_defaults": {
                 "max_instances": 1,
                 "coalesce": True,
-                "misfire_grace_time": 300
-            }
+                "misfire_grace_time": 300,
+            },
         }
 
     @property
@@ -214,11 +218,16 @@ class JobRegistry:
             scripts_path = Path(__file__).parent
             if scripts_path.exists():
                 import subprocess
+
                 result = subprocess.run(
-                    ["python3", str(scripts_path / "continuous_iteration.py"), "--dispatch"],
+                    [
+                        "python3",
+                        str(scripts_path / "continuous_iteration.py"),
+                        "--dispatch",
+                    ],
                     capture_output=True,
                     text=True,
-                    timeout=300
+                    timeout=300,
                 )
                 output = result.stdout + result.stderr
                 success = result.returncode == 0
@@ -234,7 +243,7 @@ class JobRegistry:
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Continuous iteration job failed: {e}")
@@ -242,7 +251,7 @@ class JobRegistry:
                 "job": "continuous_iteration",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _nightly_maintenance_job(self) -> dict[str, Any]:
@@ -261,11 +270,12 @@ class JobRegistry:
 
             if maintenance_script.exists():
                 import subprocess
+
                 result = subprocess.run(
                     ["python3", str(maintenance_script), "--cleanup"],
                     capture_output=True,
                     text=True,
-                    timeout=600
+                    timeout=600,
                 )
                 output = result.stdout + result.stderr
                 success = result.returncode == 0
@@ -281,7 +291,7 @@ class JobRegistry:
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Nightly maintenance job failed: {e}")
@@ -289,7 +299,7 @@ class JobRegistry:
                 "job": "nightly_maintenance",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _weekly_consolidation_job(self) -> dict[str, Any]:
@@ -313,7 +323,7 @@ class JobRegistry:
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Weekly consolidation job failed: {e}")
@@ -321,7 +331,7 @@ class JobRegistry:
                 "job": "weekly_consolidation",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _monthly_dependency_update_job(self) -> dict[str, Any]:
@@ -345,7 +355,7 @@ class JobRegistry:
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Monthly dependency update job failed: {e}")
@@ -353,7 +363,7 @@ class JobRegistry:
                 "job": "monthly_dependency_update",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
 
@@ -426,7 +436,7 @@ class Scheduler:
                 await self.add_job(
                     job_type=job_type,
                     cron=job_config.get("cron", "*/5 * * * *"),
-                    job_id=job_type
+                    job_id=job_type,
                 )
 
     async def add_job(
@@ -434,7 +444,7 @@ class Scheduler:
         job_type: str,
         cron: str,
         job_id: str | None = None,
-        max_instances: int | None = None
+        max_instances: int | None = None,
     ) -> str:
         """Add a scheduled job.
 
@@ -460,17 +470,16 @@ class Scheduler:
         # Get job-specific config or use defaults
         job_config = self.config.get_job_config(job_type) or {}
         if max_instances is None:
-            max_instances = job_config.get("max_instances", self.config.job_defaults.get("max_instances", 1))
+            max_instances = job_config.get(
+                "max_instances", self.config.job_defaults.get("max_instances", 1)
+            )
 
         # Create cron trigger
         trigger = CronTrigger.from_crontab(cron)
 
         # Add schedule
         await self._scheduler.add_schedule(
-            job_func,
-            trigger,
-            id=job_id,
-            max_instances=max_instances
+            job_func, trigger, id=job_id, max_instances=max_instances
         )
 
         self._scheduled_jobs[job_id] = job_type
@@ -507,13 +516,15 @@ class Scheduler:
         jobs = []
         for job_id, job_type in self._scheduled_jobs.items():
             job_config = self.config.get_job_config(job_type) or {}
-            jobs.append({
-                "id": job_id,
-                "type": job_type,
-                "cron": job_config.get("cron", "unknown"),
-                "enabled": job_config.get("enabled", True),
-                "description": job_config.get("description", "")
-            })
+            jobs.append(
+                {
+                    "id": job_id,
+                    "type": job_type,
+                    "cron": job_config.get("cron", "unknown"),
+                    "enabled": job_config.get("enabled", True),
+                    "description": job_config.get("description", ""),
+                }
+            )
         return jobs
 
     def get_status(self) -> dict[str, Any]:
@@ -528,12 +539,13 @@ class Scheduler:
             "jobs": self.list_jobs(),
             "config": {
                 "timezone": self.config.timezone,
-                "max_instances": self.config.max_instances
-            }
+                "max_instances": self.config.max_instances,
+            },
         }
 
 
 # CLI Commands
+
 
 def cmd_start(args: argparse.Namespace) -> int:
     """Start the scheduler.
@@ -617,7 +629,7 @@ def cmd_add_job(args: argparse.Namespace) -> int:
         "enabled": True,
         "cron": args.cron,
         "max_instances": args.max_instances or 1,
-        "description": args.description or f"Custom job: {args.job_type}"
+        "description": args.description or f"Custom job: {args.job_type}",
     }
     config.save()
 
@@ -738,84 +750,41 @@ Examples:
     python3 scripts/scheduler.py list-jobs
     python3 scripts/scheduler.py remove-job --job-id continuous_iteration
     python3 scripts/scheduler.py run-once --job-type continuous_iteration --verbose
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Start command
-    subparsers.add_parser(
-        "start",
-        help="Start the scheduler"
-    )
+    subparsers.add_parser("start", help="Start the scheduler")
 
     # Status command
-    subparsers.add_parser(
-        "status",
-        help="Show scheduler status"
-    )
+    subparsers.add_parser("status", help="Show scheduler status")
 
     # Add job command
-    add_parser = subparsers.add_parser(
-        "add-job",
-        help="Add a scheduled job"
-    )
+    add_parser = subparsers.add_parser("add-job", help="Add a scheduled job")
+    add_parser.add_argument("--job-type", required=True, help="Type of job to schedule")
     add_parser.add_argument(
-        "--job-type",
-        required=True,
-        help="Type of job to schedule"
+        "--cron", required=True, help="Cron expression for scheduling"
     )
+    add_parser.add_argument("--job-id", help="Optional job ID (defaults to job-type)")
     add_parser.add_argument(
-        "--cron",
-        required=True,
-        help="Cron expression for scheduling"
+        "--max-instances", type=int, default=1, help="Maximum concurrent instances"
     )
-    add_parser.add_argument(
-        "--job-id",
-        help="Optional job ID (defaults to job-type)"
-    )
-    add_parser.add_argument(
-        "--max-instances",
-        type=int,
-        default=1,
-        help="Maximum concurrent instances"
-    )
-    add_parser.add_argument(
-        "--description",
-        help="Job description"
-    )
+    add_parser.add_argument("--description", help="Job description")
 
     # List jobs command
-    subparsers.add_parser(
-        "list-jobs",
-        help="List all scheduled jobs"
-    )
+    subparsers.add_parser("list-jobs", help="List all scheduled jobs")
 
     # Remove job command
-    remove_parser = subparsers.add_parser(
-        "remove-job",
-        help="Remove a scheduled job"
-    )
-    remove_parser.add_argument(
-        "--job-id",
-        required=True,
-        help="ID of job to remove"
-    )
+    remove_parser = subparsers.add_parser("remove-job", help="Remove a scheduled job")
+    remove_parser.add_argument("--job-id", required=True, help="ID of job to remove")
 
     # Run once command
-    run_parser = subparsers.add_parser(
-        "run-once",
-        help="Run a job once immediately"
-    )
+    run_parser = subparsers.add_parser("run-once", help="Run a job once immediately")
+    run_parser.add_argument("--job-type", required=True, help="Type of job to run")
     run_parser.add_argument(
-        "--job-type",
-        required=True,
-        help="Type of job to run"
-    )
-    run_parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Show job output"
+        "--verbose", "-v", action="store_true", help="Show job output"
     )
 
     args = parser.parse_args()

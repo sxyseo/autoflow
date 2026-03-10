@@ -175,7 +175,9 @@ class QualityModel:
         prediction = self._binary_to_outcome(prediction_binary)
 
         # Calculate confidence (probability of predicted class)
-        confidence = float(probabilities[self.label_encoder.transform([prediction_binary])[0]])
+        confidence = float(
+            probabilities[self.label_encoder.transform([prediction_binary])[0]]
+        )
 
         # Extract feature importances
         feature_importances = self._extract_feature_importances()
@@ -252,10 +254,7 @@ class QualityModel:
         # Build matrix row by row
         matrix = []
         for feature_dict in features:
-            row = [
-                feature_dict.get(name, 0.0)
-                for name in self.feature_names
-            ]
+            row = [feature_dict.get(name, 0.0) for name in self.feature_names]
             matrix.append(row)
 
         return np.array(matrix)
@@ -272,10 +271,7 @@ class QualityModel:
         Returns:
             1D numpy array of features
         """
-        vector = [
-            features.get(name, 0.0)
-            for name in self.feature_names
-        ]
+        vector = [features.get(name, 0.0) for name in self.feature_names]
         return np.array(vector)
 
     def _extract_feature_importances(self) -> dict[str, float]:
@@ -482,11 +478,7 @@ class QualityModel:
         importances = self._extract_feature_importances()
 
         # Sort features by importance
-        sorted_features = sorted(
-            importances.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        sorted_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)
 
         # Build explanation
         lines = ["Feature Importances:"]

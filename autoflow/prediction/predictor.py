@@ -211,7 +211,10 @@ class QualityPredictor:
         # Check prediction outcome
         from autoflow.prediction.data_collector import QualityOutcome
 
-        return prediction.prediction in (QualityOutcome.NEEDS_CHANGES, QualityOutcome.FAILED)
+        return prediction.prediction in (
+            QualityOutcome.NEEDS_CHANGES,
+            QualityOutcome.FAILED,
+        )
 
     def get_prediction_summary(self, prediction: PredictionResult) -> str:
         """

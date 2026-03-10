@@ -27,13 +27,14 @@ from typing import Any
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("maintenance")
 
 # Default paths
-DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config" / "maintenance_config.json"
+DEFAULT_CONFIG_PATH = (
+    Path(__file__).parent.parent / "config" / "maintenance_config.json"
+)
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 CACHE_DIR = Path(__file__).parent.parent / ".cache"
 TEMP_DIR = Path(__file__).parent.parent / ".tmp"
@@ -69,19 +70,19 @@ class MaintenanceConfig:
                 "log_retention_days": 7,
                 "temp_retention_hours": 24,
                 "cache_max_size_mb": 500,
-                "directories_to_clean": ["logs", ".cache", ".tmp"]
+                "directories_to_clean": ["logs", ".cache", ".tmp"],
             },
             "optimization": {
                 "compact_databases": True,
                 "prune_old_runs_days": 30,
-                "gc_collect": True
+                "gc_collect": True,
             },
             "health_check": {
                 "min_disk_space_gb": 5,
                 "max_memory_percent": 90,
                 "check_dependencies": True,
-                "check_git_status": True
-            }
+                "check_git_status": True,
+            },
         }
 
     @property
@@ -116,11 +117,7 @@ class CleanupManager:
             config: Maintenance configuration.
         """
         self.config = config
-        self.stats = {
-            "files_removed": 0,
-            "bytes_freed": 0,
-            "errors": []
-        }
+        self.stats = {"files_removed": 0, "bytes_freed": 0, "errors": []}
 
     def run_cleanup(self) -> dict[str, Any]:
         """Run all cleanup tasks.
@@ -157,7 +154,7 @@ class CleanupManager:
             "bytes_freed_mb": round(self.stats["bytes_freed"] / 1024 / 1024, 2),
             "errors": self.stats["errors"],
             "duration_seconds": duration,
-            "timestamp": start_time.isoformat()
+            "timestamp": start_time.isoformat(),
         }
 
     def _clean_logs(self) -> None:
@@ -211,7 +208,9 @@ class CleanupManager:
                     logger.error(f"Failed to remove {temp_file}: {e}")
 
         # Remove empty directories
-        for temp_dir in sorted(TEMP_DIR.glob("**/"), key=lambda d: len(str(d)), reverse=True):
+        for temp_dir in sorted(
+            TEMP_DIR.glob("**/"), key=lambda d: len(str(d)), reverse=True
+        ):
             if temp_dir != TEMP_DIR and temp_dir.is_dir():
                 try:
                     if not any(temp_dir.iterdir()):
@@ -287,7 +286,10 @@ class CleanupManager:
                     mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=UTC)
                     if mtime < cutoff:
                         # Skip config files
-                        if item.suffix in [".json", ".yaml", ".yml"] and "config" in item.name.lower():
+                        if (
+                            item.suffix in [".json", ".yaml", ".yml"]
+                            and "config" in item.name.lower()
+                        ):
                             continue
                         size = item.stat().st_size
                         item.unlink()
@@ -312,7 +314,7 @@ class OptimizationManager:
             "databases_compacted": 0,
             "runs_pruned": 0,
             "gc_collected": False,
-            "errors": []
+            "errors": [],
         }
 
     def run_optimization(self) -> dict[str, Any]:
@@ -347,7 +349,7 @@ class OptimizationManager:
             "gc_collected": self.stats["gc_collected"],
             "errors": self.stats["errors"],
             "duration_seconds": duration,
-            "timestamp": start_time.isoformat()
+            "timestamp": start_time.isoformat(),
         }
 
     def _run_gc(self) -> None:
@@ -380,6 +382,7 @@ class OptimizationManager:
             try:
                 # Vacuum the database
                 import sqlite3
+
                 conn = sqlite3.connect(str(db_file))
                 conn.execute("VACUUM")
                 conn.close()
@@ -405,9 +408,10 @@ class OptimizationManager:
                 if "entries" in data:
                     original_count = len(data["entries"])
                     data["entries"] = [
-                        e for e in data["entries"]
-                        if "timestamp" not in e or
-                        datetime.fromisoformat(e["timestamp"]) > cutoff
+                        e
+                        for e in data["entries"]
+                        if "timestamp" not in e
+                        or datetime.fromisoformat(e["timestamp"]) > cutoff
                     ]
                     self.stats["runs_pruned"] += original_count - len(data["entries"])
 
@@ -433,7 +437,7 @@ class HealthCheckManager:
             "disk_space": None,
             "memory": None,
             "dependencies": None,
-            "git_status": None
+            "git_status": None,
         }
         self.errors = []
 
@@ -462,14 +466,16 @@ class HealthCheckManager:
 
         all_healthy = all(v in [True, None] for v in self.checks.values())
 
-        logger.info(f"Health check completed: {'HEALTHY' if all_healthy else 'ISSUES FOUND'}")
+        logger.info(
+            f"Health check completed: {'HEALTHY' if all_healthy else 'ISSUES FOUND'}"
+        )
 
         return {
             "success": all_healthy,
             "checks": self.checks,
             "errors": self.errors,
             "duration_seconds": duration,
-            "timestamp": start_time.isoformat()
+            "timestamp": start_time.isoformat(),
         }
 
     def _check_disk_space(self) -> None:
@@ -478,17 +484,19 @@ class HealthCheckManager:
 
         try:
             total, used, free = shutil.disk_usage(Path(__file__).parent.parent)
-            free_gb = free / (1024 ** 3)
+            free_gb = free / (1024**3)
 
             self.checks["disk_space"] = {
                 "free_gb": round(free_gb, 2),
-                "total_gb": round(total / (1024 ** 3), 2),
+                "total_gb": round(total / (1024**3), 2),
                 "used_percent": round(used / total * 100, 1),
-                "healthy": free_gb >= min_space_gb
+                "healthy": free_gb >= min_space_gb,
             }
 
             if free_gb < min_space_gb:
-                self.errors.append(f"Low disk space: {free_gb:.2f} GB (min: {min_space_gb} GB)")
+                self.errors.append(
+                    f"Low disk space: {free_gb:.2f} GB (min: {min_space_gb} GB)"
+                )
                 logger.warning(f"Low disk space: {free_gb:.2f} GB")
             else:
                 logger.info(f"Disk space OK: {free_gb:.2f} GB free")
@@ -504,17 +512,20 @@ class HealthCheckManager:
 
         try:
             import psutil
+
             memory = psutil.virtual_memory()
 
             self.checks["memory"] = {
-                "total_gb": round(memory.total / (1024 ** 3), 2),
-                "available_gb": round(memory.available / (1024 ** 3), 2),
+                "total_gb": round(memory.total / (1024**3), 2),
+                "available_gb": round(memory.available / (1024**3), 2),
                 "used_percent": memory.percent,
-                "healthy": memory.percent < max_percent
+                "healthy": memory.percent < max_percent,
             }
 
             if memory.percent >= max_percent:
-                self.errors.append(f"High memory usage: {memory.percent}% (max: {max_percent}%)")
+                self.errors.append(
+                    f"High memory usage: {memory.percent}% (max: {max_percent}%)"
+                )
                 logger.warning(f"High memory usage: {memory.percent}%")
             else:
                 logger.info(f"Memory usage OK: {memory.percent}%")
@@ -563,7 +574,7 @@ class HealthCheckManager:
         self.checks["dependencies"] = {
             "missing_required": missing_required,
             "missing_optional": missing_optional,
-            "healthy": len(missing_required) == 0
+            "healthy": len(missing_required) == 0,
         }
 
         if missing_required:
@@ -588,7 +599,7 @@ class HealthCheckManager:
                 capture_output=True,
                 text=True,
                 cwd=Path(__file__).parent.parent,
-                timeout=30
+                timeout=30,
             )
 
             changes = result.stdout.strip().split("\n") if result.stdout.strip() else []
@@ -597,7 +608,7 @@ class HealthCheckManager:
             self.checks["git_status"] = {
                 "has_changes": has_changes,
                 "changed_files": len(changes) if has_changes else 0,
-                "healthy": True
+                "healthy": True,
             }
 
             if has_changes:
@@ -614,6 +625,7 @@ class HealthCheckManager:
 
 
 # CLI Commands
+
 
 def cmd_cleanup(args: argparse.Namespace) -> int:
     """Run cleanup tasks.
@@ -701,7 +713,9 @@ def cmd_health_check(args: argparse.Namespace) -> int:
             status = "OK" if mem.get("healthy") else "WARNING"
             print(f"  Memory: {status}")
             if "used_percent" in mem:
-                print(f"    Used: {mem['used_percent']:.1f}% ({mem['available_gb']:.2f} GB available)")
+                print(
+                    f"    Used: {mem['used_percent']:.1f}% ({mem['available_gb']:.2f} GB available)"
+                )
 
     # Dependencies
     if result["checks"]["dependencies"]:
@@ -719,7 +733,11 @@ def cmd_health_check(args: argparse.Namespace) -> int:
         if git.get("skipped"):
             print("  Git Status: SKIPPED")
         else:
-            status = "CLEAN" if not git.get("has_changes") else f"DIRTY ({git.get('changed_files', 0)} changes)"
+            status = (
+                "CLEAN"
+                if not git.get("has_changes")
+                else f"DIRTY ({git.get('changed_files', 0)} changes)"
+            )
             print(f"  Git Status: {status}")
 
     print(f"\n  Duration: {result['duration_seconds']:.2f}s")
@@ -787,7 +805,7 @@ Examples:
     python3 scripts/maintenance.py --optimize
     python3 scripts/maintenance.py --health-check
     python3 scripts/maintenance.py --all
-        """
+        """,
     )
 
     # Main options (mutually exclusive for simplicity)
@@ -795,23 +813,19 @@ Examples:
     group.add_argument(
         "--cleanup",
         action="store_true",
-        help="Run cleanup tasks (remove old logs, temp files, cache)"
+        help="Run cleanup tasks (remove old logs, temp files, cache)",
     )
     group.add_argument(
         "--optimize",
         action="store_true",
-        help="Run optimization tasks (compact databases, prune old data)"
+        help="Run optimization tasks (compact databases, prune old data)",
     )
     group.add_argument(
         "--health-check",
         action="store_true",
-        help="Run health checks (disk space, memory, dependencies)"
+        help="Run health checks (disk space, memory, dependencies)",
     )
-    group.add_argument(
-        "--all",
-        action="store_true",
-        help="Run all maintenance tasks"
-    )
+    group.add_argument("--all", action="store_true", help="Run all maintenance tasks")
 
     args = parser.parse_args()
 

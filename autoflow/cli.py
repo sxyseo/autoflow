@@ -170,6 +170,7 @@ def main(
 
 # === Init Command ===
 
+
 @main.command()
 @click.option(
     "--force",
@@ -201,11 +202,13 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo(f"State directory already exists: {state_manager.state_dir}")
             click.echo("Use --force to re-initialize.")
         else:
-            _print_json({
-                "status": "exists",
-                "state_dir": str(state_manager.state_dir),
-                "message": "State directory already exists. Use --force to re-initialize.",
-            })
+            _print_json(
+                {
+                    "status": "exists",
+                    "state_dir": str(state_manager.state_dir),
+                    "message": "State directory already exists. Use --force to re-initialize.",
+                }
+            )
         ctx.exit(1)
 
     try:
@@ -222,23 +225,26 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo("    memory/   - Persistent memory")
             click.echo("    backups/  - Backup files")
         else:
-            _print_json({
-                "status": "initialized",
-                "state_dir": str(state_manager.state_dir),
-                "directories": [
-                    str(state_manager.specs_dir),
-                    str(state_manager.tasks_dir),
-                    str(state_manager.runs_dir),
-                    str(state_manager.memory_dir),
-                    str(state_manager.backup_dir),
-                ],
-            })
+            _print_json(
+                {
+                    "status": "initialized",
+                    "state_dir": str(state_manager.state_dir),
+                    "directories": [
+                        str(state_manager.specs_dir),
+                        str(state_manager.tasks_dir),
+                        str(state_manager.runs_dir),
+                        str(state_manager.memory_dir),
+                        str(state_manager.backup_dir),
+                    ],
+                }
+            )
     except Exception as e:
         click.echo(f"Error initializing: {e}", err=True)
         ctx.exit(1)
 
 
 # === Status Command ===
+
 
 @main.command()
 @click.option(
@@ -313,6 +319,7 @@ def status(ctx: click.Context, detailed: bool) -> None:
 
 
 # === Run Command ===
+
 
 @main.command()
 @click.argument("task", required=False)
@@ -402,12 +409,14 @@ def run(
         state_manager.save_task(task_id, task_data)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "started",
-                "task_id": task_id,
-                "agent": agent,
-                "skill": skill,
-            })
+            _print_json(
+                {
+                    "status": "started",
+                    "task_id": task_id,
+                    "agent": agent,
+                    "skill": skill,
+                }
+            )
         else:
             click.echo(f"Started task: {task_id}")
             click.echo(f"  Agent: {agent}")
@@ -424,6 +433,7 @@ def run(
 
 
 # === Agent Commands ===
+
 
 @main.group()
 def agent() -> None:
@@ -494,11 +504,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
 
     config: Config = ctx.obj["config"]
 
-    agents_to_check = (
-        ["claude-code", "codex", "openclaw"]
-        if name == "all"
-        else [name]
-    )
+    agents_to_check = ["claude-code", "codex", "openclaw"] if name == "all" else [name]
 
     results = []
 
@@ -517,11 +523,13 @@ def agent_check(ctx: click.Context, name: str) -> None:
             available = False
             cmd = "unknown"
 
-        results.append({
-            "name": agent_name,
-            "available": available,
-            "command": cmd,
-        })
+        results.append(
+            {
+                "name": agent_name,
+                "available": available,
+                "command": cmd,
+            }
+        )
 
     if ctx.obj["output_json"]:
         _print_json({"agents": results})
@@ -533,6 +541,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
 
 
 # === Skill Commands ===
+
 
 @main.group()
 def skill() -> None:
@@ -573,11 +582,13 @@ def skill_list(ctx: click.Context, skills_dir: Path | None) -> None:
             if skill_folder.is_dir():
                 skill_file = skill_folder / "SKILL.md"
                 if skill_file.exists():
-                    skills.append({
-                        "name": skill_folder.name,
-                        "path": str(skill_file),
-                        "directory": str(skill_folder),
-                    })
+                    skills.append(
+                        {
+                            "name": skill_folder.name,
+                            "path": str(skill_file),
+                            "directory": str(skill_folder),
+                        }
+                    )
 
     if ctx.obj["output_json"]:
         _print_json({"skills": skills, "count": len(skills)})
@@ -625,11 +636,13 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Path | None) -> None:
             content = skill_path.read_text()
 
             if ctx.obj["output_json"]:
-                _print_json({
-                    "name": name,
-                    "path": str(skill_path),
-                    "content": content,
-                })
+                _print_json(
+                    {
+                        "name": name,
+                        "path": str(skill_path),
+                        "content": content,
+                    }
+                )
             else:
                 click.echo(f"Skill: {name}")
                 click.echo(f"Path: {skill_path}")
@@ -642,6 +655,7 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Path | None) -> None:
 
 
 # === Task Commands ===
+
 
 @main.group()
 def task() -> None:
@@ -704,7 +718,9 @@ def task_list(
 
     for task_data in tasks:
         status_val = task_data.get("status", "unknown")
-        click.echo(f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}")
+        click.echo(
+            f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}"
+        )
         click.echo(f"  Status: {status_val}")
         if task_data.get("assigned_agent"):
             click.echo(f"  Agent: {task_data['assigned_agent']}")
@@ -742,6 +758,7 @@ def task_show(ctx: click.Context, task_id: str) -> None:
 
 # === Scheduler Commands ===
 
+
 @main.group()
 def scheduler() -> None:
     """Manage the scheduler daemon."""
@@ -776,12 +793,14 @@ def scheduler_start(ctx: click.Context, daemon: bool, port: int) -> None:
         ctx.exit(1)
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "starting",
-            "daemon": daemon,
-            "port": port,
-            "jobs_count": len(config.scheduler.jobs),
-        })
+        _print_json(
+            {
+                "status": "starting",
+                "daemon": daemon,
+                "port": port,
+                "jobs_count": len(config.scheduler.jobs),
+            }
+        )
     else:
         click.echo("Starting scheduler daemon...")
         click.echo(f"  Port: {port}")
@@ -811,7 +830,12 @@ def scheduler_status(ctx: click.Context) -> None:
     status_data = {
         "enabled": config.scheduler.enabled,
         "jobs": [
-            {"id": job.id, "cron": job.cron, "handler": job.handler, "enabled": job.enabled}
+            {
+                "id": job.id,
+                "cron": job.cron,
+                "handler": job.handler,
+                "enabled": job.enabled,
+            }
             for job in config.scheduler.jobs
         ],
     }
@@ -833,6 +857,7 @@ def scheduler_status(ctx: click.Context) -> None:
 
 
 # === CI Commands ===
+
 
 @main.group()
 def ci() -> None:
@@ -897,11 +922,13 @@ def ci_verify(
             gates_to_run.append("typecheck")
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "placeholder",
-            "gates": gates_to_run,
-            "message": "CI verification requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "gates": gates_to_run,
+                "message": "CI verification requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("CI Verification")
         click.echo("=" * 60)
@@ -912,6 +939,7 @@ def ci_verify(
 
 
 # === Review Commands ===
+
 
 @main.group()
 def review() -> None:
@@ -948,12 +976,14 @@ def review_run(
     Uses multiple AI agents to review pending changes.
     """
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "placeholder",
-            "agents": list(agents),
-            "strategy": strategy,
-            "message": "Code review requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "agents": list(agents),
+                "strategy": strategy,
+                "message": "Code review requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("Code Review")
         click.echo("=" * 60)
@@ -965,6 +995,7 @@ def review_run(
 
 
 # === Config Commands ===
+
 
 @main.group()
 def config_cmd() -> None:
@@ -996,6 +1027,7 @@ def config_show(ctx: click.Context) -> None:
 
 
 # === Memory Commands ===
+
 
 @main.group()
 def memory() -> None:
@@ -1076,7 +1108,9 @@ def memory_set(ctx: click.Context, key: str, value: str, category: str) -> None:
     state_manager.save_memory(key, value, category=category)
 
     if ctx.obj["output_json"]:
-        _print_json({"key": key, "value": value, "category": category, "status": "saved"})
+        _print_json(
+            {"key": key, "value": value, "category": category, "status": "saved"}
+        )
     else:
         click.echo(f"Saved: {key} = {value}")
 

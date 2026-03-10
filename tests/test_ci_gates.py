@@ -273,8 +273,16 @@ class TestVerificationResult:
         """Test required_failures property."""
         result = VerificationResult()
         result.check_results = [
-            CheckResult(name="required-fail", status=CheckStatus.FAILED, metadata={"required": True}),
-            CheckResult(name="optional-fail", status=CheckStatus.FAILED, metadata={"required": False}),
+            CheckResult(
+                name="required-fail",
+                status=CheckStatus.FAILED,
+                metadata={"required": True},
+            ),
+            CheckResult(
+                name="optional-fail",
+                status=CheckStatus.FAILED,
+                metadata={"required": False},
+            ),
         ]
 
         assert len(result.failed_checks) == 2
@@ -513,7 +521,9 @@ class TestCIVerifierRunCheck:
             check_type=CheckType.TEST,
         )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess_success):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_subprocess_success
+        ):
             result = await verifier.run_check("pytest")
 
         assert result.status == CheckStatus.PASSED
@@ -533,7 +543,9 @@ class TestCIVerifierRunCheck:
             check_type=CheckType.TEST,
         )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess_failure):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_subprocess_failure
+        ):
             result = await verifier.run_check("pytest")
 
         assert result.status == CheckStatus.FAILED
@@ -1103,7 +1115,9 @@ class TestGateRunnerResult:
         result.gates = [
             GateResult(gate_name="pass1", gate_type="test", passed=True),
             GateResult(gate_name="pass2", gate_type="lint", passed=True),
-            GateResult(gate_name="fail1", gate_type="security", passed=False, required=True),
+            GateResult(
+                gate_name="fail1", gate_type="security", passed=False, required=True
+            ),
         ]
 
         assert result.total_gates == 3

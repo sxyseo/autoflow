@@ -46,10 +46,8 @@ class TestLoadQuarantineConfig:
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         test_config = {
-            "quarantined_tests": {
-                "test_example": {"pass_rate": 0.5}
-            },
-            "metadata": {"created_at": "2024-01-01"}
+            "quarantined_tests": {"test_example": {"pass_rate": 0.5}},
+            "metadata": {"created_at": "2024-01-01"},
         }
         with open(config_path, "w") as f:
             json.dump(test_config, f)
@@ -71,7 +69,7 @@ class TestSaveQuarantineConfig:
 
         config = {
             "quarantined_tests": {},
-            "metadata": {"created_at": None, "last_updated": None}
+            "metadata": {"created_at": None, "last_updated": None},
         }
 
         save_quarantine_config(config)
@@ -86,7 +84,7 @@ class TestSaveQuarantineConfig:
 
         config = {
             "quarantined_tests": {},
-            "metadata": {"created_at": None, "last_updated": None}
+            "metadata": {"created_at": None, "last_updated": None},
         }
 
         save_quarantine_config(config)
@@ -108,14 +106,25 @@ class TestAddToQuarantine:
             test_name="tests/test_example.py::test_flaky",
             pass_rate=0.6,
             runs=10,
-            passed=6
+            passed=6,
         )
 
         config = load_quarantine_config()
         assert "tests/test_example.py::test_flaky" in config["quarantined_tests"]
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["pass_rate"] == 0.6
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["runs"] == 10
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["failed"] == 4
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"][
+                "pass_rate"
+            ]
+            == 0.6
+        )
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"]["runs"]
+            == 10
+        )
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"]["failed"]
+            == 4
+        )
 
 
 class TestRemoveFromQuarantine:

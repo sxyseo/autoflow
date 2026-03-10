@@ -108,9 +108,15 @@ class HealingEvent:
             "health_status": self.health_status.value,
             "description": self.description,
             "metadata": self.metadata,
-            "diagnostic_result": self.diagnostic_result.to_dict() if self.diagnostic_result else None,
-            "healing_action": self.healing_action.to_dict() if self.healing_action else None,
-            "action_result": self.action_result.to_dict() if self.action_result else None,
+            "diagnostic_result": (
+                self.diagnostic_result.to_dict() if self.diagnostic_result else None
+            ),
+            "healing_action": (
+                self.healing_action.to_dict() if self.healing_action else None
+            ),
+            "action_result": (
+                self.action_result.to_dict() if self.action_result else None
+            ),
             "outcome": self.outcome.value if self.outcome else None,
         }
 
@@ -147,7 +153,9 @@ class HealingSession:
             "session_id": self.session_id,
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat() if self.end_time else None,
-            "initial_assessment": self.initial_assessment.to_dict() if self.initial_assessment else None,
+            "initial_assessment": (
+                self.initial_assessment.to_dict() if self.initial_assessment else None
+            ),
             "events": [event.to_dict() for event in self.events],
             "final_outcome": self.final_outcome.value if self.final_outcome else None,
             "healing_attempts": self.healing_attempts,
@@ -297,7 +305,11 @@ class EscalationManager:
             "session_id": session_id,
             "severity": health_assessment.status.value,
             "summary": self._generate_summary(diagnostic_result, health_assessment),
-            "root_cause": diagnostic_result.primary_cause.to_dict() if diagnostic_result.primary_cause else None,
+            "root_cause": (
+                diagnostic_result.primary_cause.to_dict()
+                if diagnostic_result.primary_cause
+                else None
+            ),
             "root_causes": [rc.to_dict() for rc in diagnostic_result.root_causes],
             "healing_plan": diagnostic_result.healing_plan,
             "requires_escalation": diagnostic_result.requires_escalation,
@@ -330,7 +342,9 @@ class EscalationManager:
             summary += f"Root cause: {diagnostic_result.primary_cause.description}. "
 
         if diagnostic_result.root_causes:
-            summary += f"Found {len(diagnostic_result.root_causes)} potential cause(s). "
+            summary += (
+                f"Found {len(diagnostic_result.root_causes)} potential cause(s). "
+            )
 
         if diagnostic_result.healing_plan:
             strategy = diagnostic_result.healing_plan.get("strategy")
@@ -356,17 +370,23 @@ class EscalationManager:
 
         if diagnostic_result.primary_cause:
             cause = diagnostic_result.primary_cause
-            recommendations.append(f"Investigate {cause.category.value} issue: {cause.description}")
+            recommendations.append(
+                f"Investigate {cause.category.value} issue: {cause.description}"
+            )
 
         if diagnostic_result.root_causes:
             for cause in diagnostic_result.root_causes:
-                recommendations.append(f"Review {cause.category.value}: {cause.description}")
+                recommendations.append(
+                    f"Review {cause.category.value}: {cause.description}"
+                )
 
         recommendations.append("Review healing history and logs")
         recommendations.append("Consider adjusting healing thresholds or configuration")
 
         if diagnostic_result.degradation_signals:
-            recommendations.append(f"Address {len(diagnostic_result.degradation_signals)} degradation signal(s)")
+            recommendations.append(
+                f"Address {len(diagnostic_result.degradation_signals)} degradation signal(s)"
+            )
 
         return recommendations
 
@@ -510,7 +530,11 @@ class HealingOrchestrator:
         logger.info(f"Health assessment: {assessment.status.value}")
         self._log_event(
             event_type="health_assessment",
-            severity="info" if assessment.status == WorkflowHealthStatus.HEALTHY else "warning",
+            severity=(
+                "info"
+                if assessment.status == WorkflowHealthStatus.HEALTHY
+                else "warning"
+            ),
             description=f"Health status: {assessment.status.value}",
             metadata={
                 "metrics": {k: v.value for k, v in assessment.metrics.items()},
@@ -580,7 +604,9 @@ class HealingOrchestrator:
             metadata={
                 "strategy": healing_plan.strategy.value,
                 "estimated_success_rate": healing_plan.estimated_success_rate,
-                "risk_level": healing_plan.risk_level.value if healing_plan.risk_level else None,
+                "risk_level": (
+                    healing_plan.risk_level.value if healing_plan.risk_level else None
+                ),
             },
         )
 
@@ -687,7 +713,9 @@ class HealingOrchestrator:
         )
 
         # Check if we should escalate
-        if self.escalation_manager.should_escalate(self._current_session.healing_attempts):
+        if self.escalation_manager.should_escalate(
+            self._current_session.healing_attempts
+        ):
             return await self._escalate(None, new_assessment)
 
         return HealingOutcome.FAILED
@@ -730,7 +758,9 @@ class HealingOrchestrator:
             return HealingOutcome.FAILED
 
     async def _escalate(
-        self, diagnostic_result: DiagnosticResult | None, assessment: HealthAssessment | None
+        self,
+        diagnostic_result: DiagnosticResult | None,
+        assessment: HealthAssessment | None,
     ) -> HealingOutcome:
         """Escalate an unhealable condition.
 
@@ -753,6 +783,7 @@ class HealingOrchestrator:
                 FailureCategory,
                 RootCause,
             )
+
             default_cause = RootCause(
                 category=FailureCategory.UNKNOWN,
                 description="Unable to diagnose - escalating for manual investigation",
@@ -838,7 +869,8 @@ class HealingOrchestrator:
                     "outcome": outcome.value,
                     "healing_attempts": self._current_session.healing_attempts,
                     "duration_seconds": (
-                        self._current_session.end_time - self._current_session.start_time
+                        self._current_session.end_time
+                        - self._current_session.start_time
                     ).total_seconds(),
                 },
             )
@@ -876,9 +908,11 @@ class HealingOrchestrator:
             orchestrator_state=self.state,
             event_type=event_type,
             severity=severity,
-            health_status=self._current_session.initial_assessment.status
-            if self._current_session.initial_assessment
-            else WorkflowHealthStatus.HEALTHY,
+            health_status=(
+                self._current_session.initial_assessment.status
+                if self._current_session.initial_assessment
+                else WorkflowHealthStatus.HEALTHY
+            ),
             description=description,
             metadata=metadata or {},
             diagnostic_result=diagnostic_result,

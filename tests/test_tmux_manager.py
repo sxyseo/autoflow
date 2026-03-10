@@ -738,9 +738,7 @@ class TestTmuxManagerListSessions:
         temp_workdir: Path,
     ) -> None:
         """Test list_sessions filters by status."""
-        await manager.create_session(
-            "agent-1", temp_workdir, auto_start=False
-        )
+        await manager.create_session("agent-1", temp_workdir, auto_start=False)
         session2 = await manager.create_session(
             "agent-2", temp_workdir, auto_start=False
         )
@@ -1474,9 +1472,7 @@ class TestErrorHandling:
         """Test handling of tmux command timeout."""
         # Create a process that will timeout
         mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(
-            side_effect=TimeoutError("Timeout")
-        )
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError("Timeout"))
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
         mock_async_subprocess.return_value = mock_process
@@ -1513,11 +1509,10 @@ class TestErrorHandling:
         temp_workdir: Path,
     ) -> None:
         """Test manager handles concurrent modifications safely."""
+
         # Create sessions concurrently
         async def create_and_remove(name: str) -> None:
-            session = await manager.create_session(
-                name, temp_workdir, auto_start=False
-            )
+            session = await manager.create_session(name, temp_workdir, auto_start=False)
             await asyncio.sleep(0.01)  # Small delay
             await manager.kill_session(session.session_id)
 

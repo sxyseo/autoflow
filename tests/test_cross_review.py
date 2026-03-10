@@ -267,11 +267,13 @@ class TestCodeChange:
 
     def test_change_from_dict(self) -> None:
         """Test creating change from dict."""
-        change = CodeChange(**{
-            "file_path": "app.py",
-            "diff": "test diff",
-            "change_type": "modify",
-        })
+        change = CodeChange(
+            **{
+                "file_path": "app.py",
+                "diff": "test diff",
+                "change_type": "modify",
+            }
+        )
 
         assert change.file_path == "app.py"
         assert change.diff == "test diff"
@@ -508,7 +510,9 @@ class TestCrossReviewerInit:
 class TestCrossReviewerRegistration:
     """Tests for CrossReviewer registration methods."""
 
-    def test_register_reviewer(self, reviewer: CrossReviewer, mock_adapter: MagicMock) -> None:
+    def test_register_reviewer(
+        self, reviewer: CrossReviewer, mock_adapter: MagicMock
+    ) -> None:
         """Test registering a reviewer."""
         reviewer.register_reviewer("claude-code", mock_adapter)
 
@@ -529,7 +533,9 @@ class TestCrossReviewerRegistration:
         stored_config = reviewer.get_reviewer_config("claude-code")
         assert stored_config.focus_areas == ["security"]
 
-    def test_unregister_reviewer(self, reviewer: CrossReviewer, mock_adapter: MagicMock) -> None:
+    def test_unregister_reviewer(
+        self, reviewer: CrossReviewer, mock_adapter: MagicMock
+    ) -> None:
         """Test unregistering a reviewer."""
         reviewer.register_reviewer("claude-code", mock_adapter)
         result = reviewer.unregister_reviewer("claude-code")
@@ -542,7 +548,9 @@ class TestCrossReviewerRegistration:
         result = reviewer.unregister_reviewer("nonexistent")
         assert result is False
 
-    def test_list_reviewers(self, reviewer: CrossReviewer, mock_adapter: MagicMock) -> None:
+    def test_list_reviewers(
+        self, reviewer: CrossReviewer, mock_adapter: MagicMock
+    ) -> None:
         """Test listing reviewers."""
         reviewer.register_reviewer("claude-code", mock_adapter)
         reviewer.register_reviewer("codex", mock_adapter)
@@ -785,8 +793,12 @@ class TestCrossReviewerApprovalStrategies:
     def test_determine_approval_weighted(self, reviewer: CrossReviewer) -> None:
         """Test weighted strategy."""
         results = [
-            ReviewerResult(reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.9),
-            ReviewerResult(reviewer_id="r2", reviewer_type="b", approved=False, confidence=0.5),
+            ReviewerResult(
+                reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.9
+            ),
+            ReviewerResult(
+                reviewer_id="r2", reviewer_type="b", approved=False, confidence=0.5
+            ),
         ]
         approved = reviewer._determine_approval(
             results,
@@ -796,7 +808,9 @@ class TestCrossReviewerApprovalStrategies:
         # 0.9 > 0.5/2, so should be approved
         assert approved is True
 
-    def test_determine_approval_with_blocking_findings(self, reviewer: CrossReviewer) -> None:
+    def test_determine_approval_with_blocking_findings(
+        self, reviewer: CrossReviewer
+    ) -> None:
         """Test that blocking findings prevent approval."""
         results = [
             ReviewerResult(reviewer_id="r1", reviewer_type="a", approved=True),
@@ -835,7 +849,9 @@ class TestCrossReviewerFindingAggregation:
                 reviewer_id="r2",
                 reviewer_type="b",
                 findings=[
-                    ReviewFinding(file_path="a.py", line_start=10, message="Issue 1"),  # Duplicate
+                    ReviewFinding(
+                        file_path="a.py", line_start=10, message="Issue 1"
+                    ),  # Duplicate
                     ReviewFinding(file_path="c.py", line_start=1, message="Issue 3"),
                 ],
             ),
@@ -881,7 +897,9 @@ class TestCrossReviewerFindingAggregation:
         assert len(aggregated) == 1
         assert aggregated[0].confidence > 0.7
 
-    def test_aggregate_findings_sorted_by_severity(self, reviewer: CrossReviewer) -> None:
+    def test_aggregate_findings_sorted_by_severity(
+        self, reviewer: CrossReviewer
+    ) -> None:
         """Test that findings are sorted by severity."""
         results = [
             ReviewerResult(
@@ -913,8 +931,12 @@ class TestCrossReviewerConsensusCalculation:
     def test_calculate_consensus_unanimous(self, reviewer: CrossReviewer) -> None:
         """Test consensus with unanimous approval."""
         results = [
-            ReviewerResult(reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.9),
-            ReviewerResult(reviewer_id="r2", reviewer_type="b", approved=True, confidence=0.9),
+            ReviewerResult(
+                reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.9
+            ),
+            ReviewerResult(
+                reviewer_id="r2", reviewer_type="b", approved=True, confidence=0.9
+            ),
         ]
 
         consensus = reviewer._calculate_consensus(results)
@@ -925,8 +947,12 @@ class TestCrossReviewerConsensusCalculation:
     def test_calculate_consensus_split(self, reviewer: CrossReviewer) -> None:
         """Test consensus with split decision."""
         results = [
-            ReviewerResult(reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.8),
-            ReviewerResult(reviewer_id="r2", reviewer_type="b", approved=False, confidence=0.8),
+            ReviewerResult(
+                reviewer_id="r1", reviewer_type="a", approved=True, confidence=0.8
+            ),
+            ReviewerResult(
+                reviewer_id="r2", reviewer_type="b", approved=False, confidence=0.8
+            ),
         ]
 
         consensus = reviewer._calculate_consensus(results)
@@ -951,10 +977,10 @@ class TestCrossReviewerSecurityChecks:
 
     def test_check_security_issues_password(self, reviewer: CrossReviewer) -> None:
         """Test detection of hardcoded password."""
-        content = '''
+        content = """
 password = "secret123"
 api_key = "abc123"
-'''
+"""
         findings = reviewer._check_security_issues(
             content,
             "config.py",
@@ -963,7 +989,10 @@ api_key = "abc123"
 
         # Should find potential issues
         assert len(findings) > 0
-        assert any("password" in f.message.lower() or "api_key" in f.message.lower() for f in findings)
+        assert any(
+            "password" in f.message.lower() or "api_key" in f.message.lower()
+            for f in findings
+        )
 
     def test_check_security_issues_eval(self, reviewer: CrossReviewer) -> None:
         """Test detection of eval() usage."""
@@ -978,10 +1007,10 @@ api_key = "abc123"
 
     def test_check_security_issues_safe_code(self, reviewer: CrossReviewer) -> None:
         """Test no findings for safe code."""
-        content = '''
+        content = """
 def greet(name):
     return f"Hello, {name}"
-'''
+"""
         findings = reviewer._check_security_issues(
             content,
             "safe.py",
@@ -1011,7 +1040,9 @@ class TestCrossReviewerCodeQualityChecks:
 
         assert any("120" in f.message for f in findings)
 
-    def test_check_code_quality_todo_without_issue(self, reviewer: CrossReviewer) -> None:
+    def test_check_code_quality_todo_without_issue(
+        self, reviewer: CrossReviewer
+    ) -> None:
         """Test detection of TODO without issue reference."""
         content = "# TODO fix this later"
         findings = reviewer._check_code_quality(
@@ -1299,7 +1330,9 @@ class TestCrossReviewerEdgeCases:
 
         assert "No issues found" in summary
 
-    def test_generate_review_summary_with_findings(self, reviewer: CrossReviewer) -> None:
+    def test_generate_review_summary_with_findings(
+        self, reviewer: CrossReviewer
+    ) -> None:
         """Test summary generation with findings."""
         findings = [
             ReviewFinding(file_path="a.py", severity=ReviewSeverity.ERROR),

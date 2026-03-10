@@ -28,6 +28,7 @@ class ApprovalToken:
         approver: Entity that granted approval (e.g., "verification-orchestrator")
         git_commit: Optional associated commit hash
     """
+
     hash: str
     timestamp: str
     test_results: dict[str, int]
@@ -42,7 +43,7 @@ class ApprovalToken:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ApprovalToken':
+    def from_dict(cls, data: dict) -> "ApprovalToken":
         """Create token from dictionary."""
         return cls(**data)
 
@@ -75,6 +76,7 @@ class ApprovalGateConfig:
         token_expiry_hours: Hours before token expires (0 = no expiry)
         token_path: Path to store approval token
     """
+
     require_tests: bool = True
     require_coverage: bool = True
     require_qa_check: bool = True
@@ -87,7 +89,7 @@ class ApprovalGateConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'ApprovalGateConfig':
+    def from_dict(cls, data: dict) -> "ApprovalGateConfig":
         """Create config from dictionary."""
         return cls(**data)
 
@@ -100,11 +102,7 @@ class ApprovalGate:
     and verifies that commits have valid approval before allowing them.
     """
 
-    def __init__(
-        self,
-        config: ApprovalGateConfig | None = None,
-        work_dir: str = "."
-    ):
+    def __init__(self, config: ApprovalGateConfig | None = None, work_dir: str = "."):
         """
         Initialize approval gate.
 
@@ -141,14 +139,14 @@ class ApprovalGate:
                         require_coverage=approval_config.get("require_coverage", True),
                         require_qa_check=approval_config.get("require_qa_check", True),
                         blocking_severities=approval_config.get(
-                            "blocking_severities",
-                            ["CRITICAL", "HIGH"]
+                            "blocking_severities", ["CRITICAL", "HIGH"]
                         ),
-                        token_expiry_hours=approval_config.get("token_expiry_hours", 24),
+                        token_expiry_hours=approval_config.get(
+                            "token_expiry_hours", 24
+                        ),
                         token_path=approval_config.get(
-                            "token_path",
-                            ".autoflow/approval_token.json"
-                        )
+                            "token_path", ".autoflow/approval_token.json"
+                        ),
                     )
             except (OSError, json.JSONDecodeError):
                 pass
@@ -160,7 +158,7 @@ class ApprovalGate:
         test_results: dict[str, int],
         coverage_data: dict[str, float | None],
         qa_findings_count: dict[str, int],
-        metadata: dict | None = None
+        metadata: dict | None = None,
     ) -> str:
         """
         Generate cryptographic hash from verification results.
@@ -180,14 +178,14 @@ class ApprovalGate:
             "coverage_data": coverage_data,
             "qa_findings_count": qa_findings_count,
             "timestamp": datetime.utcnow().isoformat(),
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
 
         # Sort keys for consistent hashing
         normalized = json.dumps(hash_data, sort_keys=True)
 
         # Generate SHA-256 hash
-        hash_obj = hashlib.sha256(normalized.encode('utf-8'))
+        hash_obj = hashlib.sha256(normalized.encode("utf-8"))
         return hash_obj.hexdigest()
 
     def create_token(
@@ -196,7 +194,7 @@ class ApprovalGate:
         coverage_data: dict[str, float | None],
         qa_findings_count: dict[str, int],
         git_commit: str | None = None,
-        metadata: dict | None = None
+        metadata: dict | None = None,
     ) -> ApprovalToken:
         """
         Create approval token from verification results.
@@ -215,7 +213,7 @@ class ApprovalGate:
             test_results=test_results,
             coverage_data=coverage_data,
             qa_findings_count=qa_findings_count,
-            metadata=metadata
+            metadata=metadata,
         )
 
         return ApprovalToken(
@@ -225,7 +223,7 @@ class ApprovalGate:
             coverage_data=coverage_data,
             qa_findings_count=qa_findings_count,
             git_commit=git_commit,
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
     def save_token(self, token: ApprovalToken) -> None:
@@ -267,8 +265,7 @@ class ApprovalGate:
             token_path.unlink()
 
     def verify_token(
-        self,
-        token: ApprovalToken | None = None
+        self, token: ApprovalToken | None = None
     ) -> tuple[bool, list[str]]:
         """
         Verify approval token is valid and not expired.
@@ -308,7 +305,7 @@ class ApprovalGate:
         self,
         test_results: dict[str, int] | None = None,
         coverage_data: dict[str, float | None] | None = None,
-        qa_findings: list[dict] | None = None
+        qa_findings: list[dict] | None = None,
     ) -> tuple[bool, list[str]]:
         """
         Check if current state meets approval requirements.
@@ -328,9 +325,7 @@ class ApprovalGate:
             if test_results is None:
                 blocking.append("Tests required but no results provided")
             elif test_results.get("failed", 0) > 0:
-                blocking.append(
-                    f"Tests failing: {test_results['failed']} tests failed"
-                )
+                blocking.append(f"Tests failing: {test_results['failed']} tests failed")
 
         # Check coverage
         if self.config.require_coverage:
@@ -344,7 +339,8 @@ class ApprovalGate:
         # Check QA findings
         if self.config.require_qa_check and qa_findings:
             blocking_findings = [
-                f for f in qa_findings
+                f
+                for f in qa_findings
                 if f.get("severity") in self.config.blocking_severities
             ]
 
@@ -357,8 +353,7 @@ class ApprovalGate:
         return len(blocking) == 0, blocking
 
     def verify_commit_allowed(
-        self,
-        expected_results: dict | None = None
+        self, expected_results: dict | None = None
     ) -> tuple[bool, list[str]]:
         """
         Verify that commit is allowed based on approval token.
@@ -382,7 +377,7 @@ class ApprovalGate:
             token_results = {
                 "test_results": token.test_results,
                 "coverage_data": token.coverage_data,
-                "qa_findings_count": token.qa_findings_count
+                "qa_findings_count": token.qa_findings_count,
             }
 
             if expected_results != token_results:
@@ -398,7 +393,7 @@ class ApprovalGate:
         test_results: dict[str, int],
         coverage_data: dict[str, float | None],
         qa_findings_count: dict[str, int],
-        git_commit: str | None = None
+        git_commit: str | None = None,
     ) -> tuple[bool, list[str]]:
         """
         Grant approval by creating and saving approval token.
@@ -416,7 +411,7 @@ class ApprovalGate:
         is_approved, blocking = self.check_approval(
             test_results=test_results,
             coverage_data=coverage_data,
-            qa_findings=[]  # We only have counts, not full findings
+            qa_findings=[],  # We only have counts, not full findings
         )
 
         if not is_approved:
@@ -427,7 +422,7 @@ class ApprovalGate:
             test_results=test_results,
             coverage_data=coverage_data,
             qa_findings_count=qa_findings_count,
-            git_commit=git_commit
+            git_commit=git_commit,
         )
 
         self.save_token(token)
@@ -451,7 +446,7 @@ class ApprovalGate:
             return {
                 "has_token": False,
                 "status": "no_token",
-                "message": "No approval token found"
+                "message": "No approval token found",
             }
 
         is_valid, errors = self.verify_token(token)
@@ -461,7 +456,7 @@ class ApprovalGate:
                 "has_token": True,
                 "status": "invalid",
                 "message": errors[0] if errors else "Invalid token",
-                "timestamp": token.timestamp
+                "timestamp": token.timestamp,
             }
 
         # Calculate token age
@@ -481,13 +476,12 @@ class ApprovalGate:
             "tests_passed": token.test_results.get("passed", 0),
             "tests_failed": token.test_results.get("failed", 0),
             "coverage": token.coverage_data.get("total", 0),
-            "qa_findings": token.qa_findings_count
+            "qa_findings": token.qa_findings_count,
         }
 
 
 def create_git_commit_message_with_approval(
-    original_message: str,
-    approval_token: ApprovalToken
+    original_message: str, approval_token: ApprovalToken
 ) -> str:
     """
     Add approval hash to git commit message.

@@ -360,7 +360,9 @@ class TestSkillRegistryInit:
         assert len(registry._skills_dirs) == 1
         assert temp_skills_dir in registry._skills_dirs
 
-    def test_init_with_multiple_dirs(self, temp_skills_dir: Path, tmp_path: Path) -> None:
+    def test_init_with_multiple_dirs(
+        self, temp_skills_dir: Path, tmp_path: Path
+    ) -> None:
         """Test initialization with multiple directories."""
         second_dir = tmp_path / "skills2"
         second_dir.mkdir()
@@ -452,7 +454,9 @@ class TestSkillRegistryLoadSkills:
         minimal_skill_content: str,
     ) -> None:
         """Test loading skills from root directory."""
-        create_skill_file(temp_skills_dir, "ROOT_SKILL", minimal_skill_content, in_subdir=False)
+        create_skill_file(
+            temp_skills_dir, "ROOT_SKILL", minimal_skill_content, in_subdir=False
+        )
 
         registry = SkillRegistry(skills_dirs=[temp_skills_dir])
         count = registry.load_skills()

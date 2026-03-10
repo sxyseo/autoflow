@@ -188,9 +188,12 @@ class OpenClawAdapter(AgentAdapter):
             config.command or self._command,
             "tool",
             "call",
-            "--tool", tool_name,
-            "--payload", json.dumps(payload),
-            "--gateway", gateway_url,
+            "--tool",
+            tool_name,
+            "--payload",
+            json.dumps(payload),
+            "--gateway",
+            gateway_url,
         ]
 
         process = await asyncio.create_subprocess_exec(
@@ -202,9 +205,7 @@ class OpenClawAdapter(AgentAdapter):
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            raise RuntimeError(
-                f"OpenClaw tool call failed: {stderr.decode('utf-8')}"
-            )
+            raise RuntimeError(f"OpenClaw tool call failed: {stderr.decode('utf-8')}")
 
         return json.loads(stdout.decode("utf-8"))
 

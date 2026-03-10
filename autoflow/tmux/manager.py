@@ -138,16 +138,13 @@ class TmuxManager:
         """Update manager statistics."""
         total = len(self._sessions)
         active = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.RUNNING
+            1 for s in self._sessions.values() if s.status == SessionStatus.RUNNING
         )
         stopped = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.STOPPED
+            1 for s in self._sessions.values() if s.status == SessionStatus.STOPPED
         )
         error = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.ERROR
+            1 for s in self._sessions.values() if s.status == SessionStatus.ERROR
         )
 
         self._stats.total_sessions = total
@@ -322,10 +319,7 @@ class TmuxManager:
             Number of sessions killed
         """
         count = 0
-        session_ids = [
-            sid for sid in self._sessions
-            if sid.startswith(prefix)
-        ]
+        session_ids = [sid for sid in self._sessions if sid.startswith(prefix)]
 
         for session_id in session_ids:
             if await self.kill_session(session_id):
@@ -578,10 +572,7 @@ class TmuxManager:
         all_tmux_sessions = await TmuxSession.list_sessions(prefix=self.prefix)
 
         # Find sessions not in our registry
-        orphaned = [
-            sid for sid in all_tmux_sessions
-            if sid not in self._sessions
-        ]
+        orphaned = [sid for sid in all_tmux_sessions if sid not in self._sessions]
 
         return orphaned
 

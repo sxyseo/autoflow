@@ -251,9 +251,7 @@ class VerificationResult:
         self.passed = passed
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
@@ -323,8 +321,8 @@ class CIVerifierStats:
             total = self.total_verifications
             current_avg = self.average_duration
             self.average_duration = (
-                (current_avg * (total - 1) + result.duration_seconds) / total
-            )
+                current_avg * (total - 1) + result.duration_seconds
+            ) / total
 
     def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary."""
@@ -686,10 +684,7 @@ class CIVerifier:
         use_parallel = parallel if parallel is not None else self._parallel
 
         if use_parallel:
-            tasks = [
-                self.run_check(name, workdir=workdir)
-                for name in names
-            ]
+            tasks = [self.run_check(name, workdir=workdir) for name in names]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Convert exceptions to error results
@@ -771,7 +766,9 @@ class CIVerifier:
                 # Run with overall timeout
                 try:
                     check_results = await asyncio.wait_for(
-                        self.run_checks(checks_to_run, workdir=workdir, parallel=use_parallel),
+                        self.run_checks(
+                            checks_to_run, workdir=workdir, parallel=use_parallel
+                        ),
                         timeout=timeout_seconds,
                     )
                 except TimeoutError:
@@ -835,9 +832,7 @@ class CIVerifier:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        return loop.run_until_complete(
-            self.run_all_checks(workdir=workdir, **kwargs)
-        )
+        return loop.run_until_complete(self.run_all_checks(workdir=workdir, **kwargs))
 
     def get_active_verifications(self) -> list[VerificationResult]:
         """

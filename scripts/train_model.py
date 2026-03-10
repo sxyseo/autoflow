@@ -20,6 +20,7 @@ from autoflow.prediction.model import QualityModel
 try:
     from sklearn.metrics import classification_report, confusion_matrix
     from sklearn.model_selection import train_test_split
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -50,27 +51,27 @@ Examples:
                                      Use 30%% of data for testing
   %(prog)s --evaluate-only --model-path .autoflow/models/quality_model.pkl
                                      Evaluate existing model without training
-        """
+        """,
     )
 
     parser.add_argument(
         "--data-dir",
         "-d",
         type=Path,
-        help="Path to directory containing run JSON files (default: .autoflow/runs)"
+        help="Path to directory containing run JSON files (default: .autoflow/runs)",
     )
 
     parser.add_argument(
         "--specs-dir",
         type=Path,
-        help="Path to directory containing spec directories (default: .auto-claude/specs/)"
+        help="Path to directory containing spec directories (default: .auto-claude/specs/)",
     )
 
     parser.add_argument(
         "--model-path",
         "-m",
         type=Path,
-        help="Path to save/load model file (default: .autoflow/models/quality_model.pkl)"
+        help="Path to save/load model file (default: .autoflow/models/quality_model.pkl)",
     )
 
     parser.add_argument(
@@ -78,20 +79,20 @@ Examples:
         "-o",
         choices=["text", "json"],
         default="text",
-        help="Output format (default: text)"
+        help="Output format (default: text)",
     )
 
     parser.add_argument(
         "--evaluate",
         "-e",
         action="store_true",
-        help="Evaluate model performance after training"
+        help="Evaluate model performance after training",
     )
 
     parser.add_argument(
         "--evaluate-only",
         action="store_true",
-        help="Evaluate existing model without training (requires --model-path)"
+        help="Evaluate existing model without training (requires --model-path)",
     )
 
     parser.add_argument(
@@ -99,21 +100,21 @@ Examples:
         "-t",
         type=float,
         default=0.2,
-        help="Fraction of data to use for testing (default: 0.2)"
+        help="Fraction of data to use for testing (default: 0.2)",
     )
 
     parser.add_argument(
         "--n-estimators",
         type=int,
         default=100,
-        help="Number of trees in random forest (default: 100)"
+        help="Number of trees in random forest (default: 100)",
     )
 
     parser.add_argument(
         "--max-depth",
         type=int,
         default=None,
-        help="Maximum depth of trees (default: unlimited)"
+        help="Maximum depth of trees (default: unlimited)",
     )
 
     parser.add_argument(
@@ -121,23 +122,21 @@ Examples:
         "-w",
         type=Path,
         default=".",
-        help="Working directory (default: .)"
+        help="Working directory (default: .)",
     )
 
     parser.add_argument(
         "--force",
         "-f",
         action="store_true",
-        help="Force training even with minimal data"
+        help="Force training even with minimal data",
     )
 
     return parser.parse_args()
 
 
 def print_training_summary_text(
-    num_samples: int,
-    num_features: int,
-    model_path: Path
+    num_samples: int, num_features: int, model_path: Path
 ) -> None:
     """
     Print training summary in human-readable text format.
@@ -157,9 +156,7 @@ def print_training_summary_text(
 
 
 def print_evaluation_results_text(
-    report: dict,
-    confusion_matrix_data: list,
-    test_size: int
+    report: dict, confusion_matrix_data: list, test_size: int
 ) -> None:
     """
     Print evaluation results in human-readable text format.
@@ -200,7 +197,7 @@ def print_training_results_json(
     num_samples: int,
     num_features: int,
     model_path: Path,
-    evaluation_results: dict | None = None
+    evaluation_results: dict | None = None,
 ) -> None:
     """
     Print training results in JSON format.
@@ -215,7 +212,7 @@ def print_training_results_json(
         "training_samples": num_samples,
         "num_features": num_features,
         "model_path": str(model_path),
-        "status": "success"
+        "status": "success",
     }
 
     if evaluation_results:
@@ -234,7 +231,7 @@ def train_model(
     max_depth: int | None,
     evaluate: bool,
     force: bool,
-    output_format: str
+    output_format: str,
 ) -> int:
     """
     Train a quality prediction model.
@@ -265,18 +262,23 @@ def train_model(
         collector = DataCollector(root_dir=work_dir)
 
         feature_dicts, outcome_labels = collector.collect_training_data_for_model(
-            runs_dir=data_dir,
-            specs_dir=specs_dir
+            runs_dir=data_dir, specs_dir=specs_dir
         )
 
         num_samples = len(feature_dicts)
 
         if num_samples == 0:
-            print("Error: No training data found. Please ensure you have completed runs in the data directory.", file=sys.stderr)
+            print(
+                "Error: No training data found. Please ensure you have completed runs in the data directory.",
+                file=sys.stderr,
+            )
             return 1
 
         if num_samples < 10 and not force:
-            print(f"Error: Insufficient training data ({num_samples} samples). Minimum 10 samples required.", file=sys.stderr)
+            print(
+                f"Error: Insufficient training data ({num_samples} samples). Minimum 10 samples required.",
+                file=sys.stderr,
+            )
             print("Use --force to train anyway (not recommended).", file=sys.stderr)
             return 1
 
@@ -284,10 +286,7 @@ def train_model(
 
         # Train model
         print("Training model...")
-        model = QualityModel(
-            n_estimators=n_estimators,
-            max_depth=max_depth
-        )
+        model = QualityModel(n_estimators=n_estimators, max_depth=max_depth)
 
         evaluation_results = None
 
@@ -298,7 +297,7 @@ def train_model(
                 outcome_labels,
                 test_size=test_split,
                 random_state=42,
-                stratify=outcome_labels
+                stratify=outcome_labels,
             )
 
             # Train on training set
@@ -312,13 +311,15 @@ def train_model(
                 y_pred.append(result.prediction.value)
 
             # Generate classification report
-            report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+            report = classification_report(
+                y_test, y_pred, output_dict=True, zero_division=0
+            )
             cm = confusion_matrix(y_test, y_pred, labels=["success", "issues"])
 
             evaluation_results = {
                 "classification_report": report,
                 "confusion_matrix": cm.tolist(),
-                "test_size": len(X_test)
+                "test_size": len(X_test),
             }
 
             # Re-train on full dataset
@@ -339,20 +340,20 @@ def train_model(
                 num_samples=num_samples,
                 num_features=len(model.feature_names),
                 model_path=saved_path,
-                evaluation_results=evaluation_results
+                evaluation_results=evaluation_results,
             )
         else:
             print_training_summary_text(
                 num_samples=num_samples,
                 num_features=len(model.feature_names),
-                model_path=saved_path
+                model_path=saved_path,
             )
 
             if evaluation_results:
                 print_evaluation_results_text(
                     report=evaluation_results["classification_report"],
                     confusion_matrix_data=evaluation_results["confusion_matrix"],
-                    test_size=evaluation_results["test_size"]
+                    test_size=evaluation_results["test_size"],
                 )
 
         return 0
@@ -374,7 +375,7 @@ def evaluate_model_only(
     specs_dir: Path | None,
     work_dir: Path,
     test_split: float,
-    output_format: str
+    output_format: str,
 ) -> int:
     """
     Evaluate an existing model without training.
@@ -396,7 +397,10 @@ def evaluate_model_only(
         return 1
 
     if not SKLEARN_AVAILABLE:
-        print("Error: scikit-learn is required for evaluation. Install with: pip install scikit-learn", file=sys.stderr)
+        print(
+            "Error: scikit-learn is required for evaluation. Install with: pip install scikit-learn",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -413,8 +417,7 @@ def evaluate_model_only(
         collector = DataCollector(root_dir=work_dir)
 
         feature_dicts, outcome_labels = collector.collect_training_data_for_model(
-            runs_dir=data_dir,
-            specs_dir=specs_dir
+            runs_dir=data_dir, specs_dir=specs_dir
         )
 
         num_samples = len(feature_dicts)
@@ -424,7 +427,10 @@ def evaluate_model_only(
             return 1
 
         if num_samples < 10:
-            print(f"Warning: Limited evaluation data ({num_samples} samples). Results may not be reliable.", file=sys.stderr)
+            print(
+                f"Warning: Limited evaluation data ({num_samples} samples). Results may not be reliable.",
+                file=sys.stderr,
+            )
 
         print(f"Found {num_samples} evaluation samples")
 
@@ -436,13 +442,15 @@ def evaluate_model_only(
             y_pred.append(result.prediction.value)
 
         # Generate classification report
-        report = classification_report(outcome_labels, y_pred, output_dict=True, zero_division=0)
+        report = classification_report(
+            outcome_labels, y_pred, output_dict=True, zero_division=0
+        )
         cm = confusion_matrix(outcome_labels, y_pred, labels=["success", "issues"])
 
         evaluation_results = {
             "classification_report": report,
             "confusion_matrix": cm.tolist(),
-            "test_size": num_samples
+            "test_size": num_samples,
         }
 
         # Output results
@@ -450,14 +458,12 @@ def evaluate_model_only(
             result = {
                 "model_path": str(model_path),
                 "evaluation": evaluation_results,
-                "status": "success"
+                "status": "success",
             }
             print(json.dumps(result, indent=2))
         else:
             print_evaluation_results_text(
-                report=report,
-                confusion_matrix_data=cm.tolist(),
-                test_size=num_samples
+                report=report, confusion_matrix_data=cm.tolist(), test_size=num_samples
             )
 
         return 0
@@ -485,7 +491,9 @@ def main() -> int:
     # Handle evaluate-only mode
     if args.evaluate_only:
         if not args.model_path:
-            print("Error: --model-path is required for --evaluate-only", file=sys.stderr)
+            print(
+                "Error: --model-path is required for --evaluate-only", file=sys.stderr
+            )
             print("\nUse --help to see usage information", file=sys.stderr)
             return 1
 
@@ -498,7 +506,7 @@ def main() -> int:
             specs_dir=args.specs_dir,
             work_dir=args.work_dir,
             test_split=args.test_split,
-            output_format=args.output
+            output_format=args.output,
         )
 
     # Require data directory for training
@@ -518,7 +526,7 @@ def main() -> int:
         max_depth=args.max_depth,
         evaluate=args.evaluate,
         force=args.force,
-        output_format=args.output
+        output_format=args.output,
     )
 
 

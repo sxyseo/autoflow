@@ -29,13 +29,19 @@ def apply_runtime_config(command: list[str], agent_spec: dict[str, Any]) -> list
     return configured
 
 
-def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: dict[str, Any] | None = None) -> list[str]:
+def build_command(
+    agent_spec: dict[str, Any],
+    prompt_file: str,
+    run_metadata: dict[str, Any] | None = None,
+) -> list[str]:
     prompt_text = load_prompt(prompt_file)
     protocol = agent_spec.get("protocol", "cli")
     if protocol == "acp":
         transport = agent_spec.get("transport", {})
         if transport.get("type", "stdio") != "stdio":
-            raise SystemExit("only stdio ACP transport is supported in the local runner")
+            raise SystemExit(
+                "only stdio ACP transport is supported in the local runner"
+            )
         entrypoint = transport.get("command") or agent_spec.get("command")
         args = list(transport.get("args", []))
         prompt_mode = transport.get("prompt_mode", "argv")
@@ -43,7 +49,9 @@ def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: di
             return [entrypoint, *args, prompt_text]
         raise SystemExit("unsupported ACP prompt mode for local runner")
 
-    command = apply_runtime_config([agent_spec["command"], *agent_spec.get("args", [])], agent_spec)
+    command = apply_runtime_config(
+        [agent_spec["command"], *agent_spec.get("args", [])], agent_spec
+    )
     resume = agent_spec.get("resume")
     if run_metadata and run_metadata.get("resume_from") and resume:
         mode = resume.get("mode", "none")
@@ -58,7 +66,9 @@ def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: di
 
 def main() -> None:
     if len(sys.argv) not in {4, 5}:
-        raise SystemExit("usage: agent_runner.py <agents-json> <agent-name> <prompt-file> [run-json]")
+        raise SystemExit(
+            "usage: agent_runner.py <agents-json> <agent-name> <prompt-file> [run-json]"
+        )
     agents_file = Path(sys.argv[1])
     agent_name = sys.argv[2]
     prompt_file = sys.argv[3]

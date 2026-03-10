@@ -64,12 +64,9 @@ class TestSchedulerConfig:
         """Test loading config from custom path."""
         config_path = tmp_path / "custom_scheduler_config.json"
         custom_config = {
-            "scheduler": {
-                "timezone": "America/New_York",
-                "max_instances": 5
-            },
+            "scheduler": {"timezone": "America/New_York", "max_instances": 5},
             "jobs": {},
-            "job_defaults": {}
+            "job_defaults": {},
         }
         with open(config_path, "w") as f:
             json.dump(custom_config, f)
@@ -217,7 +214,7 @@ class TestCmdAddJob:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -247,7 +244,7 @@ class TestCmdListJobs:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -270,10 +267,10 @@ class TestCmdListJobs:
                 "test_job": {
                     "enabled": True,
                     "cron": "*/5 * * * *",
-                    "description": "Test job"
+                    "description": "Test job",
                 }
             },
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -296,13 +293,8 @@ class TestCmdRemoveJob:
 
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
-            "jobs": {
-                "job_to_remove": {
-                    "enabled": True,
-                    "cron": "*/5 * * * *"
-                }
-            },
-            "job_defaults": {"max_instances": 1}
+            "jobs": {"job_to_remove": {"enabled": True, "cron": "*/5 * * * *"}},
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -323,7 +315,7 @@ class TestCmdRemoveJob:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -353,7 +345,9 @@ class TestCmdRunOnce:
     def test_cmd_run_once_known_job(self):
         """Test running a known job type."""
         args = MagicMock()
-        args.job_type = "weekly_consolidation"  # Simple job that doesn't require subprocess
+        args.job_type = (
+            "weekly_consolidation"  # Simple job that doesn't require subprocess
+        )
         args.verbose = True
 
         result = cmd_run_once(args)

@@ -119,16 +119,12 @@ class CodexAdapter(AgentAdapter):
         cmd.extend(args)
 
         # Add approval policy
-        approval = config.metadata.get(
-            "approval_policy", self._approval_policy
-        )
+        approval = config.metadata.get("approval_policy", self._approval_policy)
         if approval:
             cmd.extend(["--approval-policy", approval])
 
         # Add sandbox mode
-        sandbox = config.metadata.get(
-            "sandbox_mode", self._sandbox_mode
-        )
+        sandbox = config.metadata.get("sandbox_mode", self._sandbox_mode)
         if sandbox:
             cmd.extend(["--sandbox", sandbox])
 

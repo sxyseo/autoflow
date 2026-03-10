@@ -131,9 +131,11 @@ class ActionResult:
             verification_passed=data.get("verification_passed", False),
             can_rollback=data.get("can_rollback", False),
             metadata=data.get("metadata", {}),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if "timestamp" in data
-            else datetime.now(),
+            timestamp=(
+                datetime.fromisoformat(data["timestamp"])
+                if "timestamp" in data
+                else datetime.now()
+            ),
         )
 
 
@@ -216,15 +218,15 @@ class HealingAction:
             rollback_strategy=data.get("rollback_strategy"),
             timeout=data.get("timeout", 300),
             requires_approval=data.get("requires_approval", False),
-            created_at=datetime.fromisoformat(data["created_at"])
-            if "created_at" in data
-            else datetime.now(),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if "created_at" in data
+                else datetime.now()
+            ),
             id=data.get("id", ""),
         )
 
-    def should_require_approval(
-        self, config: HealingConfig | None = None
-    ) -> bool:
+    def should_require_approval(self, config: HealingConfig | None = None) -> bool:
         """Determine if this action requires approval based on severity and config.
 
         Args:
@@ -584,7 +586,11 @@ class EscalateActionExecutor(ActionExecutor):
 
         changes_made = [
             f"Escalated issue with {severity} severity",
-            f"Notified {len(recipients)} recipients" if recipients else "Escalation logged",
+            (
+                f"Notified {len(recipients)} recipients"
+                if recipients
+                else "Escalation logged"
+            ),
         ]
 
         return ActionResult(
@@ -908,7 +914,9 @@ class ActionRegistry:
                         # Rollback if verification fails
                         if self._rollback_manager.rollback_to_checkpoint(action.id):
                             result.status = ActionStatus.ROLLED_BACK
-                            result.message = "Action executed but verification failed, rolled back"
+                            result.message = (
+                                "Action executed but verification failed, rolled back"
+                            )
                 except Exception as e:
                     logger.error(f"Verification failed for action {action.name}: {e}")
                     result.verification_passed = False

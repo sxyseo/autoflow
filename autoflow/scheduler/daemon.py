@@ -82,9 +82,7 @@ class JobExecutionResult(BaseModel):
         self.output = output
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class JobInfo(BaseModel):
@@ -324,9 +322,7 @@ class SchedulerDaemon:
                             timeout=self._graceful_timeout,
                         )
                     except TimeoutError:
-                        logger.warning(
-                            "Graceful shutdown timed out, forcing stop"
-                        )
+                        logger.warning("Graceful shutdown timed out, forcing stop")
 
                 self._scheduler.shutdown(wait=graceful)
                 self._scheduler = None
@@ -391,8 +387,7 @@ class SchedulerDaemon:
 
         self._stats.total_jobs = len(self._jobs)
         self._stats.active_jobs = sum(
-            1 for j in self._jobs.values()
-            if j.status == JobStatus.ENABLED
+            1 for j in self._jobs.values() if j.status == JobStatus.ENABLED
         )
 
     async def _add_job_from_config(self, job_config: SchedulerJobConfig) -> None:
@@ -429,9 +424,7 @@ class SchedulerDaemon:
             elif "." in handler_path:
                 module_path, func_name = handler_path.rsplit(".", 1)
             else:
-                raise SchedulerDaemonError(
-                    f"Invalid handler path: {handler_path}"
-                )
+                raise SchedulerDaemonError(f"Invalid handler path: {handler_path}")
 
             # Import the module
             parts = module_path.split(".")
@@ -442,9 +435,7 @@ class SchedulerDaemon:
             handler = getattr(module, func_name)
 
             if not callable(handler):
-                raise SchedulerDaemonError(
-                    f"Handler {handler_path} is not callable"
-                )
+                raise SchedulerDaemonError(f"Handler {handler_path} is not callable")
 
             return handler
 
@@ -491,6 +482,7 @@ class SchedulerDaemon:
 
         if job_id is None:
             import uuid
+
             job_id = f"job-{uuid.uuid4().hex[:8]}"
 
         # Create job info
@@ -542,6 +534,7 @@ class SchedulerDaemon:
         Returns:
             Wrapped handler function
         """
+
         async def wrapped(*args, **handler_kwargs) -> JobExecutionResult:
             result = JobExecutionResult(job_id=job_id)
             self._running_executions[job_id] = result
@@ -630,8 +623,7 @@ class SchedulerDaemon:
             self._jobs.pop(job_id, None)
             self._stats.total_jobs = len(self._jobs)
             self._stats.active_jobs = sum(
-                1 for j in self._jobs.values()
-                if j.status == JobStatus.ENABLED
+                1 for j in self._jobs.values() if j.status == JobStatus.ENABLED
             )
             logger.info("Removed job %s", job_id)
             return True
@@ -751,7 +743,8 @@ class SchedulerDaemon:
                 "is_running": self.is_running,
                 "started_at": (
                     self._stats.started_at.isoformat()
-                    if self._stats.started_at else None
+                    if self._stats.started_at
+                    else None
                 ),
             },
             "stats": self._stats.model_dump(),
@@ -760,12 +753,8 @@ class SchedulerDaemon:
                     "handler": info.handler,
                     "cron": info.cron,
                     "status": info.status.value,
-                    "next_run": (
-                        info.next_run.isoformat() if info.next_run else None
-                    ),
-                    "last_run": (
-                        info.last_run.isoformat() if info.last_run else None
-                    ),
+                    "next_run": (info.next_run.isoformat() if info.next_run else None),
+                    "last_run": (info.last_run.isoformat() if info.last_run else None),
                     "total_runs": info.total_runs,
                     "success_rate": info.success_rate,
                 }
@@ -828,15 +817,15 @@ def main() -> None:
     """CLI entry point for the scheduler daemon."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Autoflow Scheduler Daemon"
-    )
+    parser = argparse.ArgumentParser(description="Autoflow Scheduler Daemon")
     parser.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         help="Path to configuration file",
     )
     parser.add_argument(
-        "--daemon", "-d",
+        "--daemon",
+        "-d",
         action="store_true",
         help="Run as background daemon",
     )

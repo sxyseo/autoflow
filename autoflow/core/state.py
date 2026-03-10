@@ -104,9 +104,7 @@ class Run(BaseModel):
         """Mark the run as completed."""
         self.status = status
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
         self.exit_code = exit_code
         self.output = output
         self.error = error
@@ -647,9 +645,7 @@ class StateManager:
 
         if expires_in_seconds is not None:
             expires_at = datetime.utcnow().timestamp() + expires_in_seconds
-            memory_data["expires_at"] = datetime.fromtimestamp(
-                expires_at
-            ).isoformat()
+            memory_data["expires_at"] = datetime.fromtimestamp(expires_at).isoformat()
 
         file_path = self.memory_dir / f"{memory_id}.json"
         return self.write_json(file_path, memory_data)
@@ -750,32 +746,38 @@ class StateManager:
             "state_dir": str(self.state_dir),
             "initialized": self.state_dir.exists(),
             "tasks": {
-                "total": len(list(self.tasks_dir.glob("*.json")))
-                if self.tasks_dir.exists()
-                else 0,
+                "total": (
+                    len(list(self.tasks_dir.glob("*.json")))
+                    if self.tasks_dir.exists()
+                    else 0
+                ),
                 "by_status": self._count_by_status(self.tasks_dir, "status"),
             },
             "runs": {
-                "total": len(list(self.runs_dir.glob("*.json")))
-                if self.runs_dir.exists()
-                else 0,
+                "total": (
+                    len(list(self.runs_dir.glob("*.json")))
+                    if self.runs_dir.exists()
+                    else 0
+                ),
                 "by_status": self._count_by_status(self.runs_dir, "status"),
             },
             "specs": {
-                "total": len(list(self.specs_dir.glob("*.json")))
-                if self.specs_dir.exists()
-                else 0,
+                "total": (
+                    len(list(self.specs_dir.glob("*.json")))
+                    if self.specs_dir.exists()
+                    else 0
+                ),
             },
             "memory": {
-                "total": len(list(self.memory_dir.glob("*.json")))
-                if self.memory_dir.exists()
-                else 0,
+                "total": (
+                    len(list(self.memory_dir.glob("*.json")))
+                    if self.memory_dir.exists()
+                    else 0
+                ),
             },
         }
 
-    def _count_by_status(
-        self, directory: Path, status_field: str
-    ) -> dict[str, int]:
+    def _count_by_status(self, directory: Path, status_field: str) -> dict[str, int]:
         """Count items by status field."""
         counts: dict[str, int] = {}
         if not directory.exists():
@@ -840,6 +842,7 @@ class StateManager:
 
 
 # === Module-level convenience functions ===
+
 
 def read_json(
     file_path: str | Path,

@@ -96,7 +96,7 @@ class TestTestResult:
             name="test_example",
             file_path="tests/test_example.py",
             status=TestStatus.PASSED,
-            duration=0.5
+            duration=0.5,
         )
         assert result.name == "test_example"
         assert result.status == TestStatus.PASSED
@@ -109,7 +109,7 @@ class TestTestResult:
             file_path="tests/test_example.py",
             status=TestStatus.FAILED,
             duration=1.0,
-            message="Assertion failed"
+            message="Assertion failed",
         )
         assert result.message == "Assertion failed"
 
@@ -120,12 +120,7 @@ class TestTestRunResult:
     def test_create_run_result(self):
         """Test creating a run result."""
         result = TestRunResult(
-            total=10,
-            passed=8,
-            failed=2,
-            skipped=0,
-            errors=0,
-            duration=5.0
+            total=10, passed=8, failed=2, skipped=0, errors=0, duration=5.0
         )
         assert result.total == 10
         assert result.passed == 8
@@ -134,22 +129,12 @@ class TestTestRunResult:
     def test_run_result_success(self):
         """Test run result success property."""
         success_result = TestRunResult(
-            total=10,
-            passed=10,
-            failed=0,
-            skipped=0,
-            errors=0,
-            duration=5.0
+            total=10, passed=10, failed=0, skipped=0, errors=0, duration=5.0
         )
         assert success_result.success is True
 
         failed_result = TestRunResult(
-            total=10,
-            passed=8,
-            failed=2,
-            skipped=0,
-            errors=0,
-            duration=5.0
+            total=10, passed=8, failed=2, skipped=0, errors=0, duration=5.0
         )
         assert failed_result.success is False
 
@@ -162,7 +147,7 @@ class TestTestFile:
         test_file = TestFile(
             path=Path("tests/test_example.py"),
             module_name="tests.test_example",
-            test_functions=["test_one", "test_two"]
+            test_functions=["test_one", "test_two"],
         )
         assert test_file.module_name == "tests.test_example"
         assert len(test_file.test_functions) == 2

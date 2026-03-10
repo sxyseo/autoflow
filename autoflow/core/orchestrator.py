@@ -130,9 +130,7 @@ class CycleResult:
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class OrchestratorStats(BaseModel):
@@ -780,7 +778,9 @@ class AutoflowOrchestrator:
 
             # Stage all changes
             stage_process = await asyncio.create_subprocess_exec(
-                "git", "add", "-A",
+                "git",
+                "add",
+                "-A",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -789,7 +789,9 @@ class AutoflowOrchestrator:
 
             # Check if there are changes to commit
             status_process = await asyncio.create_subprocess_exec(
-                "git", "status", "--porcelain",
+                "git",
+                "status",
+                "--porcelain",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -805,7 +807,10 @@ class AutoflowOrchestrator:
 
             # Commit
             commit_process = await asyncio.create_subprocess_exec(
-                "git", "commit", "-m", f"autoflow: {message}",
+                "git",
+                "commit",
+                "-m",
+                f"autoflow: {message}",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -841,8 +846,8 @@ class AutoflowOrchestrator:
         total = self._stats.total_cycles
         current_avg = self._stats.average_cycle_duration
         self._stats.average_cycle_duration = (
-            (current_avg * (total - 1) + duration) / total
-        )
+            current_avg * (total - 1) + duration
+        ) / total
 
     async def start_continuous_iteration(
         self,
@@ -1014,12 +1019,9 @@ class AutoflowOrchestrator:
             "orchestrator": {
                 "status": self._status.value,
                 "running": self._running,
-                "current_task": (
-                    self._current_task.id if self._current_task else None
-                ),
+                "current_task": (self._current_task.id if self._current_task else None),
                 "current_phase": (
-                    self._current_cycle.phase.value
-                    if self._current_cycle else None
+                    self._current_cycle.phase.value if self._current_cycle else None
                 ),
             },
             "stats": self._stats.model_dump(),

@@ -21,7 +21,9 @@ def load_module(path: Path, name: str):
 class CliHealthcheckTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parents[1]
-        self.module = load_module(self.repo_root / "scripts" / "cli_healthcheck.py", "cli_healthcheck_test")
+        self.module = load_module(
+            self.repo_root / "scripts" / "cli_healthcheck.py", "cli_healthcheck_test"
+        )
 
     def test_probe_binary_reports_resume_and_model_capabilities(self) -> None:
         with (
@@ -59,7 +61,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
 
     def test_coordination_brief_uses_strategy_and_fallback_agent(self) -> None:
         with (
-            patch.object(self.module, "load_config", return_value={"role_agents": {"reviewer": "claude-review"}}),
+            patch.object(
+                self.module,
+                "load_config",
+                return_value={"role_agents": {"reviewer": "claude-review"}},
+            ),
             patch.object(
                 self.module,
                 "autoflow_json",
@@ -70,7 +76,15 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                             "owner_role": "reviewer",
                         }
                     },
-                    {"playbook": [{"category": "tests", "rule": "write tests", "evidence_count": 2}]},
+                    {
+                        "playbook": [
+                            {
+                                "category": "tests",
+                                "rule": "write tests",
+                                "evidence_count": 2,
+                            }
+                        ]
+                    },
                 ],
             ),
             patch.object(
@@ -105,7 +119,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         export_path = self.root / "taskmaster.json"
         with (
             patch.object(self.module, "ROOT", self.root),
-            patch.object(self.module, "run", return_value=SimpleNamespace(stdout="", stderr="", returncode=0)),
+            patch.object(
+                self.module,
+                "run",
+                return_value=SimpleNamespace(stdout="", stderr="", returncode=0),
+            ),
         ):
             result = self.module.taskmaster_sync(
                 "spec-a",

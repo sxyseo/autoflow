@@ -62,14 +62,26 @@ def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
 
 def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     commit_cfg = config.get("commit", {})
-    if state.get("active_runs") and not commit_cfg.get("allow_during_active_runs", False):
+    if state.get("active_runs") and not commit_cfg.get(
+        "allow_during_active_runs", False
+    ):
         return {"committed": False, "reason": "active_run_exists"}
     verify_commands = config.get("verify_commands", [])
-    verify_results = run_verify_commands(verify_commands, spec) if verify_commands else []
+    verify_results = (
+        run_verify_commands(verify_commands, spec) if verify_commands else []
+    )
     if any(item["returncode"] != 0 for item in verify_results):
-        return {"committed": False, "reason": "verification_failed", "verification": verify_results}
+        return {
+            "committed": False,
+            "reason": "verification_failed",
+            "verification": verify_results,
+        }
     if not git_dirty():
-        return {"committed": False, "reason": "clean_worktree", "verification": verify_results}
+        return {
+            "committed": False,
+            "reason": "clean_worktree",
+            "verification": verify_results,
+        }
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     message_prefix = commit_cfg.get("message_prefix", "autoflow")
     message = f"{message_prefix}: {spec} iteration @ {timestamp}"
@@ -93,7 +105,17 @@ def workflow_state(spec: str) -> dict:
 
 
 def task_history(spec: str, task: str) -> list[dict]:
-    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
+    result = run(
+        [
+            "python3",
+            "scripts/autoflow.py",
+            "task-history",
+            "--spec",
+            spec,
+            "--task",
+            task,
+        ]
+    )
     return json.loads(result.stdout)
 
 
@@ -120,7 +142,9 @@ def default_role_preferences(role: str) -> list[str]:
     return preferences.get(role, [])
 
 
-def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> tuple[str | None, str]:
+def select_agent_for_role(
+    config: dict, role: str, catalog: dict[str, dict]
+) -> tuple[str | None, str]:
     selection_cfg = config.get("agent_selection", {})
     candidates = []
     explicit = config.get("role_agents", {}).get(role)
@@ -151,7 +175,9 @@ def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict |
     max_attempts = retry_cfg.get("max_automatic_attempts", 3)
     history = task_history(state["spec"], next_action["id"])
     unsuccessful = [
-        item for item in history if item.get("result") in {"needs_changes", "blocked", "failed"}
+        item
+        for item in history
+        if item.get("result") in {"needs_changes", "blocked", "failed"}
     ]
     if len(unsuccessful) >= max_attempts:
         return {
@@ -173,12 +199,19 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
     next_action = state.get("recommended_next_action")
     gate = dispatch_gate(config, state, next_action)
     if gate:
-        return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
+        return {
+            "dispatched": False,
+            "reason": gate["reason"],
+            "gate": gate,
+            "state": state,
+        }
     role = next_action["owner_role"]
     selection_cfg = config.get("agent_selection", {})
     sync_result = None
     if selection_cfg.get("sync_before_dispatch", True):
-        sync_result = sync_agents(overwrite=selection_cfg.get("overwrite_discovered", False))
+        sync_result = sync_agents(
+            overwrite=selection_cfg.get("overwrite_discovered", False)
+        )
     catalog = load_agent_catalog()
     agent, source = select_agent_for_role(config, role, catalog)
     if not agent:
@@ -197,11 +230,23 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
     }
     if dispatch:
         proc = run(
-            ["bash", "scripts/workflow-dispatch.sh", spec, role, agent, next_action["id"]],
+            [
+                "bash",
+                "scripts/workflow-dispatch.sh",
+                spec,
+                role,
+                agent,
+                next_action["id"],
+            ],
             check=True,
         )
         payload["tmux_session"] = proc.stdout.strip()
-    return {"dispatched": dispatch, "payload": payload, "state": state, "agent_sync": sync_result}
+    return {
+        "dispatched": dispatch,
+        "payload": payload,
+        "state": state,
+        "agent_sync": sync_result,
+    }
 
 
 def main() -> None:

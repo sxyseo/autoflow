@@ -243,9 +243,7 @@ class FeatureExtractor:
         num_subtasks = sum(len(phase.get("subtasks", [])) for phase in phases)
 
         # Count dependencies
-        num_dependencies = sum(
-            len(phase.get("depends_on", [])) for phase in phases
-        )
+        num_dependencies = sum(len(phase.get("depends_on", [])) for phase in phases)
 
         # Calculate complexity score
         complexity_score = self._calculate_complexity(
@@ -329,7 +327,9 @@ class FeatureExtractor:
             file_timelines_dir = self.root_dir / ".auto-claude" / "file-timelines"
 
         if not file_timelines_dir.exists():
-            raise FileNotFoundError(f"File timelines directory not found: {file_timelines_dir}")
+            raise FileNotFoundError(
+                f"File timelines directory not found: {file_timelines_dir}"
+            )
 
         # Read all timeline JSON files
         timeline_files = list(file_timelines_dir.glob("*.json"))
@@ -406,7 +406,9 @@ class FeatureExtractor:
         previous_failures = len(failed_files)
 
         file_complexity = (
-            sum(file_complexities) / len(file_complexities) if file_complexities else 0.0
+            sum(file_complexities) / len(file_complexities)
+            if file_complexities
+            else 0.0
         )
 
         return FileFeatures(
@@ -417,9 +419,7 @@ class FeatureExtractor:
             file_complexity=file_complexity,
         )
 
-    def extract_agent_features(
-        self, runs_dir: Path | None = None
-    ) -> AgentFeatures:
+    def extract_agent_features(self, runs_dir: Path | None = None) -> AgentFeatures:
         """
         Extract features from agent performance data.
 
@@ -528,7 +528,9 @@ class FeatureExtractor:
 
             for timeline_file in timeline_files:
                 try:
-                    timeline_data = json.loads(timeline_file.read_text(encoding="utf-8"))
+                    timeline_data = json.loads(
+                        timeline_file.read_text(encoding="utf-8")
+                    )
 
                     # Extract timestamps from timeline data
                     for task_data in timeline_data.values():

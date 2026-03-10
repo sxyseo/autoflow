@@ -149,9 +149,7 @@ class ExecutionResult(BaseModel):
         self.output = output
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class AgentAdapter(ABC):

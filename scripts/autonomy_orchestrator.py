@@ -39,7 +39,11 @@ def health_report(required: list[str] | None = None) -> dict[str, Any]:
     for item in required or []:
         cmd.extend(["--require", item])
     result = run(cmd, check=False)
-    payload = json.loads(result.stdout) if result.stdout.strip() else {"binaries": [], "tmux_sessions": []}
+    payload = (
+        json.loads(result.stdout)
+        if result.stdout.strip()
+        else {"binaries": [], "tmux_sessions": []}
+    )
     payload["status"] = "ok" if result.returncode == 0 else "degraded"
     payload["returncode"] = result.returncode
     return payload
@@ -53,21 +57,43 @@ def taskmaster_sync(spec: str, config: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {"enabled": True}
     import_file = tm_cfg.get("import_file", "")
     if import_file:
-        input_path = ROOT / import_file if not Path(import_file).is_absolute() else Path(import_file)
+        input_path = (
+            ROOT / import_file
+            if not Path(import_file).is_absolute()
+            else Path(import_file)
+        )
         if input_path.exists():
-            result = autoflow_json("import-taskmaster", "--spec", spec, "--input", str(input_path))
+            result = autoflow_json(
+                "import-taskmaster", "--spec", spec, "--input", str(input_path)
+            )
             payload["import"] = result
         else:
             payload["import"] = {"missing": str(input_path)}
     export_file = tm_cfg.get("export_file", "")
     if export_file:
-        output_path = ROOT / export_file if not Path(export_file).is_absolute() else Path(export_file)
-        run(["python3", "scripts/autoflow.py", "export-taskmaster", "--spec", spec, "--output", str(output_path)])
+        output_path = (
+            ROOT / export_file
+            if not Path(export_file).is_absolute()
+            else Path(export_file)
+        )
+        run(
+            [
+                "python3",
+                "scripts/autoflow.py",
+                "export-taskmaster",
+                "--spec",
+                spec,
+                "--output",
+                str(output_path),
+            ]
+        )
         payload["export_file"] = str(output_path)
     return payload
 
 
-def coordination_brief(spec: str, continuous_config: str, config: dict[str, Any]) -> dict[str, Any]:
+def coordination_brief(
+    spec: str, continuous_config: str, config: dict[str, Any]
+) -> dict[str, Any]:
     ci_config = load_config(continuous_config)
     workflow = autoflow_json("workflow-state", "--spec", spec)
     strategy = autoflow_json("show-strategy", "--spec", spec)
@@ -108,11 +134,15 @@ def run_tick(
     push: bool,
 ) -> dict[str, Any]:
     config = load_config(autonomy_config)
-    continuous_config = config.get("continuous_iteration_config", "config/continuous-iteration.example.json")
+    continuous_config = config.get(
+        "continuous_iteration_config", "config/continuous-iteration.example.json"
+    )
     taskmaster = taskmaster_sync(spec, config)
     brief = coordination_brief(spec, continuous_config, config)
     monitoring_cfg = config.get("monitoring", {})
-    if brief["health"].get("returncode", 0) != 0 and monitoring_cfg.get("block_on_missing_binaries", True):
+    if brief["health"].get("returncode", 0) != 0 and monitoring_cfg.get(
+        "block_on_missing_binaries", True
+    ):
         return {
             "spec": spec,
             "taskmaster": taskmaster,
@@ -145,10 +175,14 @@ def run_tick(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Outer-loop autonomy orchestrator for Autoflow")
+    parser = argparse.ArgumentParser(
+        description="Outer-loop autonomy orchestrator for Autoflow"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    brief_cmd = sub.add_parser("coordination-brief", help="build an OpenClaw-friendly coordination brief")
+    brief_cmd = sub.add_parser(
+        "coordination-brief", help="build an OpenClaw-friendly coordination brief"
+    )
     brief_cmd.add_argument("--spec", required=True)
     brief_cmd.add_argument("--config", default="config/autonomy.example.json")
 
@@ -164,13 +198,18 @@ def main() -> None:
         config = load_config(args.config)
         payload = coordination_brief(
             args.spec,
-            config.get("continuous_iteration_config", "config/continuous-iteration.example.json"),
+            config.get(
+                "continuous_iteration_config",
+                "config/continuous-iteration.example.json",
+            ),
             config,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=True))
         return
 
-    payload = run_tick(args.spec, args.config, args.dispatch, args.commit_if_dirty, args.push)
+    payload = run_tick(
+        args.spec, args.config, args.dispatch, args.commit_if_dirty, args.push
+    )
     print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 

@@ -41,28 +41,28 @@ Examples:
                                      Use custom model file
   %(prog)s --spec ./spec-dir --create-review
                                      Create review task if high-risk
-        """
+        """,
     )
 
     parser.add_argument(
         "--spec",
         "-s",
         type=Path,
-        help="Path to spec directory containing implementation_plan.json"
+        help="Path to spec directory containing implementation_plan.json",
     )
 
     parser.add_argument(
         "--model-path",
         "-m",
         type=Path,
-        help="Path to trained model file (default: .autoflow/models/quality_model.pkl)"
+        help="Path to trained model file (default: .autoflow/models/quality_model.pkl)",
     )
 
     parser.add_argument(
         "--explain",
         "-e",
         action="store_true",
-        help="Show detailed prediction explanation with feature importances"
+        help="Show detailed prediction explanation with feature importances",
     )
 
     parser.add_argument(
@@ -70,19 +70,19 @@ Examples:
         "-o",
         choices=["text", "json"],
         default="text",
-        help="Output format (default: text)"
+        help="Output format (default: text)",
     )
 
     parser.add_argument(
         "--create-review",
         action="store_true",
-        help="Create review task in implementation plan if high-risk prediction"
+        help="Create review task in implementation plan if high-risk prediction",
     )
 
     parser.add_argument(
         "--allow-untrained",
         action="store_true",
-        help="Allow using an untrained model (for testing only)"
+        help="Allow using an untrained model (for testing only)",
     )
 
     parser.add_argument(
@@ -90,28 +90,26 @@ Examples:
         "-w",
         type=Path,
         default=".",
-        help="Working directory (default: .)"
+        help="Working directory (default: .)",
     )
 
     parser.add_argument(
         "--train",
         action="store_true",
-        help="Train a new model (requires --data-dir, use train_model.py instead)"
+        help="Train a new model (requires --data-dir, use train_model.py instead)",
     )
 
     parser.add_argument(
         "--evaluate",
         action="store_true",
-        help="Evaluate model performance (use train_model.py instead)"
+        help="Evaluate model performance (use train_model.py instead)",
     )
 
     return parser.parse_args()
 
 
 def print_prediction_text(
-    prediction: PredictionResult,
-    spec_path: Path,
-    explain: bool = False
+    prediction: PredictionResult, spec_path: Path, explain: bool = False
 ) -> None:
     """
     Print prediction result in human-readable text format.
@@ -151,9 +149,7 @@ def print_prediction_text(
         print("\nTop Feature Importances:")
         # Sort by importance and show top 5
         sorted_features = sorted(
-            prediction.feature_importances.items(),
-            key=lambda x: x[1],
-            reverse=True
+            prediction.feature_importances.items(), key=lambda x: x[1], reverse=True
         )[:5]
 
         for feature, importance in sorted_features:
@@ -163,10 +159,7 @@ def print_prediction_text(
     print("\n" + "=" * 70)
 
 
-def print_prediction_json(
-    prediction: PredictionResult,
-    spec_path: Path
-) -> None:
+def print_prediction_json(prediction: PredictionResult, spec_path: Path) -> None:
     """
     Print prediction result in JSON format.
 
@@ -180,7 +173,8 @@ def print_prediction_json(
         "confidence": prediction.confidence,
         "rationale": prediction.rationale,
         "feature_importances": prediction.feature_importances,
-        "is_high_risk": prediction.confidence < 0.6 or prediction.prediction.value in ["needs_changes", "failed"]
+        "is_high_risk": prediction.confidence < 0.6
+        or prediction.prediction.value in ["needs_changes", "failed"],
     }
 
     print(json.dumps(result, indent=2))
@@ -193,7 +187,7 @@ def predict_for_spec(
     allow_untrained: bool,
     explain: bool,
     output_format: str,
-    create_review: bool
+    create_review: bool,
 ) -> int:
     """
     Run quality prediction for a spec.
@@ -223,14 +217,15 @@ def predict_for_spec(
     try:
         # Initialize predictor
         predictor = QualityPredictor(
-            model_path=model_path,
-            root_dir=work_dir,
-            allow_untrained=allow_untrained
+            model_path=model_path, root_dir=work_dir, allow_untrained=allow_untrained
         )
 
         # Check if model is trained
         if not allow_untrained and predictor.model.model is None:
-            print("Error: Model is not trained. Please train the model first using scripts/train_model.py", file=sys.stderr)
+            print(
+                "Error: Model is not trained. Please train the model first using scripts/train_model.py",
+                file=sys.stderr,
+            )
             return 1
 
         # Run prediction
@@ -252,7 +247,10 @@ def predict_for_spec(
                     else:
                         print("\n⚠ Review task not created (prediction not high-risk)")
                 except Exception as e:
-                    print(f"\n⚠ Warning: Failed to create review task: {e}", file=sys.stderr)
+                    print(
+                        f"\n⚠ Warning: Failed to create review task: {e}",
+                        file=sys.stderr,
+                    )
             else:
                 print("\n⚠ Review task not created (prediction is low-risk)")
 
@@ -288,7 +286,10 @@ def main() -> int:
     # Handle deprecated train/evaluate options
     if args.train or args.evaluate:
         print("Error: --train and --evaluate options are deprecated.", file=sys.stderr)
-        print("Please use scripts/train_model.py for training and evaluation.", file=sys.stderr)
+        print(
+            "Please use scripts/train_model.py for training and evaluation.",
+            file=sys.stderr,
+        )
         return 1
 
     # Require spec path
@@ -305,7 +306,7 @@ def main() -> int:
         allow_untrained=args.allow_untrained,
         explain=args.explain,
         output_format=args.output,
-        create_review=args.create_review
+        create_review=args.create_review,
     )
 
 

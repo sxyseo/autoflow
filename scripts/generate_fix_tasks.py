@@ -36,74 +36,65 @@ Examples:
   %(prog)s --input findings.json --output tasks/    Custom output directory
   %(prog)s --input findings.json --dry-run          Show what would be generated
   %(prog)s --list-tasks                             List existing fix tasks
-        """
+        """,
     )
 
-    parser.add_argument(
-        "--input",
-        "-i",
-        help="Input QA findings JSON file"
-    )
+    parser.add_argument("--input", "-i", help="Input QA findings JSON file")
 
     parser.add_argument(
         "--output",
         "-o",
         default=".autoflow/tasks",
-        help="Output directory for fix tasks (default: .autoflow/tasks)"
+        help="Output directory for fix tasks (default: .autoflow/tasks)",
     )
 
     parser.add_argument(
         "--blocking-only",
         "-b",
         action="store_true",
-        help="Only generate tasks for blocking findings (CRITICAL and HIGH)"
+        help="Only generate tasks for blocking findings (CRITICAL and HIGH)",
     )
 
     parser.add_argument(
         "--dry-run",
         "-n",
         action="store_true",
-        help="Show what would be generated without creating files"
+        help="Show what would be generated without creating files",
     )
 
     parser.add_argument(
         "--list-tasks",
         "-l",
         action="store_true",
-        help="List existing fix tasks in output directory"
+        help="List existing fix tasks in output directory",
     )
 
     parser.add_argument(
         "--severity",
         "-s",
         choices=["critical", "high", "medium", "low"],
-        help="Filter findings by severity level"
+        help="Filter findings by severity level",
     )
 
     parser.add_argument(
         "--category",
         "-c",
-        help="Filter findings by category (e.g., test, coverage, style)"
+        help="Filter findings by category (e.g., test, coverage, style)",
     )
 
     parser.add_argument(
         "--agent",
         "-a",
         default="implementation-runner",
-        help="Agent to assign fix tasks to (default: implementation-runner)"
+        help="Agent to assign fix tasks to (default: implementation-runner)",
     )
 
     parser.add_argument(
-        "--work-dir",
-        default=".",
-        help="Working directory (default: .)"
+        "--work-dir", default=".", help="Working directory (default: .)"
     )
 
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose output"
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
 
     return parser.parse_args()
@@ -133,9 +124,7 @@ def generate_task_id(finding: QAFinding, index: int) -> str:
 
 
 def create_fix_task(
-    finding: QAFinding,
-    task_id: str,
-    agent: str = "implementation-runner"
+    finding: QAFinding, task_id: str, agent: str = "implementation-runner"
 ) -> dict:
     """
     Create a fix task from a QA finding.
@@ -166,26 +155,30 @@ def create_fix_task(
             "message": finding.message,
             "suggested_fix": finding.suggested_fix,
             "context": finding.context,
-            "rule_id": finding.rule_id
+            "rule_id": finding.rule_id,
         },
-        "actions": []
+        "actions": [],
     }
 
     # Add suggested fix as an action if available
     if finding.suggested_fix:
-        task["actions"].append({
-            "type": "apply_fix",
-            "description": finding.suggested_fix,
-            "file": finding.file,
-            "line": finding.line
-        })
+        task["actions"].append(
+            {
+                "type": "apply_fix",
+                "description": finding.suggested_fix,
+                "file": finding.file,
+                "line": finding.line,
+            }
+        )
 
     # Add verification action
-    task["actions"].append({
-        "type": "verify",
-        "description": "Run tests and checks to verify the fix",
-        "command": "python scripts/run_tests.py"
-    })
+    task["actions"].append(
+        {
+            "type": "verify",
+            "description": "Run tests and checks to verify the fix",
+            "command": "python scripts/run_tests.py",
+        }
+    )
 
     return task
 
@@ -246,18 +239,15 @@ def print_task_summary(task: dict, show_index: bool = False, index: int = 0) -> 
     """
     prefix = f"{index}. " if show_index else ""
 
-    priority_symbol = {
-        "critical": "🔴",
-        "high": "🟠",
-        "medium": "🟡",
-        "low": "🔵"
-    }.get(task.get("priority", "low"), "⚪")
+    priority_symbol = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(
+        task.get("priority", "low"), "⚪"
+    )
 
     status_symbol = {
         "pending": "📋",
         "in_progress": "⚙️",
         "completed": "✅",
-        "blocked": "🚫"
+        "blocked": "🚫",
     }.get(task.get("status", "pending"), "📋")
 
     print(f"{prefix}{status_symbol} {priority_symbol} {task['task_id']}")
@@ -307,12 +297,9 @@ def print_tasks_summary(tasks: list[dict]) -> None:
 
     print("\nBy Priority:")
     for priority, count in sorted(priority_counts.items()):
-        symbol = {
-            "critical": "🔴",
-            "high": "🟠",
-            "medium": "🟡",
-            "low": "🔵"
-        }.get(priority, "⚪")
+        symbol = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(
+            priority, "⚪"
+        )
         print(f"  {symbol} {priority}: {count}")
 
     print("\n" + "=" * 70)
@@ -322,7 +309,7 @@ def filter_findings(
     findings: list[QAFinding],
     blocking_only: bool = False,
     severity_filter: str | None = None,
-    category_filter: str | None = None
+    category_filter: str | None = None,
 ) -> list[QAFinding]:
     """
     Filter findings based on criteria.
@@ -358,7 +345,7 @@ def generate_tasks_from_findings(
     severity_filter: str | None = None,
     category_filter: str | None = None,
     dry_run: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> int:
     """
     Generate fix tasks from QA findings report.
@@ -377,10 +364,7 @@ def generate_tasks_from_findings(
         Number of tasks generated
     """
     findings = filter_findings(
-        report.findings,
-        blocking_only,
-        severity_filter,
-        category_filter
+        report.findings, blocking_only, severity_filter, category_filter
     )
 
     if not findings:
@@ -486,7 +470,7 @@ def main() -> int:
             severity_filter=args.severity,
             category_filter=args.category,
             dry_run=args.dry_run,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
 
         if args.dry_run:
@@ -501,6 +485,7 @@ def main() -> int:
         print(f"Error generating tasks: {e}", file=sys.stderr)
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         return 1
 

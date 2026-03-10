@@ -202,8 +202,7 @@ class TmuxSession:
 
             if check and process.returncode != 0:
                 raise TmuxSessionError(
-                    f"tmux command failed: {' '.join(args)}\n"
-                    f"stderr: {stderr_str}",
+                    f"tmux command failed: {' '.join(args)}\n" f"stderr: {stderr_str}",
                 )
 
             return process.returncode or 0, stdout_str, stderr_str
@@ -308,10 +307,14 @@ class TmuxSession:
         args = [
             "new-session",
             "-d",  # Detached
-            "-s", self.session_id,  # Session name
-            "-c", str(self.workdir),  # Working directory
-            "-x", "120",  # Width
-            "-y", "40",  # Height
+            "-s",
+            self.session_id,  # Session name
+            "-c",
+            str(self.workdir),  # Working directory
+            "-x",
+            "120",  # Width
+            "-y",
+            "40",  # Height
         ]
 
         # Add shell if specified
@@ -466,10 +469,13 @@ class TmuxSession:
 
         args = [
             "capture-pane",
-            "-t", self.session_id,
+            "-t",
+            self.session_id,
             "-p",
-            "-S", str(start_line),
-            "-E", str(end_line),
+            "-S",
+            str(start_line),
+            "-E",
+            str(end_line),
         ]
 
         _, output, _ = await self._run_tmux_command(args, check=True)
