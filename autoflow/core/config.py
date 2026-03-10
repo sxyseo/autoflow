@@ -99,6 +99,26 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class TeamMemberConfig(BaseModel):
+    """Configuration for a team member."""
+
+    name: str
+    email: str
+    role: str = "member"  # "owner", "admin", "member", "viewer"
+    permissions: list[str] = Field(default_factory=lambda: ["read", "write"])
+
+
+class CollaborationConfig(BaseModel):
+    """Team collaboration settings."""
+
+    enabled: bool = False
+    team_name: str = ""
+    members: list[TeamMemberConfig] = Field(default_factory=list)
+    require_approval_for_deploy: bool = True
+    allow_sharing: bool = False
+    shared_workspaces: list[str] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     """
     Main Autoflow configuration.
@@ -110,6 +130,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    collaboration: CollaborationConfig = Field(default_factory=CollaborationConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")

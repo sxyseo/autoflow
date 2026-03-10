@@ -1,25 +1,43 @@
 {
   "active": true,
-  "spec": "023-enterprise-sso-and-rbac",
+<<<<<<< HEAD
+  "spec": "016-performance-analytics-dashboard",
   "state": "building",
   "subtasks": {
-    "completed": 18,
-    "total": 27,
-    "in_progress": 0,
+    "completed": 19,
+    "total": 22,
+=======
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
+  "state": "building",
+  "subtasks": {
+    "completed": 17,
+    "total": 19,
+>>>>>>> origin/main
+    "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Web API Layer",
+<<<<<<< HEAD
+    "current": "Testing & Integration",
+=======
+    "current": "Cleanup and Verify",
+>>>>>>> origin/main
     "id": null,
-    "total": 6
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 3,
-    "started_at": "2026-03-09T14:00:51.318931"
+    "number": 17,
+<<<<<<< HEAD
+    "started_at": "2026-03-08T21:43:58.163245"
   },
-  "last_update": "2026-03-09T06:08:59.824201+00:00"
+  "last_update": "2026-03-08T22:23:05.180997"
+=======
+    "started_at": "2026-03-07T22:09:26.347246"
+  },
+  "last_update": "2026-03-07T22:33:39.401879"
+>>>>>>> origin/main
 }

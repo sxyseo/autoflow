@@ -36,7 +36,6 @@ from autoflow.core.orchestrator import (
     CyclePhase,
     CycleResult,
     OrchestratorError,
-    TaskResult,
 )
 
 __all__ = [
@@ -65,5 +64,4 @@ __all__ = [
     "CyclePhase",
     "CycleResult",
     "OrchestratorError",
-    "TaskResult",
 ]
