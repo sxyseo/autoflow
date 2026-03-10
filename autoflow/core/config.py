@@ -19,7 +19,10 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Union
 
-import json5
+try:
+    import json5
+except ModuleNotFoundError:  # pragma: no cover - fallback for minimal envs
+    json5 = None
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -305,8 +308,10 @@ def _load_json5_file(file_path: Path) -> dict[str, Any]:
     try:
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
+        if json5 is None:
+            return json.loads(content)
         return json5.loads(content)
-    except json5.Json5DecoderError as e:
+    except (json.JSONDecodeError, getattr(json5, "Json5DecoderError", ValueError)) as e:
         raise ValueError(f"Invalid JSON5 in {file_path}: {e}") from e
 
 
