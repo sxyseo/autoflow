@@ -19,16 +19,14 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import click
 
 from autoflow import __version__
+from autoflow.cli.utils import _format_datetime, _get_state_manager, _print_json, _run_async
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 
@@ -39,38 +37,6 @@ CONTEXT_SETTINGS = {
     "max_content_width": 120,
     "auto_envvar_prefix": "AUTOFLOW",
 }
-
-
-def _get_state_manager(config: Optional[Config] = None) -> StateManager:
-    """Get a StateManager instance."""
-    state_dir = get_state_dir(config)
-    return StateManager(state_dir)
-
-
-def _print_json(data: Any, indent: int = 2) -> None:
-    """Print data as formatted JSON."""
-    click.echo(json.dumps(data, indent=indent, default=str))
-
-
-def _run_async(coro: Any) -> Any:
-    """Run an async coroutine synchronously."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # If we're already in an async context, create a new loop
-        return asyncio.run(coro)
-    else:
-        return asyncio.run(coro)
-
-
-def _format_datetime(dt: Optional[datetime]) -> str:
-    """Format a datetime for display."""
-    if dt is None:
-        return "N/A"
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 @click.group(
