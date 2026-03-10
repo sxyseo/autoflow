@@ -39,7 +39,7 @@ class CliHealthcheckTests(unittest.TestCase):
             patch.object(self.module.shutil, "which", return_value="/usr/bin/codex"),
             patch.object(
                 self.module,
-                "run",
+                "run_cmd",
                 side_effect=[
                     SimpleNamespace(stdout="codex 1.0.0", stderr="", returncode=0),
                     SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
@@ -55,9 +55,15 @@ class CliHealthcheckTests(unittest.TestCase):
 class AutonomyOrchestratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parents[1]
+        # Setup sys.path to ensure autoflow package is found before scripts/autoflow.py
+        # This matches the path manipulation done in the scripts themselves
         scripts_dir = str(self.repo_root / "scripts")
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
+        if scripts_dir in sys.path:
+            sys.path.remove(scripts_dir)
+        repo_root_str = str(self.repo_root)
+        if repo_root_str not in sys.path:
+            sys.path.insert(0, repo_root_str)
+        sys.path.insert(1, scripts_dir)
         self.module = load_module(
             self.repo_root / "scripts" / "autonomy_orchestrator.py",
             "autonomy_orchestrator_test",
@@ -116,7 +122,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         export_path = self.root / "taskmaster.json"
         with (
             patch.object(self.module, "ROOT", self.root),
-            patch.object(self.module, "run", return_value=SimpleNamespace(stdout="", stderr="", returncode=0)),
+            patch.object(self.module, "run_cmd", return_value=SimpleNamespace(stdout="", stderr="", returncode=0)),
         ):
             result = self.module.taskmaster_sync(
                 "spec-a",
