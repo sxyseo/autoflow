@@ -573,6 +573,20 @@ def strategy_summary(spec_slug: str) -> dict[str, Any]:
 
 
 def render_strategy_context(spec_slug: str) -> str:
+    # Generate cache key based on spec_slug
+    cache_key = _get_cache_key("strategy_context", spec_slug)
+
+    # Get file path for mtime checking
+    strategy_path = strategy_memory_file("spec", spec_slug)
+
+    # Check cache if file exists
+    if cache_key in _prompt_context_cache:
+        cached_entry = _prompt_context_cache[cache_key]
+        is_stale = _is_cache_stale(cached_entry, strategy_path)
+        if not is_stale:
+            return cached_entry["data"]
+
+    # Load fresh data
     summary = strategy_summary(spec_slug)
     lines = ["## Strategy memory", ""]
     playbook = summary.get("playbook", [])
@@ -604,7 +618,17 @@ def render_strategy_context(spec_slug: str) -> str:
         lines.append("")
     if len(lines) <= 2:
         lines.append("No strategy memory recorded yet.")
-    return "\n".join(lines).strip()
+    result = "\n".join(lines).strip()
+
+    # Cache the result with the current mtime
+    if strategy_path.exists():
+        current_mtime = strategy_path.stat().st_mtime
+        _prompt_context_cache[cache_key] = {
+            "data": result,
+            "mtime": current_mtime,
+        }
+
+    return result
 
 
 def load_review_state(spec_slug: str) -> dict[str, Any]:
