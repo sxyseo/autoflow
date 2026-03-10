@@ -5,9 +5,10 @@ import argparse
 import json
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -102,13 +103,8 @@ class VerifyCommandsResult:
 
     commands_run: int = 0
     all_success: bool = True
-    results: list[CommandResult] = None
+    results: list[CommandResult] = field(default_factory=list)
     stopped_at: int | None = None
-
-    def __post_init__(self) -> None:
-        """Initialize results if not provided."""
-        if self.results is None:
-            self.results = []
 
 
 def validate_slug_safe(slug: str) -> bool:
@@ -158,14 +154,16 @@ def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
 
 
-def load_config(path: str) -> dict:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
+def load_config(path: str) -> dict[str, Any]:
+    content = (ROOT / path).read_text(encoding="utf-8")
+    return json.loads(content)  # type: ignore[no-any-return]
 
 
-def load_json(path: Path, default: dict | None = None) -> dict:
+def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.exists():
         return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    content = path.read_text(encoding="utf-8")
+    return json.loads(content)  # type: ignore[no-any-return]
 
 
 def git_dirty() -> bool:
@@ -353,7 +351,7 @@ def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
     )
 
 
-def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
+def auto_commit(config: dict[str, Any], spec: str, push: bool, state: dict[str, Any]) -> dict[str, Any]:
     """
     Attempt to commit and push changes with verification.
 
@@ -446,26 +444,28 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     }
 
 
-def workflow_state(spec: str) -> dict:
+def workflow_state(spec: str) -> dict[str, Any]:
     result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
-    return json.loads(result.stdout)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
-def task_history(spec: str, task: str) -> list[dict]:
+def task_history(spec: str, task: str) -> list[dict[str, Any]]:
     result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
-    return json.loads(result.stdout)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
-def sync_agents(overwrite: bool = False) -> dict:
+def sync_agents(overwrite: bool = False) -> dict[str, Any]:
     cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
     if overwrite:
         cmd.append("--overwrite")
     result = run(cmd)
-    return json.loads(result.stdout)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
-def load_agent_catalog() -> dict[str, dict]:
-    return load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
+def load_agent_catalog() -> dict[str, dict[str, Any]]:
+    data = load_json(AGENTS_FILE, default={"agents": {}})
+    agents = data.get("agents", {})
+    return agents  # type: ignore[no-any-return]
 
 
 def default_role_preferences(role: str) -> list[str]:
@@ -479,7 +479,7 @@ def default_role_preferences(role: str) -> list[str]:
     return preferences.get(role, [])
 
 
-def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> tuple[str | None, str]:
+def select_agent_for_role(config: dict[str, Any], role: str, catalog: dict[str, dict[str, Any]]) -> tuple[str | None, str]:
     selection_cfg = config.get("agent_selection", {})
     candidates = []
     explicit = config.get("role_agents", {}).get(role)
@@ -498,7 +498,7 @@ def select_agent_for_role(config: dict, role: str, catalog: dict[str, dict]) -> 
     return None, "missing"
 
 
-def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict | None:
+def dispatch_gate(config: dict[str, Any], state: dict[str, Any], next_action: dict[str, Any] | None) -> dict[str, Any] | None:
     if state.get("active_runs"):
         return {"blocked": True, "reason": "active_run_exists"}
     if state.get("blocking_reason"):
@@ -527,12 +527,14 @@ def dispatch_gate(config: dict, state: dict, next_action: dict | None) -> dict |
     return None
 
 
-def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
+def dispatch_next(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
     state = workflow_state(spec)
     next_action = state.get("recommended_next_action")
     gate = dispatch_gate(config, state, next_action)
     if gate:
         return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
+    if not next_action:
+        return {"dispatched": False, "reason": "no_next_action", "state": state}
     role = next_action["owner_role"]
     selection_cfg = config.get("agent_selection", {})
     sync_result = None
