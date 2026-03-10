@@ -185,14 +185,40 @@ def git_branch() -> str:
 
 def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
     """
-    Run verification commands with proper error handling.
+    Run verification commands with proper error handling and security safeguards.
 
     Executes a list of commands in sequence, stopping at the first failure.
     Commands support a {spec} placeholder that is replaced with the spec slug.
 
+    Security Fix (CWE-77: Command Injection):
+    -----------------------------------------
+    This function implements multiple layers of protection against command injection
+    vulnerabilities when processing user-controlled spec slugs:
+
+    1. **Input Validation**: The spec parameter should be validated using
+       validate_slug_safe() before calling this function. This prevents path
+       traversal attacks (../../), null byte injection, and absolute path injection.
+
+    2. **Safe Parsing**: Uses shlex.split() for shell-like parsing instead of
+       direct string evaluation. This prevents shell metacharacter injection
+       while preserving legitimate quoted arguments.
+
+    3. **List-Based Execution**: Commands are executed as argument lists via
+       subprocess.run() with no shell=True, ensuring no shell interpretation
+       of the command string.
+
+    4. **Template Validation**: Empty commands and parsing errors are detected
+       and reported via InvalidCommandError exceptions.
+
+    Example Attack Prevention:
+    - Malicious spec: "../../../etc/passwd" → Blocked by validate_slug_safe()
+    - Shell injection: "spec; rm -rf /" → Blocked by shlex.split() + list execution
+    - Command chaining: "spec && evil" → Blocked by shlex.split() parsing
+    - Path traversal: "../malicious" → Blocked by validate_slug_safe()
+
     Args:
         commands: List of command templates (may contain {spec} placeholder)
-        spec: Spec slug to substitute into commands
+        spec: Spec slug to substitute into commands (MUST be validated first)
 
     Returns:
         VerifyCommandsResult containing execution results for all commands
@@ -202,14 +228,18 @@ def run_verify_commands(commands: list[str], spec: str) -> VerifyCommandsResult:
         CommandExecutionError: If a critical system error occurs during execution
 
     Example:
-        >>> result = run_verify_commands(["pytest tests/", "flake8 src/"], "my-spec")
-        >>> if result.all_success:
-        ...     print("All checks passed")
+        >>> # Validate spec first to prevent command injection
+        >>> if validate_slug_safe(spec_slug):
+        ...     result = run_verify_commands(["pytest tests/", "flake8 src/"], spec_slug)
+        ...     if result.all_success:
+        ...         print("All checks passed")
+        ...     else:
+        ...         for cmd_result in result.results:
+        ...             if not cmd_result.success:
+        ...                 print(f"Failed: {cmd_result.command}")
+        ...                 print(f"Error: {cmd_result.stderr}")
         >>> else:
-        ...     for cmd_result in result.results:
-        ...         if not cmd_result.success:
-        ...             print(f"Failed: {cmd_result.command}")
-        ...             print(f"Error: {cmd_result.stderr}")
+        ...     print("Invalid spec slug - rejecting for security reasons")
     """
     if not commands:
         return VerifyCommandsResult(commands_run=0, all_success=True, results=[])
