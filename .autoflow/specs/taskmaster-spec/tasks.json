@@ -1,0 +1,17 @@
+{
+  "spec_slug": "taskmaster-spec",
+  "updated_at": "20260310T125941Z",
+  "tasks": [
+    {
+      "id": "X1",
+      "title": "Imported task",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "maintainer",
+      "acceptance_criteria": [
+        "Imported criteria"
+      ],
+      "notes": []
+    }
+  ]
+}

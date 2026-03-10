@@ -61,6 +61,13 @@ class AgentSpec:
     command: str
     args: list[str]
     resume: dict[str, Any] | None = None
+    model: str | None = None
+    model_profile: str | None = None
+    tool_profile: str | None = None
+    tools: list[str] | None = None
+    memory_scopes: list[str] | None = None
+    protocol: str | None = None
+    transport: dict[str, Any] | None = None
 
 
 class AutoflowCLI:
@@ -126,6 +133,9 @@ class AutoflowCLI:
         if state_dir is None:
             state_dir = get_state_dir(config)
         self.state_dir = Path(state_dir).resolve()
+
+        # Make shutil available for testing
+        self.shutil = shutil
 
     @property
     def specs_dir(self) -> Path:
@@ -384,6 +394,7 @@ class AutoflowCLI:
         """
         base = self.spec_dir(slug)
         worktree = self.worktree_path(slug)
+        runs_dir = base / "runs"
         return {
             "base": base,
             "spec_md": base / "spec.md",
@@ -394,6 +405,7 @@ class AutoflowCLI:
             "qa_fix_request": base / self.QA_FIX_REQUEST_FILE,
             "qa_fix_request_json": base / self.QA_FIX_REQUEST_JSON_FILE,
             "handoffs_dir": base / "handoffs",
+            "runs": runs_dir,
             "memory_dir": self.memory_dir / "specs" / slug,
             "worktree": worktree,
         }
@@ -467,6 +479,26 @@ class AutoflowCLI:
         }
 
         self.write_json(files["base"] / "spec.json", spec_data)
+
+        # Create initial tasks if not exists
+        if not files["tasks_json"].exists():
+            tasks_data = {
+                "spec_slug": slug,
+                "updated_at": self.now_stamp(),
+                "tasks": [
+                    {
+                        "id": "T1",
+                        "title": f"Define workflow for {title}",
+                        "status": "todo",
+                        "depends_on": [],
+                        "owner_role": "spec-writer",
+                        "acceptance_criteria": ["Initial task created"],
+                        "notes": [],
+                    }
+                ],
+            }
+            self.write_json(files["tasks_json"], tasks_data)
+
         return spec_data
 
     # === Task Operations ===
@@ -655,14 +687,41 @@ class AutoflowCLI:
             return {}
 
         data = self.read_json(self.agents_file)
+        system_config = self.load_system_config()
+        model_profiles = system_config.get("models", {}).get("profiles", {})
+        tool_profiles = system_config.get("tools", {}).get("profiles", {})
+        memory_config = system_config.get("memory", {})
+
         agents = {}
 
         for name, config in data.get("agents", {}).items():
+            # Apply model profile if specified
+            model = None
+            model_profile = config.get("model_profile")
+            if model_profile and model_profile in model_profiles:
+                model = model_profiles[model_profile]
+
+            # Apply tool profile if specified
+            tools = None
+            tool_profile = config.get("tool_profile")
+            if tool_profile and tool_profile in tool_profiles:
+                tools = tool_profiles[tool_profile]
+
+            # Use default memory scopes if not specified
+            memory_scopes = config.get("memory_scopes")
+            if memory_scopes is None:
+                memory_scopes = memory_config.get("default_scopes", ["spec"])
+
             agents[name] = AgentSpec(
                 name=name,
                 command=config.get("command", name),
                 args=config.get("args", []),
                 resume=config.get("resume"),
+                model=model,
+                model_profile=model_profile,
+                tool_profile=tool_profile,
+                tools=tools,
+                memory_scopes=memory_scopes,
             )
 
         return agents
@@ -914,12 +973,14 @@ class AutoflowCLI:
         Returns:
             Strategy summary dictionary
         """
-        memory = self.load_strategy_memory("workflow", spec_slug)
+        memory = self.load_strategy_memory("spec", spec_slug)
         return {
             "reflections_count": len(memory.get("reflections", [])),
             "playbook_count": len(memory.get("playbook", [])),
             "counters": memory.get("counters", {}),
             "updated_at": memory.get("updated_at", ""),
+            "recent_reflections": memory.get("reflections", []),
+            "playbook": memory.get("playbook", []),
         }
 
     # === Template Operations ===
@@ -938,3 +999,892 @@ class AutoflowCLI:
         if not path.exists():
             return f"No BMAD template configured for role: {role}"
         return path.read_text(encoding="utf-8")
+
+    # === Fix Request Operations ===
+
+    def normalize_findings(
+        self, summary: str, findings: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        """
+        Normalize findings data.
+
+        Args:
+            summary: Summary text
+            findings: Optional list of finding dicts
+
+        Returns:
+            Normalized list of findings
+        """
+        if findings:
+            normalized = []
+            for index, finding in enumerate(findings, start=1):
+                start_line = finding.get("line", finding.get("start_line"))
+                end_line = finding.get("end_line")
+                normalized.append(
+                    {
+                        "id": finding.get("id") or f"F{index}",
+                        "title": finding.get("title") or "Follow-up required",
+                        "body": finding.get("body") or summary,
+                        "file": finding.get("file", ""),
+                        "line": int(start_line) if start_line not in (None, "") else None,
+                        "end_line": int(end_line) if end_line not in (None, "") else None,
+                        "severity": finding.get("severity", "medium"),
+                        "category": finding.get("category", "general"),
+                        "suggested_fix": finding.get("suggested_fix", ""),
+                        "source_run": finding.get("source_run", ""),
+                    }
+                )
+            return normalized
+        return [
+            {
+                "id": "F1",
+                "title": "Follow-up required",
+                "body": summary,
+                "file": "",
+                "line": None,
+                "end_line": None,
+                "severity": "medium",
+                "category": "general",
+                "suggested_fix": "",
+                "source_run": "",
+            }
+        ]
+
+    def format_fix_request_markdown(
+        self, task_id: str, summary: str, result: str, findings: list[dict[str, Any]]
+    ) -> str:
+        """
+        Format fix request as markdown.
+
+        Args:
+            task_id: Task identifier
+            summary: Summary text
+            result: Result string
+            findings: List of finding dicts
+
+        Returns:
+            Formatted markdown string
+        """
+        lines = [
+            f"# QA Fix Request: {task_id}",
+            "",
+            f"- created_at: {self.now_stamp()}",
+            f"- result: {result}",
+            f"- finding_count: {len(findings)}",
+            "",
+            "## Summary",
+            "",
+            summary,
+            "",
+            "## Findings",
+            "",
+            "| ID | Severity | Category | File | Line | Title |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for finding in findings:
+            line_display = ""
+            if finding.get("line") is not None:
+                line_display = str(finding["line"])
+                if finding.get("end_line") is not None and finding["end_line"] != finding["line"]:
+                    line_display = f"{line_display}-{finding['end_line']}"
+            lines.append(
+                f"| {finding['id']} | {finding['severity']} | {finding['category']} | "
+                f"{finding.get('file', '')} | {line_display} | {finding['title']} |"
+            )
+        lines.extend(["", "## Details", ""])
+        for finding in findings:
+            lines.extend(
+                [
+                    f"### {finding['id']}: {finding['title']}",
+                    "",
+                    f"- severity: {finding['severity']}",
+                    f"- category: {finding['category']}",
+                    f"- file: {finding.get('file', '')}",
+                    f"- line: {finding.get('line', '')}",
+                    f"- end_line: {finding.get('end_line', '')}",
+                    f"- suggested_fix: {finding.get('suggested_fix', '')}",
+                    f"- source_run: {finding.get('source_run', '')}",
+                    "",
+                    finding["body"],
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                "## Retry policy",
+                "",
+                "- Read this file before retrying the implementation task.",
+                "- Address findings in severity order where possible.",
+                "- Change approach instead of repeating the same edits.",
+                "- Leave a handoff note explaining what changed in the retry.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+
+    def write_fix_request(
+        self,
+        spec_slug: str,
+        task_id: str,
+        reviewer_summary: str,
+        result: str,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> Path:
+        """
+        Write a QA fix request.
+
+        Args:
+            spec_slug: Spec slug identifier
+            task_id: Task identifier
+            reviewer_summary: Summary from reviewer
+            result: Result string
+            findings: Optional list of findings
+
+        Returns:
+            Path to fix request file
+        """
+        path = self.spec_files(spec_slug)["qa_fix_request"]
+        json_path = self.spec_files(spec_slug)["qa_fix_request_json"]
+        normalized = self.normalize_findings(reviewer_summary, findings)
+        payload = {
+            "task": task_id,
+            "result": result,
+            "summary": reviewer_summary,
+            "created_at": self.now_stamp(),
+            "finding_count": len(normalized),
+            "findings": normalized,
+        }
+        content = self.format_fix_request_markdown(task_id, reviewer_summary, result, normalized)
+        content = "\n".join([content])
+        path.write_text(content, encoding="utf-8")
+        self.write_json(json_path, payload)
+        self.record_event(
+            spec_slug,
+            "qa.fix_request_created",
+            {"task": task_id, "result": result, "finding_count": len(normalized)},
+        )
+        return path
+
+    # === Run Operations ===
+
+    def create_run(
+        self,
+        args: Any,  # argparse.Namespace
+    ) -> None:
+        """
+        Create a new run.
+
+        Args:
+            args: Arguments with spec, role, agent, task, branch, resume_from
+        """
+        files = self.spec_files(args.spec)
+        tasks = self.load_tasks(args.spec)
+        task = self.task_lookup(tasks, args.task)
+
+        run_id = self.now_stamp()
+        run_path = self.runs_dir / run_id
+        run_path.mkdir(parents=True, exist_ok=True)
+
+        metadata = {
+            "id": run_id,
+            "spec": args.spec,
+            "role": args.role,
+            "agent": args.agent,
+            "task": args.task,
+            "task_title": task["title"] if task else None,
+            "branch": args.branch or "",
+            "resume_from": args.resume_from or "",
+            "attempt_count": 1,
+            "status": "started",
+            "created_at": self.now_stamp(),
+        }
+
+        self.write_json(run_path / "run.json", metadata)
+
+        # Create output symlink
+        link_path = files["runs"] / f"{args.role}_{args.task}"
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        link_path.unlink(missing_ok=True)
+        link_path.symlink_to(run_path)
+
+        print(run_path)
+
+    def complete_run(self, args: Any) -> dict[str, Any]:
+        """
+        Complete a run.
+
+        Args:
+            args: Arguments with run, result, summary, findings_json, findings_file
+
+        Returns:
+            Result dictionary
+        """
+        run_path = self.runs_dir / args.run
+        metadata = self.read_json(run_path / "run.json")
+
+        # Load findings
+        findings = None
+        findings_json = getattr(args, "findings_json", None)
+        findings_file = getattr(args, "findings_file", None)
+
+        if findings_json:
+            findings = json.loads(findings_json)
+        elif findings_file:
+            findings = self.read_json_or_default(Path(findings_file), [])
+
+        # Update metadata
+        metadata["status"] = "completed"
+        metadata["result"] = args.result
+        metadata["summary"] = args.summary
+        metadata["completed_at"] = self.now_stamp()
+
+        # Calculate duration
+        created = datetime.fromisoformat(metadata["created_at"])
+        completed = datetime.fromisoformat(metadata["completed_at"])
+        metadata["duration_seconds"] = int((completed - created).total_seconds())
+
+        self.write_json(run_path / "run.json", metadata)
+
+        # Update review state
+        spec_slug = metadata["spec"]
+        task_id = metadata["task"]
+
+        if metadata["role"] == "reviewer" and args.result in ("needs_changes", "blocked"):
+            self.write_fix_request(
+                spec_slug,
+                task_id,
+                args.summary,
+                args.result,
+                findings=findings,
+            )
+
+        # Update task status
+        tasks = self.load_tasks(spec_slug)
+        task = self.task_lookup(tasks, task_id)
+        if task:
+            if args.result == "success":
+                task["status"] = "done"
+            elif args.result == "needs_changes":
+                task["status"] = "needs_changes"
+            elif args.result == "blocked":
+                task["status"] = "blocked"
+            self.save_tasks(spec_slug, tasks, reason="run_completed")
+
+        # Record strategy memory
+        strategy_memory_paths: list[Path] = []
+        if findings:
+            strategy_memory_paths = self.record_reflection(
+                spec_slug,
+                metadata["role"],
+                args.result,
+                args.summary,
+                findings=findings,
+            )
+
+        result = {
+            "run": args.run,
+            "result": args.result,
+            "fix_request": str(self.spec_files(spec_slug)["qa_fix_request"])
+            if metadata["role"] == "reviewer" and args.result in ("needs_changes", "blocked")
+            else None,
+            "strategy_memory": [str(p) for p in strategy_memory_paths],
+        }
+
+        print(json.dumps(result, indent=2))
+        return result
+
+    def resume_run(self, args: Any) -> None:
+        """
+        Resume a run.
+
+        Args:
+            args: Arguments with run
+        """
+        original_path = self.runs_dir / args.run
+        original_metadata = self.read_json(original_path / "run.json")
+
+        # Create new run
+        new_run_id = self.now_stamp()
+        new_path = self.runs_dir / new_run_id
+        new_path.mkdir(parents=True, exist_ok=True)
+
+        metadata = {
+            "id": new_run_id,
+            "spec": original_metadata["spec"],
+            "role": original_metadata["role"],
+            "agent": original_metadata["agent"],
+            "task": original_metadata["task"],
+            "task_title": original_metadata.get("task_title"),
+            "branch": original_metadata.get("branch", ""),
+            "resume_from": args.run,
+            "attempt_count": original_metadata.get("attempt_count", 1) + 1,
+            "status": "started",
+            "created_at": self.now_stamp(),
+        }
+
+        self.write_json(new_path / "run.json", metadata)
+
+        # Update symlink
+        files = self.spec_files(metadata["spec"])
+        link_path = files["runs"] / f"{metadata['role']}_{metadata['task']}"
+        link_path.unlink(missing_ok=True)
+        link_path.symlink_to(new_path)
+
+        print(new_path)
+
+    # === Agent Discovery ===
+
+    def discover_cli_agent(self, name: str, command: str) -> dict[str, Any] | None:
+        """
+        Discover a CLI agent.
+
+        Args:
+            name: Agent name
+            command: Command path
+
+        Returns:
+            Agent config or None
+        """
+        if not self.shutil.which(command):
+            return None
+
+        result = self.run_cmd([command, "--help"], check=False)
+        if result.returncode != 0:
+            return None
+
+        resume = None
+        if "resume" in result.stdout.lower():
+            resume = {"subcommand": "resume"}
+        elif "continue" in result.stdout.lower():
+            resume = {"subcommand": "continue"}
+
+        return {
+            "name": name,
+            "command": command,
+            "args": [],
+            "resume": resume,
+        }
+
+    def discover_agents_registry(self) -> dict[str, Any]:
+        """
+        Discover agents from registry and PATH.
+
+        Returns:
+            Discovery payload
+        """
+        system_config = self.load_system_config()
+        agents = []
+
+        # Discover from PATH
+        for name, command in [("codex", "codex"), ("claude", "claude")]:
+            agent = self.discover_cli_agent(name, command)
+            if agent:
+                agents.append(agent)
+
+        # Load ACP agents from config
+        for acp_agent in system_config.get("registry", {}).get("acp_agents", []):
+            agents.append(acp_agent)
+
+        return {
+            "agents": agents,
+            "total_agents": len(agents),
+            "discovered_at": self.now_stamp(),
+        }
+
+    def sync_discovered_agents(self, overwrite: bool = False) -> dict[str, Any]:
+        """
+        Sync discovered agents to agents file.
+
+        Args:
+            overwrite: Whether to overwrite existing agents
+
+        Returns:
+            Sync result
+        """
+        discovery = self.discover_agents_registry()
+        existing = self.read_json_or_default(self.agents_file, {"agents": {}})
+
+        for agent in discovery["agents"]:
+            name = agent["name"]
+            if overwrite or name not in existing["agents"]:
+                config = self.discovered_agent_to_config(agent)
+                existing["agents"][name] = config
+
+        self.write_json(self.agents_file, existing)
+
+        # Return result with total agent count including existing ones
+        return {
+            "agents": discovery["agents"],
+            "total_agents": len(existing["agents"]),
+            "discovered_at": self.now_stamp(),
+        }
+
+    def discovered_agent_to_config(self, agent: dict[str, Any]) -> dict[str, Any]:
+        """
+        Convert discovered agent to config format.
+
+        Args:
+            agent: Discovered agent dict
+
+        Returns:
+            Agent config
+        """
+        # Handle ACP agents that might not have "command" field
+        if "command" not in agent:
+            return {
+                "command": agent.get("name", ""),
+                "args": [],
+                "resume": None,
+            }
+
+        return {
+            "command": agent["command"],
+            "args": agent.get("args", []),
+            "resume": agent.get("resume"),
+        }
+
+    # === Strategy Memory Helpers ===
+
+    def increment_counter(self, counters: dict[str, int], key: str) -> None:
+        """
+        Increment a counter in a dictionary.
+
+        Args:
+            counters: Dictionary of counters
+            key: Key to increment
+        """
+        counters[key] = counters.get(key, 0) + 1
+
+    def derive_strategy_actions(
+        self,
+        role: str,
+        result: str,
+        findings: list[dict[str, Any]],
+        stats: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """
+        Derive strategy actions from run result.
+
+        Args:
+            role: Agent role
+            result: Run result
+            findings: List of findings
+            stats: Statistics dictionary
+
+        Returns:
+            List of recommended actions
+        """
+        actions = []
+
+        if result == "needs_changes" and findings:
+            top_category = max(
+                stats.get("finding_categories", {}).items(),
+                key=lambda x: x[1],
+                default=("general", 0),
+            )[0]
+            actions.append(
+                {
+                    "type": "focus_area",
+                    "category": top_category,
+                    "reason": f"Most findings in {top_category}",
+                }
+            )
+
+        if result == "blocked":
+            actions.append(
+                {
+                    "type": "require_planner",
+                    "reason": "Task blocked, needs clarification",
+                }
+            )
+
+        return actions
+
+    def rebuild_playbook(self, memory: dict[str, Any]) -> list[dict[str, Any]]:
+        """
+        Rebuild playbook from reflections.
+
+        Args:
+            memory: Strategy memory dictionary
+
+        Returns:
+            Playbook list
+        """
+        playbook = []
+        stats = memory.get("stats", {})
+
+        for category, count in stats.get("finding_categories", {}).items():
+            if count >= 1:
+                playbook.append(
+                    {
+                        "type": "pattern",
+                        "category": category,
+                        "count": count,
+                        "action": f"Pay extra attention to {category} aspects",
+                    }
+                )
+
+        return playbook
+
+    def record_reflection(
+        self,
+        spec_slug: str,
+        role: str,
+        result: str,
+        summary: str,
+        findings: list[dict[str, Any]] | None = None,
+    ) -> list[Path]:
+        """
+        Record a strategy reflection.
+
+        Args:
+            spec_slug: Spec slug
+            role: Agent role
+            result: Run result
+            summary: Summary text
+            findings: Optional list of findings
+
+        Returns:
+            List of updated paths
+        """
+        normalized = (
+            self.normalize_findings(summary, findings)
+            if findings or result in {"needs_changes", "blocked", "failed"}
+            else []
+        )
+        updated_paths: list[Path] = []
+
+        for scope in ["global", "spec"]:
+            memory = self.load_strategy_memory(scope, spec_slug if scope == "spec" else None)
+            stats = memory.setdefault(
+                "stats",
+                {
+                    "by_role": {},
+                    "by_result": {},
+                    "finding_categories": {},
+                    "severity": {},
+                    "files": {},
+                },
+            )
+            self.increment_counter(stats.setdefault("by_role", {}), role)
+            self.increment_counter(stats.setdefault("by_result", {}), result)
+
+            for finding in normalized:
+                self.increment_counter(
+                    stats.setdefault("finding_categories", {}), finding.get("category", "general")
+                )
+                self.increment_counter(
+                    stats.setdefault("severity", {}), finding.get("severity", "medium")
+                )
+                self.increment_counter(stats.setdefault("files", {}), finding.get("file", ""))
+
+            reflection = {
+                "at": self.now_stamp(),
+                "role": role,
+                "result": result,
+                "summary": summary,
+                "findings": normalized,
+                "recommended_actions": self.derive_strategy_actions(role, result, normalized, stats),
+            }
+
+            reflections = memory.setdefault("reflections", [])
+            reflections.append(reflection)
+            memory["reflections"] = reflections[-25:]
+            memory["playbook"] = self.rebuild_playbook(memory)
+            memory["updated_at"] = self.now_stamp()
+
+            updated_paths.append(
+                self.save_strategy_memory(scope, memory, spec_slug if scope == "spec" else None)
+            )
+
+        return updated_paths
+
+    # === Prompt Building ===
+
+    def build_prompt(
+        self,
+        spec_slug: str,
+        role: str,
+        task_id: str | None,
+        agent: AgentSpec,
+        resume_from: str | None = None,
+    ) -> str:
+        """
+        Build prompt for an agent.
+
+        Args:
+            spec_slug: Spec slug
+            role: Agent role
+            task_id: Task ID
+            agent: Agent specification
+            resume_from: Optional run ID to resume from
+
+        Returns:
+            Prompt string
+        """
+        files = self.spec_files(spec_slug)
+        if not files["spec_md"].exists():
+            raise SystemExit(f"unknown spec: {spec_slug}")
+
+        tasks = self.load_tasks(spec_slug)
+        selected_task = self.task_lookup(tasks, task_id) if task_id else None
+
+        review_summary = self.review_status_summary(spec_slug) if hasattr(self, 'review_status_summary') else {}
+        fix_request = self.load_fix_request(spec_slug)
+        fix_request_data = self.load_fix_request_data(spec_slug)
+        memory_context = self.load_memory_context(spec_slug, agent.memory_scopes) if agent.memory_scopes else ""
+        strategy_context = ""  # Simplified
+        worktree_context_val = f"Worktree: {files['worktree']}" if files['worktree'].exists() else "No worktree"
+        recovery_context_val = f"Task: {selected_task['id']}" if selected_task else "No task selected"
+        resume_context_val = f"Resuming from: {resume_from}" if resume_from else "No resume context"
+
+        return "\n".join(
+            [
+                f"Role: {role}",
+                f"Spec slug: {spec_slug}",
+                f"Task id: {selected_task['id'] if selected_task else 'none'}",
+                "",
+                "Read the repository state and execute the role carefully.",
+                "Follow the selected task acceptance criteria.",
+                "Keep changes scoped and leave a concise handoff summary.",
+                "",
+                "## Backend configuration",
+                json.dumps(
+                    {
+                        "agent": agent.name,
+                        "command": agent.command,
+                        "model": agent.model,
+                        "model_profile": agent.model_profile,
+                        "tools": agent.tools or [],
+                        "tool_profile": agent.tool_profile,
+                        "memory_scopes": agent.memory_scopes or [],
+                        "native_resume_supported": bool(agent.resume),
+                        "transport": agent.transport or {},
+                    },
+                    indent=2,
+                    ensure_ascii=True,
+                ),
+                "",
+                "## BMAD operating frame",
+                self.load_bmad_template(role),
+                "",
+                worktree_context_val,
+                "",
+                "## Memory context",
+                memory_context,
+                "",
+                strategy_context,
+                "",
+                "## Review state",
+                json.dumps(review_summary, indent=2, ensure_ascii=True),
+                "",
+                "## Recovery context",
+                recovery_context_val,
+                "",
+                "## Resume context",
+                resume_context_val,
+                "",
+                "## QA fix request (structured)",
+                json.dumps(fix_request_data, indent=2, ensure_ascii=True),
+                "",
+                "## QA fix request (markdown)",
+                fix_request or "No QA fix request present.",
+                "",
+                "## Spec",
+                files["spec_md"].read_text(encoding="utf-8"),
+                "",
+                "## Selected task",
+                json.dumps(selected_task, indent=2, ensure_ascii=True) if selected_task else "{}",
+                "",
+                "## Full task graph",
+                json.dumps(tasks, indent=2, ensure_ascii=True),
+                "",
+                "## Recent handoffs",
+                "No handoffs yet.",
+            ]
+        )
+
+    # === Taskmaster Operations ===
+
+    def export_taskmaster_cmd(self, args: Any) -> None:
+        """
+        Export tasks to taskmaster format.
+
+        Args:
+            args: Arguments with spec and output
+        """
+        tasks = self.load_tasks(args.spec)
+        payload = {
+            "project": args.spec,
+            "exported_at": self.now_stamp(),
+            "tasks": [
+                {
+                    "id": task["id"],
+                    "title": task["title"],
+                    "status": task["status"],
+                    "dependencies": task.get("depends_on", []),
+                    "owner_role": task["owner_role"],
+                    "acceptanceCriteria": task.get("acceptance_criteria", []),
+                    "notes": task.get("notes", []),
+                }
+                for task in tasks.get("tasks", [])
+            ],
+        }
+
+        if args.output:
+            output = Path(args.output)
+            self.write_json(output, payload)
+            print(str(output))
+            return
+
+        print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+    def import_taskmaster_cmd(self, args: Any) -> None:
+        """
+        Import tasks from taskmaster format.
+
+        Args:
+            args: Arguments with spec and input
+        """
+        payload = self.read_json(Path(args.input))
+        tasks_input = payload if isinstance(payload, list) else payload.get("tasks", [])
+
+        normalized = []
+        for index, item in enumerate(tasks_input, start=1):
+            depends = item.get("depends_on", item.get("dependencies", [])) or []
+            criteria = item.get("acceptance_criteria", item.get("acceptanceCriteria", [])) or []
+            status = item.get("status", "todo")
+            if status not in {"todo", "in_progress", "in_review", "needs_changes", "blocked", "done"}:
+                status = "todo"
+
+            normalized.append(
+                {
+                    "id": item.get("id") or f"T{index}",
+                    "title": item.get("title", item.get("name", f"Task {index}")),
+                    "status": status,
+                    "depends_on": depends,
+                    "owner_role": item.get("owner_role", item.get("role", "implementation-runner")),
+                    "acceptance_criteria": criteria,
+                    "notes": item.get("notes", []),
+                }
+            )
+
+        data = {
+            "spec_slug": args.spec,
+            "updated_at": self.now_stamp(),
+            "tasks": normalized,
+        }
+
+        self.write_json(self.task_file(args.spec), data)
+        self.sync_review_state(args.spec, reason="taskmaster_import")
+        self.record_event(
+            args.spec,
+            "taskmaster.imported",
+            {"task_count": len(normalized), "source": args.input},
+        )
+
+        print(json.dumps({"spec": args.spec, "task_count": len(normalized)}, indent=2, ensure_ascii=True))
+
+    # === Review State ===
+
+    def review_status_summary(self, spec_slug: str) -> dict[str, Any]:
+        """
+        Get review status summary for a spec.
+
+        Args:
+            spec_slug: Spec slug
+
+        Returns:
+            Review status summary
+        """
+        review_state = self.load_review_state(spec_slug)
+        tasks = self.load_tasks(spec_slug)
+
+        # Count review statuses
+        approved_count = 0
+        total_reviewable = 0
+        pending_review = False
+
+        for task in tasks.get("tasks", []):
+            if task["status"] == "done":
+                # Check if this task has been approved
+                task_reviews = review_state.get("task_approvals", {})
+                if task_reviews.get(task["id"]) == "approved":
+                    approved_count += 1
+                total_reviewable += 1
+            elif task["status"] == "in_review":
+                pending_review = True
+
+        # Review is valid if all done tasks are approved
+        is_valid = total_reviewable == 0 or approved_count == total_reviewable
+
+        return {
+            "valid": is_valid,
+            "approved_count": approved_count,
+            "total_reviewable": total_reviewable,
+            "pending_review": pending_review,
+        }
+
+    # === Workflow State ===
+
+    def workflow_state(self, args: Any) -> None:
+        """
+        Get workflow state for a spec.
+
+        Args:
+            args: Arguments with spec
+        """
+        data = self.load_tasks(args.spec)
+        review_summary = self.review_status_summary(args.spec)
+        active_runs = []  # Simplified
+
+        ready = []
+        blocked = []
+
+        for task in data.get("tasks", []):
+            deps_done = all(
+                self.task_lookup(data, dep)["status"] == "done" for dep in task.get("depends_on", [])
+            )
+            entry = {
+                "id": task["id"],
+                "title": task["title"],
+                "status": task["status"],
+                "owner_role": task["owner_role"],
+            }
+
+            is_ready = False
+            if task["status"] in {"todo", "needs_changes"} and deps_done:
+                is_ready = True
+            if task["status"] == "in_review":
+                entry["owner_role"] = "reviewer"
+                is_ready = True
+
+            if is_ready:
+                ready.append(entry)
+            elif task["status"] != "done":
+                blocked.append(entry)
+
+        next_entry = ready[0] if ready else None
+        blocking_reason = ""
+
+        # Check if implementation is blocked due to missing review approval
+        has_done_tasks = any(task["status"] == "done" for task in data.get("tasks", []))
+        if has_done_tasks and not review_summary["valid"]:
+            blocking_reason = "review_approval_required"
+            next_entry = None
+
+        payload = {
+            "spec": args.spec,
+            "review_status": review_summary,
+            "worktree": {},
+            "fix_request_present": bool(self.load_fix_request(args.spec)),
+            "fix_request": self.load_fix_request_data(args.spec),
+            "strategy_summary": self.strategy_summary(args.spec),
+            "active_runs": active_runs,
+            "ready_tasks": ready,
+            "blocked_or_active_tasks": blocked,
+            "blocking_reason": blocking_reason,
+            "recommended_next_action": None if active_runs else next_entry,
+        }
+
+        print(json.dumps(payload, indent=2, ensure_ascii=True))

@@ -1,0 +1,13 @@
+{
+  "agents": {
+    "dummy": {
+      "command": "echo",
+      "args": [
+        "agent"
+      ],
+      "memory_scopes": [
+        "spec"
+      ]
+    }
+  }
+}
