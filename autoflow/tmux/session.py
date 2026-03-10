@@ -31,11 +31,9 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field
-
-from autoflow.core.state import MetadataDict
 
 
 class SessionStatus(str, Enum):
@@ -58,7 +56,7 @@ class SessionInfo(BaseModel):
     pid: Optional[int] = None
     windows: int = 1
     attached: bool = False
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TmuxSessionError(Exception):

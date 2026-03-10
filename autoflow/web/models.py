@@ -28,11 +28,9 @@ Usage:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
-
-from autoflow.core.state import MetadataDict
 
 
 class TaskResponse(BaseModel):
@@ -74,7 +72,7 @@ class TaskResponse(BaseModel):
     assigned_agent: Optional[str] = None
     labels: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         """Pydantic config for TaskResponse."""
@@ -127,7 +125,7 @@ class RunResponse(BaseModel):
     exit_code: Optional[int] = None
     output: Optional[str] = None
     error: Optional[str] = None
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         """Pydantic config for RunResponse."""
@@ -172,7 +170,7 @@ class SpecResponse(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     author: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
-    metadata: MetadataDict = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         """Pydantic config for SpecResponse."""
