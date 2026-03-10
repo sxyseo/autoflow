@@ -7,6 +7,7 @@ python3 -m py_compile \
   scripts/autonomy_orchestrator.py \
   scripts/cli_healthcheck.py \
   scripts/continuous_iteration.py \
+  scripts/validate_readme_flow.py \
   tests/test_agent_runner.py \
   tests/test_autonomy_orchestrator.py \
   tests/test_phase4d.py
