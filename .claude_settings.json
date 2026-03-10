@@ -11,6 +11,16 @@
       "Edit(./**)",
       "Glob(./**)",
       "Grep(./**)",
+<<<<<<< HEAD
+      "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/**)",
+      "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/**)",
+      "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/**)",
+      "Glob(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/**)",
+      "Grep(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/**)",
+      "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/.auto-claude/specs/016-performance-analytics-dashboard/**)",
+      "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/.auto-claude/specs/016-performance-analytics-dashboard/**)",
+      "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/016-performance-analytics-dashboard/.auto-claude/specs/016-performance-analytics-dashboard/**)",
+=======
       "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
@@ -19,6 +29,7 @@
       "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/.auto-claude/specs/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/.auto-claude/specs/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/.auto-claude/specs/040-optimize-run-metadata-iter-to-avoid-o-n-filesystem/**)",
+>>>>>>> origin/main
       "Read(/Users/abel/dev/autoflow/.auto-claude/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/**)",

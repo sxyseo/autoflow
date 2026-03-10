@@ -36,6 +36,8 @@ dependencies = [
     "pydantic>=2.0.0",
     "json5>=0.9.0",
     "apscheduler>=3.10.0",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
     "scikit-learn>=1.3.0",
     "joblib>=1.3.0",
 ]
@@ -109,6 +111,8 @@ show_error_codes = true
 module = [
     "json5.*",
     "apscheduler.*",
+    "fastapi.*",
+    "uvicorn.*",
 ]
 ignore_missing_imports = true
 
