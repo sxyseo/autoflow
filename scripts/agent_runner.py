@@ -109,17 +109,34 @@ def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: di
     return [*command, prompt_text]
 
 
+def resolve_cli_base_dir(raw_paths: list[str]) -> Path:
+    """Infer a safe shared base directory for CLI file arguments."""
+    resolved_paths = [Path(path).expanduser().resolve() for path in raw_paths]
+    common_path = Path(os.path.commonpath([str(path) for path in resolved_paths]))
+    root_path = Path(common_path.anchor)
+    if common_path == root_path or common_path.parent == root_path:
+        raise SystemExit(
+            "Invalid file paths: arguments must share a non-root base directory"
+        )
+    return common_path
+
+
 def main() -> None:
     if len(sys.argv) not in {4, 5}:
         raise SystemExit("usage: agent_runner.py <agents-json> <agent-name> <prompt-file> [run-json]")
+
+    raw_paths = [sys.argv[1], sys.argv[3]]
+    if len(sys.argv) == 5:
+        raw_paths.append(sys.argv[4])
+    cli_base_dir = resolve_cli_base_dir(raw_paths)
 
     # Security: Validate agents_file is within expected directory
     agents_file = Path(sys.argv[1])
     try:
         validated_agents_path = validate_path(
             str(agents_file),
-            base_dir=str(Path.cwd()),  # Use current directory as base
-            allow_absolute=True  # Allow absolute paths within current directory
+            base_dir=str(cli_base_dir),
+            allow_absolute=True,
         )
         agents_file = validated_agents_path
     except ValidationError as e:
@@ -135,8 +152,8 @@ def main() -> None:
     try:
         validated_prompt_path = validate_path(
             prompt_file,
-            base_dir=str(Path.cwd()),  # Use current directory as base
-            allow_absolute=True  # Allow absolute paths within current directory
+            base_dir=str(cli_base_dir),
+            allow_absolute=True,
         )
         prompt_file = str(validated_prompt_path)
     except ValidationError as e:
@@ -149,8 +166,8 @@ def main() -> None:
         try:
             validated_run_json = validate_path(
                 str(run_json),
-                base_dir=str(Path.cwd()),  # Use current directory as base
-                allow_absolute=True  # Allow absolute paths within current directory
+                base_dir=str(cli_base_dir),
+                allow_absolute=True,
             )
             run_json = validated_run_json
         except ValidationError as e:
