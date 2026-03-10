@@ -332,9 +332,9 @@ class CoverageTracker:
             )
             data = json.loads(result.stdout)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to generate coverage report: {e.stderr}")
+            raise RuntimeError(f"Failed to generate coverage report: {e.stderr}") from e
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse coverage JSON: {e}")
+            raise RuntimeError(f"Failed to parse coverage JSON: {e}") from e
 
         # Extract totals
         totals = data.get("totals", {})

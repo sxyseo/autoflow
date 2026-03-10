@@ -1,0 +1,17 @@
+{
+  "spec_slug": "test-spec",
+  "updated_at": "20260310T130145Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Define workflow for Test Title",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "Initial task created"
+      ],
+      "notes": []
+    }
+  ]
+}

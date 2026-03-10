@@ -58,7 +58,7 @@ class SeverityLevel(Enum):
             raise ValueError(
                 f"Invalid severity level '{value}'. "
                 f"Must be one of: {', '.join(valid)}"
-            )
+            ) from None
 
 
 @dataclass

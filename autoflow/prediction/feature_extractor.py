@@ -230,7 +230,7 @@ class FeatureExtractor:
         try:
             plan_data = json.loads(plan_file.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in implementation plan: {e}")
+            raise ValueError(f"Invalid JSON in implementation plan: {e}") from e
 
         # Extract spec ID from path
         spec_id = spec_path.name

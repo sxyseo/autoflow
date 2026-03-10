@@ -81,7 +81,7 @@ class QualityPredictor:
                 raise FileNotFoundError(
                     f"Trained model not found at {self.model_path}. "
                     f"Please train a model first using scripts/train_model.py"
-                )
+                ) from None
 
         # Initialize feature extractor
         self.extractor = FeatureExtractor(root_dir=self.root_dir)
