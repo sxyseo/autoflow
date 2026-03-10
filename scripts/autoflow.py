@@ -710,7 +710,7 @@ def read_json_or_default(path: Path, default: Any) -> Any:
         return default
 
 
-def system_config_default() -> dict[str, Any]:
+def system_config_default() -> SystemConfig:
     """
     Get the default system configuration.
 
