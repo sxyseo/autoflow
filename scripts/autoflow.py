@@ -2325,6 +2325,8 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # Cache data structures
 _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
+_system_config_cache: dict[str, Any] | None = None
+_agents_config_cache: dict[str, AgentSpec] | None = None
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
