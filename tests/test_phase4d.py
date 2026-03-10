@@ -477,6 +477,50 @@ class Phase4DTests(unittest.TestCase):
         cache_keys_after_second = list(self.autoflow._prompt_context_cache.keys())
         self.assertEqual(len(cache_keys_after_second), len(cache_keys_after_first), "Cache entry count should remain the same")
 
+    def test_cache_invalidation_on_memory_change(self) -> None:
+        self.create_spec("cache-invalidate-spec")
+        # Append initial memory content
+        self.autoflow.append_memory("global", "original global memory", title="Global")
+        self.autoflow.append_memory("spec", "original spec memory", spec_slug="cache-invalidate-spec", title="Spec")
+
+        agent = self.autoflow.AgentSpec(
+            name="review-agent",
+            command="claude",
+            args=[],
+            model="claude-sonnet-4-6",
+            memory_scopes=["spec", "global"],
+        )
+
+        # Clear cache and build first prompt
+        self.autoflow._prompt_context_cache.clear()
+        first_prompt = self.autoflow.build_prompt("cache-invalidate-spec", "reviewer", "T1", agent)
+
+        # Verify original content is in prompt
+        self.assertIn("original global memory", first_prompt)
+        self.assertIn("original spec memory", first_prompt)
+
+        # Modify the global memory file directly
+        global_memory_file = self.autoflow.ROOT / self.autoflow.system_config_default()["memory"]["global_file"]
+        existing_content = global_memory_file.read_text(encoding="utf-8")
+        modified_content = existing_content.replace("original global memory", "updated global memory")
+        global_memory_file.write_text(modified_content, encoding="utf-8")
+
+        # Modify the spec memory file directly
+        spec_memory_file = self.autoflow.MEMORY_DIR / "specs" / "cache-invalidate-spec.md"
+        existing_spec_content = spec_memory_file.read_text(encoding="utf-8")
+        modified_spec_content = existing_spec_content.replace("original spec memory", "updated spec memory")
+        spec_memory_file.write_text(modified_spec_content, encoding="utf-8")
+
+        # Build prompt again - should detect file changes and invalidate cache
+        second_prompt = self.autoflow.build_prompt("cache-invalidate-spec", "reviewer", "T1", agent)
+
+        # Verify updated content is in prompt
+        self.assertIn("updated global memory", second_prompt)
+        self.assertIn("updated spec memory", second_prompt)
+        # Verify original content is NOT in prompt
+        self.assertNotIn("original global memory", second_prompt)
+        self.assertNotIn("original spec memory", second_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
