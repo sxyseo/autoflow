@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "028-add-archive-spec-cli-command-for-completed-spec-cl",
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
   "state": "building",
   "subtasks": {
-    "completed": 8,
-    "total": 10,
+    "completed": 17,
+    "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration and Testing",
+    "current": "Cleanup and Verify",
     "id": null,
-    "total": 3
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 10,
-    "started_at": "2026-03-08T10:59:40.814008"
+    "number": 17,
+    "started_at": "2026-03-07T22:09:26.347246"
   },
-  "last_update": "2026-03-08T11:16:32.081634"
+  "last_update": "2026-03-07T22:33:39.401879"
 }
