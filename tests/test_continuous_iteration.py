@@ -1109,7 +1109,7 @@ class TestLoadAgentCatalog:
         with patch("continuous_iteration.AGENTS_FILE", agents_file):
             result = load_agent_catalog()
 
-        assert len(result) == 2
+        assert result.commands_run == 2
         assert "agent-a" in result
         assert "agent-b" in result
 
@@ -1160,8 +1160,8 @@ class TestEdgeCases:
             assert call_kwargs.get("shell") is True
 
             # The empty string should result in just the base command
-            assert len(result) == 1
-            assert result[0]["command"] == "echo "
+            assert result.commands_run == 1
+            assert result.results[0].command == "echo "
 
     def test_run_verify_commands_special_characters(self) -> None:
         """
@@ -1217,7 +1217,7 @@ class TestEdgeCases:
                     f"shell=True not set for: {description}"
 
                 # Verify the special characters are present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Special characters not preserved for: {description}"
 
@@ -1273,10 +1273,10 @@ class TestEdgeCases:
 
                 # Verify the command was executed without errors
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the spec is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Unicode characters not preserved for: {description}"
 
@@ -1337,7 +1337,7 @@ class TestEdgeCases:
                     f"shell=True not set for: {description}"
 
                 # Verify the path traversal pattern is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Path traversal pattern not preserved for: {description}"
 
@@ -1370,10 +1370,10 @@ class TestEdgeCases:
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the null byte is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert "\x00" in rendered_command, \
                     f"Null byte not preserved for: {description}"
 
@@ -1405,10 +1405,10 @@ class TestEdgeCases:
                 result = run_verify_commands(["pytest {spec}"], spec)
 
                 # The placeholder should be replaced
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 # After replacement, the spec should be in the command
                 # (though format strings might cause unexpected behavior)
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
     def test_run_verify_commands_long_input(self) -> None:
         """
@@ -1440,10 +1440,10 @@ class TestEdgeCases:
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the long spec is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Long spec not preserved for: {description}"
 
@@ -1481,10 +1481,10 @@ class TestEdgeCases:
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the whitespace is preserved in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Whitespace not preserved for: {description}"
 
@@ -1522,10 +1522,10 @@ class TestEdgeCases:
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the quotes are preserved in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Quotes not preserved for: {description}"
 
@@ -1568,7 +1568,7 @@ class TestEdgeCases:
                     f"shell=True not set for: {description}"
 
                 # Verify the combined attack is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Combined attack not preserved for: {description}"
 
@@ -1621,9 +1621,9 @@ class TestEdgeCases:
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
-                assert len(result) == 1, f"Result length incorrect for: {description}"
+                assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the spec is present in the rendered command
-                rendered_command = result[0]["command"]
+                rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Edge case not preserved for: {description}"
