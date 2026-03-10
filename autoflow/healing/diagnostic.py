@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         HealthAssessment,
         WorkflowHealthStatus,
     )
+    from autoflow.healing.recovery_learner import RecoveryLearner
 
 
 class FailureCategory(Enum):
@@ -344,15 +345,20 @@ class StrategySelector:
     def __init__(
         self,
         config: "HealingConfig | None" = None,
+        learner: "RecoveryLearner | None" = None,
     ) -> None:
         """Initialize the strategy selector.
 
         Args:
             config: Healing configuration. If None, uses defaults.
+            learner: Optional RecoveryLearner for learned strategy recommendations.
+                    If None, creates a new instance.
         """
         from autoflow.healing.config import HealingConfig
+        from autoflow.healing.recovery_learner import RecoveryLearner
 
         self.config = config or HealingConfig()
+        self.learner = learner
 
     def select_healing_strategy(
         self,
@@ -458,6 +464,131 @@ class StrategySelector:
         estimated_success = 0.0
         risk_level = "medium"
         rationale = []
+
+        # Check RecoveryLearner for learned strategy recommendations
+        learned_recommendation = None
+        if self.learner is not None:
+            try:
+                learned_recommendation = self.learner.recommend_strategy(
+                    root_cause=diagnostic.primary_cause,
+                    context=diagnostic.metadata,
+                    min_confidence="medium",  # Use medium confidence as default
+                )
+            except Exception:
+                # If learner fails, continue with rule-based evaluation
+                pass
+
+        # If we have a learned recommendation, use it to inform evaluation
+        if learned_recommendation is not None:
+            learned_strategy_name = learned_recommendation.get("strategy", {}).get("strategy_name", "")
+            learned_success_rate = learned_recommendation.get("success_rate", 0.0)
+            learned_effectiveness = learned_recommendation.get("strategy", {}).get("effectiveness_score", 0.0)
+
+            # Check if this strategy matches the learned recommendation
+            if learned_strategy_name == strategy.value:
+                # Boost applicability based on learned success rate
+                applicability = 0.7 + (learned_success_rate * 0.3)  # Base 0.7 + up to 0.3 boost
+                estimated_success = learned_success_rate
+                risk_level = "low" if learned_effectiveness > 0.8 else "medium"
+                rationale.append(
+                    f"Learned from {learned_recommendation.get('strategy', {}).get('total_attempts', 0)} "
+                    f"historical attempts with {learned_success_rate:.1%} success rate"
+                )
+                rationale.append(learned_recommendation.get("rationale", ""))
+            else:
+                # This is not the recommended strategy, lower applicability
+                applicability = max(0.0, applicability - 0.2)
+                rationale.append(f"Not the recommended strategy (recommended: {learned_strategy_name})")
+
+        # Strategy-specific evaluation logic (fallback or enhancement)
+        if strategy == HealingStrategy.RETRY:
+            if category in [
+                FailureCategory.NETWORK_ISSUE,
+                FailureCategory.TIMEOUT,
+                FailureCategory.RESOURCE_EXHAUSTION,
+            ]:
+                if applicability == 0.0:  # Only set if not already set by learner
+                    applicability = 0.8 if confidence == ConfidenceLevel.HIGH else 0.6
+                if estimated_success == 0.0:
+                    estimated_success = 0.7
+                risk_level = "low"
+                if not any("Retry" in r for r in rationale):
+                    rationale.append("Retry is effective for transient failures")
+
+        elif strategy == HealingStrategy.ROLLBACK:
+            if category in [
+                FailureCategory.CONFIGURATION_ERROR,
+                FailureCategory.CODE_ERROR,
+                FailureCategory.DEPENDENCY_FAILURE,
+            ]:
+                if applicability == 0.0:
+                    applicability = 0.9 if confidence == ConfidenceLevel.HIGH else 0.7
+                if estimated_success == 0.0:
+                    estimated_success = 0.85
+                risk_level = "low"
+                if not any("Rollback" in r for r in rationale):
+                    rationale.append("Rollback can revert recent breaking changes")
+
+        elif strategy == HealingStrategy.RECONFIGURE:
+            if category in [
+                FailureCategory.RESOURCE_EXHAUSTION,
+                FailureCategory.CONFIGURATION_ERROR,
+                FailureCategory.PERFORMANCE_DEGRADATION,
+            ]:
+                if applicability == 0.0:
+                    applicability = 0.7 if confidence == ConfidenceLevel.HIGH else 0.5
+                if estimated_success == 0.0:
+                    estimated_success = 0.6
+                risk_level = "medium"
+                if not any("Configuration" in r for r in rationale):
+                    rationale.append("Configuration adjustments may resolve the issue")
+
+        elif strategy == HealingStrategy.RESTART:
+            if category in [
+                FailureCategory.RESOURCE_EXHAUSTION,
+                FailureCategory.TIMEOUT,
+                FailureCategory.UNKNOWN,
+            ]:
+                if applicability == 0.0:
+                    applicability = 0.6
+                if estimated_success == 0.0:
+                    estimated_success = 0.5
+                risk_level = "low"
+                if not any("Restart" in r for r in rationale):
+                    rationale.append("Restart can clear transient state issues")
+
+        elif strategy == HealingStrategy.SCALE:
+            if category == FailureCategory.RESOURCE_EXHAUSTION:
+                if applicability == 0.0:
+                    applicability = 0.8 if confidence == ConfidenceLevel.HIGH else 0.6
+                if estimated_success == 0.0:
+                    estimated_success = 0.7
+                risk_level = "low"
+                if not any("Scaling" in r for r in rationale):
+                    rationale.append("Scaling can address resource constraints")
+
+        elif strategy == HealingStrategy.ISOLATE:
+            if category in [
+                FailureCategory.CODE_ERROR,
+                FailureCategory.DATA_CORRUPTION,
+            ]:
+                if applicability == 0.0:
+                    applicability = 0.7
+                if estimated_success == 0.0:
+                    estimated_success = 0.6
+                risk_level = "medium"
+                if not any("Isolation" in r for r in rationale):
+                    rationale.append("Isolation prevents cascade failures")
+
+        elif strategy == HealingStrategy.ESCALATE:
+            if category == FailureCategory.UNKNOWN or confidence == ConfidenceLevel.LOW:
+                if applicability == 0.0:
+                    applicability = 0.9
+                if estimated_success == 0.0:
+                    estimated_success = 1.0  # Human intervention always succeeds eventually
+                risk_level = "low"
+                if not any("Unknown" in r or "low-confidence" in r for r in rationale):
+                    rationale.append("Unknown or low-confidence issues require human expertise")
 
         # Strategy-specific evaluation logic
         if strategy == HealingStrategy.RETRY:

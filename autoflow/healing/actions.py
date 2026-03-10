@@ -43,6 +43,7 @@ class ActionType(Enum):
     """Types of healing actions available."""
 
     RETRY = "retry"
+    ADAPTIVE_RETRY = "adaptive_retry"
     ROLLBACK = "rollback"
     RECONFIGURE = "reconfigure"
     RESTART = "restart"
@@ -1010,4 +1011,36 @@ def get_global_registry() -> ActionRegistry:
     global _global_registry
     if _global_registry is None:
         _global_registry = ActionRegistry()
+        _initialize_default_executors(_global_registry)
     return _global_registry
+
+
+def _initialize_default_executors(registry: ActionRegistry) -> None:
+    """Initialize the registry with default action executors.
+
+    Args:
+        registry: The action registry to initialize.
+    """
+    from autoflow.healing.actions import (
+        EscalateActionExecutor,
+        PatchActionExecutor,
+        ReconfigureActionExecutor,
+        RestartActionExecutor,
+        RetryActionExecutor,
+    )
+
+    # Register standard executors
+    registry.register_executor(ActionType.RETRY, RetryActionExecutor())
+    registry.register_executor(ActionType.RECONFIGURE, ReconfigureActionExecutor())
+    registry.register_executor(ActionType.RESTART, RestartActionExecutor())
+    registry.register_executor(ActionType.PATCH, PatchActionExecutor())
+    registry.register_executor(ActionType.ESCALATE, EscalateActionExecutor())
+
+    # Register adaptive retry executor
+    try:
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        registry.register_executor(ActionType.ADAPTIVE_RETRY, AdaptiveRetryExecutor())
+        logger.info("Registered AdaptiveRetryExecutor for adaptive retry actions")
+    except Exception as e:
+        logger.warning(f"Failed to register AdaptiveRetryExecutor: {e}")
