@@ -53,7 +53,6 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from autoflow.core.repository import RepositoryManager
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -82,6 +81,13 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
+
+
+def repository_manager():
+    """Load RepositoryManager only when repository features are used."""
+    from autoflow.core.repository import RepositoryManager
+
+    return RepositoryManager(STATE_DIR)
 
 
 def now_utc() -> datetime:
@@ -1387,7 +1393,7 @@ def load_tasks_from_repository(repository_id: str, spec_slug: str) -> dict[str, 
         SystemExit: If repository or task file doesn't exist
     """
     # Validate repository exists
-    repo_manager = RepositoryManager(STATE_DIR)
+    repo_manager = repository_manager()
     if not repo_manager.repository_exists(repository_id):
         raise SystemExit(
             f"cannot load dependency: repository '{repository_id}' not found"
@@ -2794,7 +2800,7 @@ def validate_spec_repository(repository_id: str) -> None:
     if not repository_id:
         return
 
-    repo_manager = RepositoryManager(STATE_DIR)
+    repo_manager = repository_manager()
     if not repo_manager.repository_exists(repository_id):
         raise SystemExit(
             f"repository '{repository_id}' not found. "
@@ -4376,7 +4382,7 @@ def repo_validate_cmd(args: argparse.Namespace) -> None:
     ensure_state()
 
     # Create repository manager
-    manager = RepositoryManager(STATE_DIR)
+    manager = repository_manager()
 
     # Check if validating specific repository or all
     if args.repo:
