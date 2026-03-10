@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "025-add-list-runs-cli-command-with-filtering-options",
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
   "state": "building",
   "subtasks": {
-    "completed": 2,
-    "total": 3,
+    "completed": 17,
+    "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "CLI Command Implementation",
+    "current": "Cleanup and Verify",
     "id": null,
-    "total": 3
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
-    "started_at": "2026-03-07T18:00:46.133657"
+    "number": 17,
+    "started_at": "2026-03-07T22:09:26.347246"
   },
-  "last_update": "2026-03-07T18:04:12.879574"
+  "last_update": "2026-03-07T22:33:39.401879"
 }
