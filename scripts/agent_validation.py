@@ -28,7 +28,76 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+try:
+    from pydantic import BaseModel, Field, field_validator
+except ModuleNotFoundError:
+    class _FieldDefault:
+        """Minimal Field replacement when pydantic is unavailable."""
+
+        def __init__(self, default: Any = None, default_factory: Any = None) -> None:
+            self.default = default
+            self.default_factory = default_factory
+
+
+    def Field(*, default: Any = None, default_factory: Any = None) -> _FieldDefault:
+        """Mirror the subset of pydantic.Field used in this module."""
+        return _FieldDefault(default=default, default_factory=default_factory)
+
+
+    def field_validator(*field_names: str, mode: str = "before"):
+        """Register lightweight field validators when pydantic is unavailable."""
+
+        def decorator(func):
+            target = func.__func__ if isinstance(func, classmethod) else func
+            target.__field_validator_fields__ = field_names
+            target.__field_validator_mode__ = mode
+            return func
+
+        return decorator
+
+
+    class BaseModel:
+        """Minimal BaseModel replacement for lightweight CLI validation paths."""
+
+        @classmethod
+        def _collect_field_validators(cls) -> dict[str, list[Any]]:
+            validators: dict[str, list[Any]] = {}
+            for base in reversed(cls.__mro__):
+                for value in base.__dict__.values():
+                    target = value.__func__ if isinstance(value, classmethod) else value
+                    fields = getattr(target, "__field_validator_fields__", ())
+                    if not fields:
+                        continue
+                    method = getattr(cls, target.__name__)
+                    for field_name in fields:
+                        validators.setdefault(field_name, []).append(method)
+            return validators
+
+        def __init__(self, **kwargs: Any) -> None:
+            annotations: dict[str, Any] = {}
+            for cls in reversed(type(self).__mro__):
+                annotations.update(getattr(cls, "__annotations__", {}))
+
+            validators = type(self)._collect_field_validators()
+            for name in annotations:
+                if name in kwargs:
+                    value = kwargs.pop(name)
+                else:
+                    default = getattr(type(self), name, None)
+                    if isinstance(default, _FieldDefault):
+                        if default.default_factory is not None:
+                            value = default.default_factory()
+                        else:
+                            value = default.default
+                    else:
+                        value = default
+
+                for validator in validators.get(name, []):
+                    value = validator(value)
+                setattr(self, name, value)
+
+            for name, value in kwargs.items():
+                setattr(self, name, value)
 
 
 # Security: Allowlist of permitted commands
