@@ -629,16 +629,29 @@ class TestAutoCommit:
         }
 
         # Mock run_verify_commands to return a failure
-        verify_results = [
-            {"command": "pytest", "returncode": 1, "stdout": "", "stderr": "error"}
-        ]
+        verify_results = VerifyCommandsResult(
+            commands_run=1,
+            all_success=False,
+            results=[
+                CommandResult(
+                    command="pytest",
+                    success=False,
+                    exit_code=1,
+                    stdout="",
+                    stderr="error",
+                    error="Command failed with exit code 1"
+                )
+            ]
+        )
 
         with patch("continuous_iteration.run_verify_commands", return_value=verify_results):
             result = auto_commit(config_with_verify, "test-spec", False, state)
 
         assert result["committed"] is False
         assert result["reason"] == "verification_failed"
-        assert result["verification"] == verify_results
+        assert len(result["verification"]) == 1
+        assert result["verification"][0]["command"] == "pytest"
+        assert result["verification"][0]["success"] is False
 
     def test_auto_commit_clean_worktree(self, sample_config: dict) -> None:
         """Test that no commit is made when worktree is clean."""
@@ -1109,9 +1122,11 @@ class TestLoadAgentCatalog:
         with patch("continuous_iteration.AGENTS_FILE", agents_file):
             result = load_agent_catalog()
 
-        assert result.commands_run == 2
+        assert len(result) == 2
         assert "agent-a" in result
         assert "agent-b" in result
+        assert result["agent-a"]["command"] == "a"
+        assert result["agent-b"]["command"] == "b"
 
 
 # ============================================================================
