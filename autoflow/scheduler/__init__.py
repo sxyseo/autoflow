@@ -38,6 +38,7 @@ from autoflow.scheduler.jobs import (
     monitor_agents,
     set_orchestrator,
 )
+from autoflow.scheduler.pr_refresh_job import refresh_prs
 
 __all__ = [
     # Daemon
@@ -58,6 +59,7 @@ __all__ = [
     "distribute_tasks",
     "cleanup_sessions",
     "health_check",
+    "refresh_prs",
     "set_orchestrator",
     "get_orchestrator",
 ]

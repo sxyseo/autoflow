@@ -90,6 +90,7 @@ __all__ = [
     "CodeChange",
     "ReviewRequest",
     "ReviewerConfig",
+    "ReviewRequest",
     "ReviewStatus",
     "ReviewSeverity",
     "ReviewStrategy",

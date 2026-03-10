@@ -1,0 +1,941 @@
+"""
+Autoflow Parallel Coordinator Module
+
+Provides coordination for parallel agent execution with proper resource management,
+conflict detection, and result aggregation. Enables multiple AI agents to work
+concurrently on independent tasks with isolation and safety guarantees.
+
+Usage:
+    from autoflow.core.parallel import ParallelCoordinator
+
+    coordinator = ParallelCoordinator(max_parallel=3)
+    await coordinator.initialize()
+
+    # Execute tasks in parallel
+    result = await coordinator.execute_parallel(
+        tasks=[
+            {"task": "Fix bug in app.py", "workdir": "./src"},
+            {"task": "Update docs", "workdir": "./docs"},
+            {"task": "Add tests", "workdir": "./tests"},
+        ]
+    )
+
+    # Check results
+    for task_id, task_result in result.task_results.items():
+        if task_result.success:
+            print(f"{task_id}: Success")
+        else:
+            print(f"{task_id}: Failed - {task_result.error}")
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Optional, Union
+
+from pydantic import BaseModel, Field
+
+from autoflow.agents.base import AgentAdapter, ExecutionResult, ExecutionStatus
+from autoflow.core.config import Config, load_config
+from autoflow.core.conflict import (
+    ConflictReport,
+    ConflictSeverity,
+    detect_task_conflicts,
+)
+from autoflow.core.state import (
+    ParallelGroupStatus,
+    ParallelTaskGroup,
+    StateManager,
+    Task,
+    TaskStatus,
+)
+
+
+class CoordinatorStatus(str, Enum):
+    """Status of the parallel coordinator."""
+
+    IDLE = "idle"
+    INITIALIZING = "initializing"
+    EXECUTING = "executing"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+    ERROR = "error"
+
+
+class ParallelExecutionError(Exception):
+    """Exception raised for parallel execution errors."""
+
+    def __init__(self, message: str, task_id: Optional[str] = None) -> None:
+        """
+        Initialize the parallel execution error.
+
+        Args:
+            message: Error message describing what went wrong
+            task_id: Optional identifier of the task that caused the error
+        """
+        self.task_id = task_id
+        super().__init__(message)
+
+
+@dataclass
+class ParallelTaskResult:
+    """
+    Result from a single task in a parallel execution.
+
+    Attributes:
+        task_id: Unique identifier for the task
+        success: Whether the task completed successfully
+        output: Output from the task execution
+        error: Error message if the task failed
+        started_at: When the task started
+        completed_at: When the task completed
+        duration_seconds: Task execution duration
+        metadata: Additional metadata
+    """
+
+    task_id: str
+    success: bool = False
+    output: Optional[str] = None
+    error: Optional[str] = None
+    started_at: datetime = field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def mark_complete(
+        self,
+        success: bool,
+        output: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """
+        Mark the task as complete and calculate duration.
+
+        Args:
+            success: Whether the task completed successfully
+            output: Optional output from the task execution
+            error: Optional error message if the task failed
+        """
+        self.success = success
+        self.output = output
+        self.error = error
+        self.completed_at = datetime.utcnow()
+        self.duration_seconds = (
+            self.completed_at - self.started_at
+        ).total_seconds()
+
+
+@dataclass
+class ParallelExecutionResult:
+    """
+    Result from a parallel execution.
+
+    Attributes:
+        group_id: Unique identifier for the task group
+        success: Whether the entire group completed successfully
+        total_tasks: Total number of tasks in the group
+        successful_tasks: Number of tasks that succeeded
+        failed_tasks: Number of tasks that failed
+        task_results: Dictionary mapping task IDs to their results
+        conflict_report: Report of any conflicts detected
+        started_at: When the execution started
+        completed_at: When the execution completed
+        duration_seconds: Total execution duration
+        error: Error message if the group execution failed
+        metadata: Additional metadata
+    """
+
+    group_id: str
+    success: bool = False
+    total_tasks: int = 0
+    successful_tasks: int = 0
+    failed_tasks: int = 0
+    task_results: dict[str, ParallelTaskResult] = field(default_factory=dict)
+    conflict_report: Optional[ConflictReport] = None
+    started_at: datetime = field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    error: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def mark_complete(
+        self,
+        success: bool,
+        error: Optional[str] = None,
+    ) -> None:
+        """
+        Mark the execution as complete and aggregate results.
+
+        Args:
+            success: Whether the entire group completed successfully
+            error: Optional error message if the group execution failed
+        """
+        self.success = success
+        self.error = error
+        self.completed_at = datetime.utcnow()
+        self.duration_seconds = (
+            self.completed_at - self.started_at
+        ).total_seconds()
+
+        # Aggregate task results
+        self._aggregate_results()
+
+    def _aggregate_results(self) -> None:
+        """
+        Aggregate results from all tasks.
+
+        Counts successful/failed tasks, collects all outputs and errors,
+        and builds aggregated metadata for easy access to execution summary.
+        """
+        # Count successful and failed tasks
+        self.successful_tasks = sum(
+            1 for result in self.task_results.values() if result.success
+        )
+        self.failed_tasks = sum(
+            1 for result in self.task_results.values() if not result.success
+        )
+
+        # Collect all outputs
+        all_outputs = []
+        for task_id, result in self.task_results.items():
+            if result.output:
+                all_outputs.append(f"[{task_id}] {result.output}")
+
+        # Collect all errors
+        all_errors = []
+        for task_id, result in self.task_results.items():
+            if result.error:
+                all_errors.append(f"[{task_id}] {result.error}")
+
+        # Store aggregated data in metadata
+        self.metadata.update({
+            "all_outputs": all_outputs,
+            "all_errors": all_errors,
+            "output_summary": self._create_output_summary(),
+            "error_summary": self._create_error_summary(),
+        })
+
+    def _create_output_summary(self) -> str:
+        """
+        Create a summary of all task outputs.
+
+        Returns:
+            String summary with task outputs truncated to 200 characters each
+        """
+        if not self.task_results:
+            return "No tasks executed"
+
+        summaries = []
+        for task_id, result in self.task_results.items():
+            if result.success and result.output:
+                # Truncate long outputs
+                output_preview = result.output[:200]
+                if len(result.output) > 200:
+                    output_preview += "..."
+                summaries.append(f"{task_id}: {output_preview}")
+
+        return "\n".join(summaries) if summaries else "No successful outputs"
+
+    def _create_error_summary(self) -> str:
+        """
+        Create a summary of all task errors.
+
+        Returns:
+            String summary with all error messages from failed tasks
+        """
+        if not self.task_results:
+            return "No tasks executed"
+
+        error_summaries = []
+        for task_id, result in self.task_results.items():
+            if not result.success and result.error:
+                error_summaries.append(f"{task_id}: {result.error}")
+
+        return "\n".join(error_summaries) if error_summaries else "No errors"
+
+    def get_aggregated_output(self) -> str:
+        """
+        Get all task outputs aggregated into a single string.
+
+        Collects all outputs from successful tasks and formats them with
+        task ID headers for easy reading.
+
+        Returns:
+            Combined output from all tasks with task ID prefixes.
+            Returns empty string if no tasks produced output.
+        """
+        if not self.task_results:
+            return ""
+
+        outputs = []
+        for task_id, result in self.task_results.items():
+            if result.output:
+                outputs.append(f"=== Task {task_id} ===\n{result.output}")
+
+        return "\n\n".join(outputs)
+
+    def get_aggregated_errors(self) -> list[str]:
+        """
+        Get all errors from failed tasks.
+
+        Collects all error messages from failed tasks with task ID context.
+
+        Returns:
+            List of error messages with task ID context.
+            Returns empty list if no errors occurred.
+        """
+        errors = []
+        for task_id, result in self.task_results.items():
+            if not result.success and result.error:
+                errors.append(f"Task {task_id}: {result.error}")
+        return errors
+
+    def get_summary(self) -> dict[str, Any]:
+        """
+        Get a comprehensive summary of the parallel execution.
+
+        Calculates success rate and provides statistics about task execution
+        and any conflicts detected.
+
+        Returns:
+            Dictionary with execution summary including:
+            - group_id: Unique identifier for the task group
+            - total_tasks: Total number of tasks
+            - successful_tasks: Number of successful tasks
+            - failed_tasks: Number of failed tasks
+            - duration_seconds: Total execution duration
+            - success_rate: Percentage of successful tasks (0-100)
+            - has_errors: Whether any errors occurred
+            - error_count: Number of errors
+            - conflicts_detected: Whether conflicts were detected
+            - high_severity_conflicts: Number of high-severity conflicts
+        """
+        success_rate = (
+            (self.successful_tasks / self.total_tasks * 100)
+            if self.total_tasks > 0
+            else 0
+        )
+
+        return {
+            "group_id": self.group_id,
+            "total_tasks": self.total_tasks,
+            "successful_tasks": self.successful_tasks,
+            "failed_tasks": self.failed_tasks,
+            "duration_seconds": self.duration_seconds,
+            "success_rate": round(success_rate, 2),
+            "has_errors": self.failed_tasks > 0,
+            "error_count": self.failed_tasks,
+            "conflicts_detected": self.conflict_report is not None,
+            "high_severity_conflicts": (
+                len(self.conflict_report.get_high_severity())
+                if self.conflict_report
+                else 0
+            ),
+        }
+
+
+class ParallelCoordinatorStats(BaseModel):
+    """
+    Statistics about parallel coordinator runs.
+
+    Tracks execution metrics for monitoring and performance analysis.
+
+    Attributes:
+        total_groups: Total number of task groups executed
+        successful_groups: Number of groups that completed successfully
+        failed_groups: Number of groups that failed
+        total_tasks: Total number of tasks across all groups
+        completed_tasks: Number of tasks that completed successfully
+        failed_tasks: Number of tasks that failed
+        average_group_duration: Average duration of task group executions
+        last_execution_at: Timestamp of the last execution
+        max_parallel: Maximum number of concurrent tasks allowed
+        active_tasks: Number of currently active tasks
+        started_at: Timestamp when the coordinator was created
+    """
+
+    total_groups: int = 0
+    successful_groups: int = 0
+    failed_groups: int = 0
+    total_tasks: int = 0
+    completed_tasks: int = 0
+    failed_tasks: int = 0
+    average_group_duration: float = 0.0
+    last_execution_at: Optional[datetime] = None
+    max_parallel: int = 3
+    active_tasks: int = 0
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ParallelCoordinator:
+    """
+    Coordinator for parallel agent execution.
+
+    Manages concurrent execution of multiple independent tasks with:
+    - Resource limiting via semaphores
+    - Conflict detection before execution
+    - Result aggregation from multiple agents
+    - Error isolation (one failure doesn't stop others)
+    - State tracking for all parallel executions
+
+    Example:
+        >>> coordinator = ParallelCoordinator(max_parallel=3)
+        >>> await coordinator.initialize()
+        >>>
+        >>> # Execute tasks in parallel
+        >>> result = await coordinator.execute_parallel(
+        ...     tasks=[
+        ...         {"task": "Fix bug", "workdir": "./src"},
+        ...         {"task": "Update docs", "workdir": "./docs"},
+        ...     ]
+        ... )
+        >>>
+        >>> if result.success:
+        ...     print(f"Completed {result.successful_tasks} tasks")
+
+    Attributes:
+        config: Configuration object
+        state: StateManager instance
+        max_parallel: Maximum number of concurrent tasks
+        stats: Coordinator statistics
+    """
+
+    DEFAULT_MAX_PARALLEL = 3
+    DEFAULT_TASK_TIMEOUT = 300  # 5 minutes per task
+    DEFAULT_CONFLICT_CHECK = True
+
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        state_dir: Optional[Union[str, Path]] = None,
+        max_parallel: Optional[int] = None,
+        auto_initialize: bool = False,
+    ) -> None:
+        """
+        Initialize the parallel coordinator.
+
+        Args:
+            config: Optional configuration object
+            state_dir: Optional state directory path
+            max_parallel: Maximum number of concurrent tasks
+            auto_initialize: If True, initialize on creation
+        """
+        self._config = config
+        self._state_dir = Path(state_dir) if state_dir else None
+        self._max_parallel = max_parallel
+
+        # Status tracking
+        self._status = CoordinatorStatus.IDLE
+        self._current_group: Optional[ParallelTaskGroup] = None
+
+        # Components (initialized lazily)
+        self._state: Optional[StateManager] = None
+        self._semaphore: Optional[asyncio.Semaphore] = None
+
+        # Statistics
+        self._stats = ParallelCoordinatorStats()
+
+        if auto_initialize:
+            asyncio.create_task(self.initialize())
+
+    @property
+    def config(self) -> Config:
+        """Get configuration, loading if needed."""
+        if self._config is None:
+            self._config = load_config()
+        return self._config
+
+    @property
+    def state(self) -> StateManager:
+        """Get state manager, creating if needed."""
+        if self._state is None:
+            state_dir = self._state_dir or self.config.state_dir
+            self._state = StateManager(state_dir)
+            self._state.initialize()
+        return self._state
+
+    @property
+    def max_parallel(self) -> int:
+        """Get maximum parallel tasks."""
+        if self._max_parallel is not None:
+            return self._max_parallel
+        # Try to get from config
+        if hasattr(self.config, "parallel") and self.config.parallel:
+            max_par = getattr(self.config.parallel, "max_parallel", None)
+            if max_par:
+                return max_par
+        return self.DEFAULT_MAX_PARALLEL
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        """Get semaphore for limiting concurrent tasks."""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_parallel)
+        return self._semaphore
+
+    @property
+    def status(self) -> CoordinatorStatus:
+        """Get current coordinator status."""
+        return self._status
+
+    def _update_stats(self) -> None:
+        """
+        Update coordinator statistics.
+
+        Synchronizes the max_parallel setting and ensures statistics
+        are up-to-date for reporting.
+        """
+        self._stats.max_parallel = self.max_parallel
+        # Active tasks is tracked during execution
+        # This is called when tasks start/complete
+
+    @property
+    def stats(self) -> ParallelCoordinatorStats:
+        """Get coordinator statistics."""
+        self._update_stats()
+        return self._stats
+
+    async def initialize(self) -> None:
+        """
+        Initialize the parallel coordinator.
+
+        This method:
+        1. Initializes state management
+        2. Sets up resource limiting
+        3. Validates configuration
+
+        Raises:
+            ParallelExecutionError: If initialization fails
+        """
+        self._status = CoordinatorStatus.INITIALIZING
+
+        try:
+            # Initialize state
+            self.state.initialize()
+
+            self._status = CoordinatorStatus.IDLE
+
+        except Exception as e:
+            self._status = CoordinatorStatus.ERROR
+            raise ParallelExecutionError(f"Initialization failed: {e}") from e
+
+    def check_capacity_available(self, required_slots: int = 1) -> bool:
+        """
+        Check if there's capacity for additional concurrent tasks.
+
+        Args:
+            required_slots: Number of concurrent slots required
+
+        Returns:
+            True if capacity is available, False otherwise
+
+        Example:
+            >>> if coordinator.check_capacity_available(3):
+            ...     # Can run 3 tasks concurrently
+            ...     await coordinator.execute_parallel(tasks=[...])
+        """
+        available = self._stats.max_parallel - self._stats.active_tasks
+        return available >= required_slots
+
+    async def execute_parallel(
+        self,
+        tasks: list[dict[str, Any]],
+        agent_adapter: Optional[AgentAdapter] = None,
+        check_conflicts: bool = True,
+        timeout_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> ParallelExecutionResult:
+        """
+        Execute multiple tasks in parallel.
+
+        Coordinates the concurrent execution of multiple independent tasks with
+        proper resource management, conflict detection, and error isolation.
+
+        Args:
+            tasks: List of task dictionaries, each containing at least 'task' key
+            agent_adapter: Optional agent adapter for execution
+            check_conflicts: If True, check for conflicts before execution
+            timeout_seconds: Timeout for each task (default: 300)
+            metadata: Additional metadata for the execution
+
+        Returns:
+            ParallelExecutionResult with aggregated results from all tasks
+
+        Raises:
+            ParallelExecutionError: If execution setup fails
+
+        Example:
+            >>> result = await coordinator.execute_parallel(
+            ...     tasks=[
+            ...         {"task": "Fix bug in app.py", "workdir": "./src"},
+            ...         {"task": "Update README", "workdir": "./docs"},
+            ...         {"task": "Add tests", "workdir": "./tests"},
+            ...     ],
+            ...     timeout_seconds=600
+            ... )
+            >>>
+            >>> print(f"Completed: {result.successful_tasks}/{result.total_tasks}")
+        """
+        self._status = CoordinatorStatus.EXECUTING
+
+        # Create result object
+        group_id = str(uuid.uuid4())[:8]
+        result = ParallelExecutionResult(
+            group_id=group_id,
+            total_tasks=len(tasks),
+            metadata=metadata or {},
+        )
+
+        # Create task group
+        task_group = ParallelTaskGroup(
+            id=group_id,
+            title=f"Parallel Group {group_id}",
+            description=f"Executing {len(tasks)} tasks in parallel",
+            status=ParallelGroupStatus.IN_PROGRESS,
+            max_parallel=self.max_parallel,
+            metadata=metadata or {},
+        )
+        self._current_group = task_group
+
+        # Save initial state
+        self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
+
+        self._stats.total_groups += 1
+        self._stats.total_tasks += len(tasks)
+
+        try:
+            # Conflict detection
+            if check_conflicts:
+                conflict_report = detect_task_conflicts(tasks)
+                result.conflict_report = conflict_report
+
+                if not conflict_report.safe_to_run:
+                    result.mark_complete(
+                        success=False,
+                        error=f"High-severity conflicts detected: {len(conflict_report.get_high_severity())}",
+                    )
+                    self._stats.failed_groups += 1
+                    return result
+
+            # Execute tasks concurrently
+            task_results = await self._execute_tasks_concurrent(
+                tasks=tasks,
+                agent_adapter=agent_adapter,
+                timeout_seconds=timeout_seconds or self.DEFAULT_TASK_TIMEOUT,
+            )
+
+            # Aggregate results
+            result.task_results = task_results
+            result.mark_complete(success=True)
+
+            # Update task group status
+            if result.failed_tasks == 0:
+                task_group.status = ParallelGroupStatus.COMPLETED
+            else:
+                task_group.status = ParallelGroupStatus.FAILED
+
+            self._stats.successful_groups += 1
+            self._stats.completed_tasks += result.successful_tasks
+            self._stats.failed_tasks += result.failed_tasks
+            self._stats.last_execution_at = datetime.utcnow()
+
+        except Exception as e:
+            result.mark_complete(success=False, error=str(e))
+            task_group.status = ParallelGroupStatus.FAILED
+            self._stats.failed_groups += 1
+            raise ParallelExecutionError(f"Parallel execution failed: {e}") from e
+
+        finally:
+            # Save final state
+            self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
+            self._current_group = None
+            self._status = CoordinatorStatus.IDLE
+            self._update_average_group_duration(result.duration_seconds or 0)
+
+        return result
+
+    async def _execute_tasks_concurrent(
+        self,
+        tasks: list[dict[str, Any]],
+        agent_adapter: Optional[AgentAdapter],
+        timeout_seconds: int,
+    ) -> dict[str, ParallelTaskResult]:
+        """
+        Execute tasks concurrently with error isolation.
+
+        Each task runs in its own isolated context where exceptions are caught
+        and stored in the task result rather than propagating to stop other tasks.
+
+        Args:
+            tasks: List of task dictionaries
+            agent_adapter: Optional agent adapter
+            timeout_seconds: Timeout per task
+
+        Returns:
+            Dictionary mapping task IDs to their results
+        """
+        task_results: dict[str, ParallelTaskResult] = {}
+
+        async def execute_single_task(
+            task_data: dict[str, Any],
+            task_id: str,
+        ) -> tuple[str, ParallelTaskResult]:
+            """
+            Execute a single task with error isolation.
+
+            Wraps task execution in a try/except block to ensure that
+            exceptions from one task don't affect other tasks running
+            concurrently. Uses the semaphore to limit concurrent executions.
+
+            Args:
+                task_data: Dictionary containing task information (task, workdir, etc.)
+                task_id: Unique identifier for the task
+
+            Returns:
+                Tuple of (task_id, ParallelTaskResult) with execution results
+            """
+            task_result = ParallelTaskResult(task_id=task_id)
+
+            # Use semaphore to limit concurrency
+            async with self.semaphore:
+                # Increment active tasks counter
+                self._stats.active_tasks += 1
+                self._update_stats()
+
+                try:
+                    # If an agent adapter is provided, use it
+                    if agent_adapter:
+                        execution_result = await agent_adapter.execute(
+                            task=task_data.get("task", ""),
+                            workdir=task_data.get("workdir"),
+                            timeout_seconds=timeout_seconds,
+                        )
+                        task_result.mark_complete(
+                            success=execution_result.status == ExecutionStatus.SUCCESS,
+                            output=execution_result.output,
+                            error=execution_result.error,
+                        )
+                    else:
+                        # No adapter provided, simulate execution
+                        # In production, this would integrate with skill executor
+                        await asyncio.sleep(0.1)  # Simulate work
+                        task_result.mark_complete(
+                            success=True,
+                            output=f"Task completed: {task_data.get('task', '')}",
+                        )
+
+                except asyncio.CancelledError:
+                    # Task was cancelled - mark as cancelled
+                    task_result.mark_complete(
+                        success=False,
+                        error="Task execution was cancelled",
+                    )
+
+                except asyncio.TimeoutError:
+                    # Task timed out - mark as timeout
+                    task_result.mark_complete(
+                        success=False,
+                        error=f"Task execution timed out after {timeout_seconds} seconds",
+                    )
+
+                except ParallelExecutionError as e:
+                    # Re-raise ParallelExecutionError with task_id context
+                    task_result.mark_complete(
+                        success=False,
+                        error=str(e),
+                    )
+
+                except Exception as e:
+                    # Catch-all for any other exceptions
+                    # This ensures complete error isolation
+                    task_result.mark_complete(
+                        success=False,
+                        error=f"Task execution failed: {str(e)}",
+                    )
+
+                finally:
+                    # Always decrement active tasks counter
+                    self._stats.active_tasks -= 1
+                    self._update_stats()
+
+            return (task_id, task_result)
+
+        # Create task coroutines
+        coroutines = []
+        for idx, task_data in enumerate(tasks):
+            task_id = task_data.get("id", f"task-{idx}")
+            coroutines.append(execute_single_task(task_data, task_id))
+
+        # Execute all tasks concurrently with return_exceptions=True
+        # This ensures that even if one task raises an exception outside
+        # our try/except, it won't stop other tasks
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
+
+        # Process results - handle both successful results and exceptions
+        for item in results:
+            if isinstance(item, Exception):
+                # This should rarely happen due to inner try/except,
+                # but we handle it for complete isolation
+                task_id = f"error-{uuid.uuid4()[:4]}"
+                task_results[task_id] = ParallelTaskResult(
+                    task_id=task_id,
+                    success=False,
+                    error=f"Unexpected error in task execution: {str(item)}",
+                )
+            else:
+                task_id, task_result = item
+                task_results[task_id] = task_result
+
+        return task_results
+
+    def _update_average_group_duration(self, duration: float) -> None:
+        """
+        Update running average of group duration.
+
+        Calculates a new average duration including the newly completed
+        group execution.
+
+        Args:
+            duration: Duration of the just-completed group in seconds
+        """
+        total = self._stats.total_groups
+        current_avg = self._stats.average_group_duration
+        self._stats.average_group_duration = (
+            (current_avg * (total - 1) + duration) / total
+        )
+
+    def get_stats_summary(self) -> dict[str, Any]:
+        """
+        Get a summary of coordinator statistics.
+
+        Provides a comprehensive view of coordinator performance and
+        current capacity for planning additional parallel executions.
+
+        Returns:
+            Dictionary with stats summary including:
+            - total_groups: Total number of task groups executed
+            - successful_groups: Number of successful groups
+            - failed_groups: Number of failed groups
+            - total_tasks: Total number of tasks executed
+            - completed_tasks: Number of completed tasks
+            - failed_tasks: Number of failed tasks
+            - average_group_duration: Average group execution time
+            - max_parallel: Maximum concurrent tasks allowed
+            - active_tasks: Currently active tasks
+            - available_slots: Number of available execution slots
+            - last_execution_at: ISO timestamp of last execution
+            - started_at: ISO timestamp of coordinator start
+        """
+        self._update_stats()
+        return {
+            "total_groups": self._stats.total_groups,
+            "successful_groups": self._stats.successful_groups,
+            "failed_groups": self._stats.failed_groups,
+            "total_tasks": self._stats.total_tasks,
+            "completed_tasks": self._stats.completed_tasks,
+            "failed_tasks": self._stats.failed_tasks,
+            "average_group_duration": self._stats.average_group_duration,
+            "max_parallel": self._stats.max_parallel,
+            "active_tasks": self._stats.active_tasks,
+            "available_slots": self._stats.max_parallel - self._stats.active_tasks,
+            "last_execution_at": self._stats.last_execution_at.isoformat() if self._stats.last_execution_at else None,
+            "started_at": self._stats.started_at.isoformat(),
+        }
+
+    async def cleanup(self) -> None:
+        """
+        Clean up coordinator resources.
+
+        Resets the coordinator state, clears the current task group,
+        and releases the semaphore. This should be called when the
+        coordinator is no longer needed.
+        """
+        self._status = CoordinatorStatus.STOPPING
+        self._current_group = None
+        self._semaphore = None
+        self._status = CoordinatorStatus.STOPPED
+
+    async def __aenter__(self) -> "ParallelCoordinator":
+        """
+        Async context manager entry.
+
+        Initializes the coordinator when entering the context.
+
+        Returns:
+            The initialized coordinator instance
+        """
+        await self.initialize()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
+        """
+        Async context manager exit.
+
+        Cleans up coordinator resources when exiting the context,
+        regardless of whether an exception occurred.
+
+        Args:
+            exc_type: Exception type if an exception was raised
+            exc_val: Exception value if an exception was raised
+            exc_tb: Exception traceback if an exception was raised
+        """
+        await self.cleanup()
+
+    def __repr__(self) -> str:
+        """
+        Return string representation.
+
+        Returns:
+            String representation showing status, parallelism, and group count
+        """
+        return (
+            f"ParallelCoordinator("
+            f"status={self._status.value}, "
+            f"max_parallel={self.max_parallel}, "
+            f"groups={self._stats.total_groups})"
+        )
+
+
+def create_parallel_coordinator(
+    config_path: Optional[str] = None,
+    state_dir: Optional[str] = None,
+    max_parallel: Optional[int] = None,
+    auto_initialize: bool = True,
+) -> ParallelCoordinator:
+    """
+    Factory function to create a configured parallel coordinator.
+
+    Args:
+        config_path: Optional path to configuration file
+        state_dir: Optional state directory path
+        max_parallel: Maximum number of concurrent tasks
+        auto_initialize: If True, initialize on creation
+
+    Returns:
+        Configured ParallelCoordinator instance
+
+    Example:
+        >>> coordinator = create_parallel_coordinator(
+        ...     max_parallel=5,
+        ...     state_dir=".autoflow"
+        ... )
+        >>> result = await coordinator.execute_parallel(tasks=[...])
+    """
+    config = load_config(config_path) if config_path else None
+
+    return ParallelCoordinator(
+        config=config,
+        state_dir=state_dir,
+        max_parallel=max_parallel,
+        auto_initialize=auto_initialize,
+    )

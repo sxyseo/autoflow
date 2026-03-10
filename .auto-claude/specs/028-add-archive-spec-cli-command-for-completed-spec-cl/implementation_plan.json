@@ -1,0 +1,320 @@
+{
+  "feature": "Add archive-spec CLI command for completed spec cleanup",
+  "description": "Add an `archive-spec` CLI command that moves completed specs to an archive directory, preserving all artifacts but removing them from active enumeration.",
+  "workflow_type": "simple",
+  "workflow_rationale": "This is a single-service quick task that only involves adding a CLI command and state management logic. No cross-service dependencies or complex migration patterns.",
+  "phases": [
+    {
+      "id": "phase-1-state-manager",
+      "name": "State Manager Extensions",
+      "type": "implementation",
+      "description": "Extend StateManager with archive directory and spec archiving methods",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Add SPECS_ARCHIVE_DIR constant and archive_dir property to StateManager",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py - existing SPECS_DIR, tasks_dir properties"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('/tmp/test'); print(hasattr(sm, 'archive_dir'))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Add archive_spec() method to StateManager to move spec to archive directory",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py - save_spec(), load_spec() methods",
+            "scripts/autoflow.py - remove_worktree() for directory movement pattern"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; import inspect; print('archive_spec' in dir(StateManager))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Add list_archived_specs() method to StateManager for listing archived specs",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py - list_specs() method"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; import inspect; print('list_archived_specs' in dir(StateManager))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-4",
+          "description": "Update list_specs() to exclude archived specs from default enumeration",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py - list_specs() method"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.core.state import StateManager; sm = StateManager('/tmp/test'); sm.initialize(); print(sm.list_specs())\"",
+            "expected": "[]"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-cli-command",
+      "name": "CLI Command Implementation",
+      "type": "implementation",
+      "description": "Add spec command group and archive-spec subcommand to CLI",
+      "depends_on": [
+        "phase-1-state-manager"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Add 'spec' command group to autoflow CLI",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py - @main.group() decorators for 'task', 'memory', 'agent'"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow spec --help",
+            "expected": "Usage: autoflow spec [OPTIONS] COMMAND [ARGS]..."
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Add 'archive' subcommand to spec group with --spec-id argument and --force flag",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py - @memory.command('delete') for delete command pattern with argument"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow spec archive --help",
+            "expected": "Usage: autoflow spec archive [OPTIONS] SPEC_ID"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add 'list' subcommand to spec group with --archived flag",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/cli.py - @task.command('list') for list command with filter flags"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "autoflow spec list --help",
+            "expected": "Usage: autoflow spec list [OPTIONS]"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-integration",
+      "name": "Integration and Testing",
+      "type": "integration",
+      "description": "Verify end-to-end archive functionality",
+      "depends_on": [
+        "phase-2-cli-command"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create test spec and verify it appears in spec list",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Create a test spec in .autoflow/specs/test-spec/",
+              "Run 'autoflow spec list' and verify test-spec appears",
+              "Verify archive directory doesn't contain test-spec yet"
+            ]
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Archive test spec and verify it's moved from active enumeration",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Run 'autoflow spec archive test-spec'",
+              "Run 'autoflow spec list' and verify test-spec no longer appears",
+              "Verify .autoflow/specs-archive/test-spec/ directory exists with all files",
+              "Verify .autoflow/specs/test-spec/ directory no longer exists"
+            ]
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Verify archived spec appears in --archived list",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Run 'autoflow spec list --archived'",
+              "Verify test-spec appears in archived list",
+              "Verify metadata.json contains 'archived': true"
+            ]
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 3,
+    "total_subtasks": 10,
+    "services_involved": [
+      "cli"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential execution (simple workflow)"
+    },
+    "startup_command": "source .venv/bin/activate && python -m pytest tests/ -v"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "Archive command successfully moves spec directory",
+      "Archived specs excluded from default list",
+      "Archived specs appear in --archived list",
+      "All spec artifacts preserved in archive"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "python -m pytest tests/ -v -k state",
+        "expected_outcome": "All state tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "CLI Smoke Test",
+        "command": "autoflow spec --help",
+        "expected_outcome": "Command group available",
+        "type": "test",
+        "required": true,
+        "blocking": false
+      }
+    ],
+    "reasoning": "Medium risk change to state management and CLI. Unit tests sufficient as this is isolated functionality with no external dependencies."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "python -m pytest tests/ -v -k state"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "cli_verification": {
+      "required": true,
+      "commands": [
+        {
+          "command": "autoflow spec --help",
+          "expected_output": "Usage: autoflow spec"
+        },
+        {
+          "command": "autoflow spec archive --help",
+          "expected_output": "Usage: autoflow spec archive"
+        },
+        {
+          "command": "autoflow spec list --help",
+          "expected_output": "Usage: autoflow spec list"
+        }
+      ]
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-08T03:16:32.052Z"
+}

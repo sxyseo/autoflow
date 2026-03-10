@@ -1,3 +1,13 @@
+"""
+Unit Tests for CLI Healthcheck and Autonomy Orchestrator
+
+Tests the CLI healthcheck functionality for probing binary capabilities
+and the Autonomy Orchestrator for coordinating agent dispatch and taskmaster sync.
+
+These tests use mocks and module loading utilities to test scripts
+without requiring actual agent installations or external services.
+"""
+
 from __future__ import annotations
 
 import importlib.util
