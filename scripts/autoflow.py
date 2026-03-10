@@ -60,15 +60,6 @@ VALID_TASK_STATUSES = {
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
 
 
-# Duplicate functions - now using autoflow.utils.time_helpers.now_stamp()
-# def now_utc() -> datetime:
-#     return datetime.now(UTC)
-#
-#
-# def now_stamp() -> str:
-#     return now_utc().strftime("%Y%m%dT%H%M%SZ")
-
-
 def slugify(value: str) -> str:
     output = []
     for ch in value.lower():
