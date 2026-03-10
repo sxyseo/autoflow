@@ -1,8 +1,28 @@
 """
-Utility functions for the Autoflow CLI.
+Autoflow CLI - Utility Functions
 
 Provides helper functions for state management, output formatting,
-and async execution.
+and async execution used across CLI commands.
+
+Usage:
+    from autoflow.cli.utils import (
+        _get_state_manager,
+        _print_json,
+        _run_async,
+        _format_datetime
+    )
+
+    # Get state manager instance
+    state_manager = _get_state_manager(config)
+
+    # Print JSON output
+    _print_json({"status": "ok", "data": [...]})
+
+    # Run async coroutine synchronously
+    result = _run_async(async_function())
+
+    # Format datetime for display
+    formatted = _format_datetime(datetime.now())
 """
 
 from __future__ import annotations
