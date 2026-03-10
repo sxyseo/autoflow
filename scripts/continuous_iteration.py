@@ -4,36 +4,50 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
+
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import load_config, load_json, run_cmd
 
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
-
-
-def load_config(path: str) -> dict:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
-
-
-def load_json(path: Path, default: dict | None = None) -> dict:
-    if not path.exists():
-        return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
+# Old duplicate functions - replaced by autoflow.utils imports
+# def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+#     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
+#
+# def load_config(path: str) -> dict:
+#     return json.loads((ROOT / path).read_text(encoding="utf-8"))
+#
+# def load_json(path: Path, default: dict | None = None) -> dict:
+#     if not path.exists():
+#         return default or {}
+#     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def git_dirty() -> bool:
-    result = run(["git", "status", "--porcelain"])
+    result = run_cmd(["git", "status", "--porcelain"], cwd=ROOT)
     return bool(result.stdout.strip())
 
 
 def git_branch() -> str:
-    result = run(["git", "branch", "--show-current"])
+    result = run_cmd(["git", "branch", "--show-current"], cwd=ROOT)
     return result.stdout.strip()
 
 
@@ -74,11 +88,11 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     message_prefix = commit_cfg.get("message_prefix", "autoflow")
     message = f"{message_prefix}: {spec} iteration @ {timestamp}"
-    run(["git", "add", "-A"])
-    run(["git", "commit", "-m", message])
+    run_cmd(["git", "add", "-A"], cwd=ROOT)
+    run_cmd(["git", "commit", "-m", message], cwd=ROOT)
     pushed = False
     if push or commit_cfg.get("push", False):
-        run(["git", "push", "origin", git_branch()])
+        run_cmd(["git", "push", "origin", git_branch()], cwd=ROOT)
         pushed = True
     return {
         "committed": True,
@@ -89,12 +103,12 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
 
 
 def workflow_state(spec: str) -> dict:
-    result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
+    result = run_cmd(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec], cwd=ROOT)
     return json.loads(result.stdout)
 
 
 def task_history(spec: str, task: str) -> list[dict]:
-    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
+    result = run_cmd(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task], cwd=ROOT)
     return json.loads(result.stdout)
 
 
@@ -102,7 +116,7 @@ def sync_agents(overwrite: bool = False) -> dict:
     cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
     if overwrite:
         cmd.append("--overwrite")
-    result = run(cmd)
+    result = run_cmd(cmd, cwd=ROOT)
     return json.loads(result.stdout)
 
 
@@ -197,8 +211,9 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
         "agent_selection": source,
     }
     if dispatch:
-        proc = run(
+        proc = run_cmd(
             ["bash", "scripts/workflow-dispatch.sh", spec, role, agent, next_action["id"]],
+            cwd=ROOT,
             check=True,
         )
         payload["tmux_session"] = proc.stdout.strip()
