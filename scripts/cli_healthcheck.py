@@ -31,13 +31,6 @@ from autoflow.utils.time_helpers import now_stamp
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Old duplicate functions - replaced by autoflow.utils imports
-# def now_stamp() -> str:
-#     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-#
-# def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-#     return subprocess.run(cmd, cwd=ROOT, check=False, capture_output=True, text=True)
-
 
 def probe_binary(name: str) -> dict[str, Any]:
     path = shutil.which(name)
