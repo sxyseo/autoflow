@@ -22,6 +22,7 @@ from autoflow.cli.agent import agent
 from autoflow.cli.ci import ci
 from autoflow.cli.config import config
 from autoflow.cli.init import init
+from autoflow.cli.memory import memory
 from autoflow.cli.review import review
 from autoflow.cli.run import run
 from autoflow.cli.scheduler import scheduler
@@ -147,3 +148,4 @@ main.add_command(scheduler)
 main.add_command(ci)
 main.add_command(review)
 main.add_command(config)
+main.add_command(memory)
