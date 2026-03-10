@@ -99,6 +99,18 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class HealingConfig(BaseModel):
+    """Self-healing workflow configuration."""
+
+    enabled: bool = True
+    max_attempts: int = 3
+    timeout_seconds: int = 600
+    retry_delay_seconds: int = 10
+    strategies: list[str] = Field(
+        default_factory=lambda: ["retry", "fallback", "recovery"]
+    )
+    analysis_timeout_seconds: int = 300
+
 class IssueSourceConfig(BaseModel):
     """Configuration for a single issue source."""
 
@@ -208,6 +220,7 @@ class SystemConfig(BaseModel):
     default_timeout_seconds: int = 300
     retry_attempts: int = 3
     retry_delay_seconds: int = 5
+    healing: HealingConfig = Field(default_factory=HealingConfig)
 
     @field_validator("project_root", "log_dir", mode="before")
     @classmethod

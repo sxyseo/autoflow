@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from autoflow.healing.actions import HealingAction
     from autoflow.healing.config import HealingConfig
     from autoflow.healing.monitor import (
         DegradationSignal,
@@ -302,7 +303,7 @@ class HealingPlan:
 
     selected_strategy: HealingStrategy
     fallback_strategies: list[HealingStrategy]
-    execution_steps: list[str]
+    execution_steps: list[Any]
     rollback_plan: list[str]
     verification_steps: list[str]
     estimated_duration: float

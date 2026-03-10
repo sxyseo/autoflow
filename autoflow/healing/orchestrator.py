@@ -38,9 +38,11 @@ if TYPE_CHECKING:
         DegradationSignal,
         HealthAssessment,
         WorkflowHealthMonitor,
-        WorkflowHealthStatus,
     )
     from autoflow.healing.recovery_learner import RecoveryLearner
+
+# Runtime import for WorkflowHealthStatus (needed outside type hints)
+from autoflow.healing.monitor import WorkflowHealthStatus
 
 
 logger = logging.getLogger(__name__)
@@ -481,7 +483,7 @@ class HealingOrchestrator:
 
             # Phase 2: Diagnosis
             diagnostic_result = await self._diagnosis_phase(assessment)
-            if not diagnostic_result or not diagnostic_result.root_cause:
+            if not diagnostic_result or not diagnostic_result.root_causes:
                 return self._complete_session(HealingOutcome.ESCALATED)
 
             # Phase 3: Healing
@@ -513,6 +515,10 @@ class HealingOrchestrator:
         Returns:
             Current health assessment.
         """
+        # Create session if one doesn't exist (for direct testing)
+        if not self._current_session:
+            self._current_session = self._create_session(trigger_assessment)
+
         self.state = OrchestratorState.MONITORING
         self._log_event(
             event_type="monitoring_started",
@@ -523,7 +529,7 @@ class HealingOrchestrator:
         if trigger_assessment:
             assessment = trigger_assessment
         else:
-            assessment = await self.monitor.assess_health()
+            assessment = self.monitor.assess_health()
 
         logger.info(f"Health assessment: {assessment.status.value}")
         self._log_event(
@@ -587,18 +593,20 @@ class HealingOrchestrator:
         self.state = OrchestratorState.HEALING
 
         # Generate healing plan
-        healing_plan = await self.selector.create_healing_plan(
-            diagnostic_result.primary_cause, assessment
-        )
+        healing_plan = self.selector.select_healing_strategy(diagnostic_result)
+
+        # Check if no healing plan could be created (escalation needed)
+        if not healing_plan:
+            return await self._escalate(diagnostic_result, assessment)
 
         self._log_event(
             event_type="healing_plan_created",
             severity="warning",
             description=f"Healing plan created with {len(healing_plan.execution_steps)} steps",
             metadata={
-                "strategy": healing_plan.strategy.value,
-                "estimated_success_rate": healing_plan.estimated_success_rate,
-                "risk_level": healing_plan.risk_level.value if healing_plan.risk_level else None,
+                "strategy": healing_plan.selected_strategy.value,
+                "estimated_duration": healing_plan.estimated_duration,
+                "fallback_strategies": [s.value for s in healing_plan.fallback_strategies],
             },
         )
 
@@ -608,6 +616,10 @@ class HealingOrchestrator:
 
         # Execute healing actions
         for action in healing_plan.execution_steps:
+            # Skip string steps (descriptions only)
+            if isinstance(action, str):
+                continue
+
             outcome = await self._execute_action(action, diagnostic_result)
 
             if outcome != HealingOutcome.HEALED:
@@ -627,6 +639,10 @@ class HealingOrchestrator:
         Returns:
             Action outcome.
         """
+        # Create session if one doesn't exist (for direct testing)
+        if not self._current_session:
+            self._current_session = self._create_session(None)
+
         self._log_event(
             event_type="action_started",
             severity="warning",
@@ -706,7 +722,7 @@ class HealingOrchestrator:
         )
 
         # Reassess health
-        new_assessment = await self.monitor.assess_health()
+        new_assessment = self.monitor.assess_health()
 
         if new_assessment.status == WorkflowHealthStatus.HEALTHY:
             self._log_event(
@@ -754,9 +770,8 @@ class HealingOrchestrator:
 
         start_time = datetime.now()
         try:
-            await self.rollback_manager.rollback_to_checkpoint(action.action_id)
+            await self.rollback_manager.rollback_to_checkpoint(action.id)
             execution_time = (datetime.now() - start_time).total_seconds()
-
             self._log_event(
                 event_type="rollback_completed",
                 severity="info",

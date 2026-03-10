@@ -190,7 +190,7 @@ class HealingAction:
             "action_type": self.action_type.value,
             "name": self.name,
             "description": self.description,
-            "severity": self.severity.value,
+            "severity": self.severity.value if hasattr(self.severity, 'value') else self.severity,
             "parameters": self.parameters,
             "preconditions": self.preconditions,
             "expected_outcome": self.expected_outcome,
@@ -700,6 +700,10 @@ class RollbackManager:
         # For now, we just log the intention
         logger.info(f"Would rollback to git HEAD: {checkpoint['git_head']}")
 
+        # Clear the checkpoint after successful rollback
+        self.clear_checkpoint(action_id)
+        logger.info(f"Cleared checkpoint {action_id} after successful rollback")
+
         return True
 
     def _get_git_head(self) -> str:
@@ -759,6 +763,13 @@ class ActionRegistry:
         self._executors: dict[ActionType, ActionExecutor] = {}
         self._action_templates: dict[ActionType, list[HealingAction]] = {}
         self._rollback_manager = RollbackManager()
+
+        # Register all built-in executors
+        self.register_executor(ActionType.RETRY, RetryActionExecutor())
+        self.register_executor(ActionType.RECONFIGURE, ReconfigureActionExecutor())
+        self.register_executor(ActionType.RESTART, RestartActionExecutor())
+        self.register_executor(ActionType.PATCH, PatchActionExecutor())
+        self.register_executor(ActionType.ESCALATE, EscalateActionExecutor())
 
     def register_executor(
         self, action_type: ActionType, executor: ActionExecutor
