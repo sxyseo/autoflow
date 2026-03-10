@@ -757,8 +757,15 @@ def clear_fix_request(spec_slug: str) -> None:
 def compute_file_hash(path: Path) -> str:
     if not path.exists():
         return ""
+    current_mtime = get_file_mtime(path)
+    if path in _file_hash_cache and path in _file_mtime_cache:
+        if _file_mtime_cache[path] == current_mtime:
+            return _file_hash_cache[path]
     content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    hash_value = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    _file_hash_cache[path] = hash_value
+    _file_mtime_cache[path] = current_mtime
+    return hash_value
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
