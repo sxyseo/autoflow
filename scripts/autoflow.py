@@ -4023,6 +4023,7 @@ def init_system_config(_: argparse.Namespace) -> None:
         # NOTE: This writes to SYSTEM_CONFIG_FILE (system.json)
         # Cache invalidation required: call invalidate_config_cache() after this write
         write_json(SYSTEM_CONFIG_FILE, system_config_default())
+        invalidate_config_cache()
     print(str(SYSTEM_CONFIG_FILE))
 
 
