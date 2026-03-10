@@ -2720,5 +2720,501 @@ main.add_command(config_cmd, name="config")
 main.add_command(analytics)
 
 
+# === Intake Commands ===
+
+@main.group()
+def intake() -> None:
+    """Manage issue intake from external sources."""
+    pass
+
+
+@intake.command("import")
+@click.option(
+    "--source",
+    "-s",
+    type=str,
+    default=None,
+    help="Source ID to import from (default: all configured sources).",
+)
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["full", "incremental", "since-last"]),
+    default="incremental",
+    help="Import mode.",
+)
+@click.option(
+    "--dry-run",
+    "-n",
+    is_flag=True,
+    help="Show what would be imported without making changes.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=None,
+    help="Maximum number of issues to import.",
+)
+@click.pass_context
+def intake_import(
+    ctx: click.Context,
+    source: Optional[str],
+    mode: str,
+    dry_run: bool,
+    limit: Optional[int],
+) -> None:
+    """
+    Import issues from external sources.
+
+    Fetches issues from configured sources (GitHub, GitLab, Linear)
+    and converts them to Autoflow specs and tasks.
+
+    \b
+    Examples:
+        autoflow intake import
+        autoflow intake import --source github-example
+        autoflow intake import --mode full --limit 50
+        autoflow intake import --dry-run
+    """
+    from autoflow.intake import IntakePipeline, IngestionMode
+
+    config: Config = ctx.obj["config"]
+
+    if not config.intake.sources:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": "No intake sources configured. Add sources to your config file.",
+            })
+        else:
+            click.echo("Error: No intake sources configured.", err=True)
+            click.echo("Add sources to your config file (see config/intake.example.json5)")
+        ctx.exit(1)
+
+    try:
+        # Get the sources to import from
+        sources = (
+            [s for s in config.intake.sources if s.id == source]
+            if source
+            else config.intake.sources
+        )
+
+        if not sources:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "message": f"Source '{source}' not found.",
+                })
+            else:
+                click.echo(f"Error: Source '{source}' not found.", err=True)
+            ctx.exit(1)
+
+        # Map CLI mode to IngestionMode
+        mode_map = {
+            "full": IngestionMode.FULL,
+            "incremental": IngestionMode.INCREMENTAL,
+            "since-last": IngestionMode.SINCE_LAST,
+        }
+        ingestion_mode = mode_map[mode]
+
+        # Create pipeline config
+        pipeline_config = {
+            "sources": sources,
+            "state_dir": str(config.state_dir),
+            "dry_run": dry_run,
+            "limit": limit,
+        }
+
+        # Create and run pipeline (synchronously)
+        # Note: The pipeline is async, so we need to run it in an event loop
+        async def run_import():
+            pipeline = IntakePipeline(config=pipeline_config)  # type: ignore
+            result = await pipeline.ingest(mode=ingestion_mode, source_id=source)
+            return result
+
+        result = _run_async(run_import())
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "success",
+                "imported": result.stats.issues_processed,
+                "specs_created": result.stats.specs_created,
+                "tasks_created": result.stats.tasks_created,
+                "errors": len(result.errors),
+                "dry_run": dry_run,
+            })
+        else:
+            click.echo("Issue Import")
+            click.echo("=" * 60)
+            click.echo(f"Mode: {mode}")
+            if dry_run:
+                click.echo("DRY RUN - No changes were made")
+            click.echo("")
+            click.echo(f"Issues processed: {result.stats.issues_processed}")
+            click.echo(f"Specs created: {result.stats.specs_created}")
+            click.echo(f"Tasks created: {result.stats.tasks_created}")
+            click.echo(f"Errors: {len(result.errors)}")
+
+            if result.errors:
+                click.echo("\nErrors:")
+                for error in result.errors[:5]:  # Show first 5 errors
+                    click.echo(f"  - {error}")
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error importing issues: {e}", err=True)
+        ctx.exit(1)
+
+
+@intake.command("sync")
+@click.option(
+    "--source",
+    "-s",
+    type=str,
+    default=None,
+    help="Source ID to sync (default: all configured sources).",
+)
+@click.option(
+    "--direction",
+    "-d",
+    type=click.Choice(["push", "pull", "bidirectional"]),
+    default="push",
+    help="Sync direction.",
+)
+@click.option(
+    "--dry-run",
+    "-n",
+    is_flag=True,
+    help="Show what would be synced without making changes.",
+)
+@click.pass_context
+def intake_sync(
+    ctx: click.Context,
+    source: Optional[str],
+    direction: str,
+    dry_run: bool,
+) -> None:
+    """
+    Sync issue status with external sources.
+
+    Pushes Autoflow task status back to external issues or pulls
+    updates from external sources.
+
+    \b
+    Examples:
+        autoflow intake sync
+        autoflow intake sync --source github-example
+        autoflow intake sync --direction pull
+        autoflow intake sync --dry-run
+    """
+    from autoflow.intake import SyncManager, SyncDirection
+
+    config: Config = ctx.obj["config"]
+
+    if not config.intake.sources:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": "No intake sources configured.",
+            })
+        else:
+            click.echo("Error: No intake sources configured.", err=True)
+        ctx.exit(1)
+
+    try:
+        # Get the sources to sync
+        sources = (
+            [s for s in config.intake.sources if s.id == source]
+            if source
+            else config.intake.sources
+        )
+
+        if not sources:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "message": f"Source '{source}' not found.",
+                })
+            else:
+                click.echo(f"Error: Source '{source}' not found.", err=True)
+            ctx.exit(1)
+
+        # Map CLI direction to SyncDirection
+        direction_map = {
+            "push": SyncDirection.PUSH,
+            "pull": SyncDirection.PULL,
+            "bidirectional": SyncDirection.BIDIRECTIONAL,
+        }
+        sync_direction = direction_map[direction]
+
+        # Create sync manager config
+        sync_config = {
+            "sources": sources,
+            "state_dir": str(config.state_dir),
+            "dry_run": dry_run,
+        }
+
+        # Create and run sync (synchronously)
+        async def run_sync():
+            manager = SyncManager(config=sync_config)  # type: ignore
+            result = await manager.sync(direction=sync_direction, source_id=source)
+            return result
+
+        result = _run_async(run_sync())
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "success",
+                "direction": direction,
+                "issues_updated": result.stats.issues_updated,
+                "tasks_updated": result.stats.tasks_updated,
+                "errors": len(result.errors),
+                "dry_run": dry_run,
+            })
+        else:
+            click.echo("Issue Sync")
+            click.echo("=" * 60)
+            click.echo(f"Direction: {direction}")
+            if dry_run:
+                click.echo("DRY RUN - No changes were made")
+            click.echo("")
+            click.echo(f"Issues updated: {result.stats.issues_updated}")
+            click.echo(f"Tasks updated: {result.stats.tasks_updated}")
+            click.echo(f"Errors: {len(result.errors)}")
+
+            if result.errors:
+                click.echo("\nErrors:")
+                for error in result.errors[:5]:  # Show first 5 errors
+                    click.echo(f"  - {error}")
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error syncing issues: {e}", err=True)
+        ctx.exit(1)
+
+
+@intake.command("status")
+@click.option(
+    "--source",
+    "-s",
+    type=str,
+    default=None,
+    help="Source ID to show status for (default: all sources).",
+)
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed status information.",
+)
+@click.pass_context
+def intake_status(
+    ctx: click.Context,
+    source: Optional[str],
+    detailed: bool,
+) -> None:
+    """
+    Show issue intake system status.
+
+    Displays the current state of configured sources, recent imports,
+    and sync information.
+
+    \b
+    Examples:
+        autoflow intake status
+        autoflow intake status --source github-example
+        autoflow intake status --detailed
+    """
+    from autoflow.intake import SyncManager
+
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Filter sources if specified
+        sources = (
+            [s for s in config.intake.sources if s.id == source]
+            if source
+            else config.intake.sources
+        )
+
+        if not sources:
+            click.echo(f"Error: Source '{source}' not found.", err=True)
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            source_data = []
+            for s in sources:
+                source_data.append({
+                    "id": s.id,
+                    "type": s.type,
+                    "name": s.name,
+                    "enabled": s.enabled,
+                    "url": s.url,
+                })
+            _print_json({
+                "sources": source_data,
+                "count": len(sources),
+                "state_dir": str(config.state_dir),
+            })
+        else:
+            click.echo("Issue Intake Status")
+            click.echo("=" * 60)
+            click.echo(f"State Directory: {config.state_dir}")
+            click.echo(f"Sources Configured: {len(sources)}")
+            click.echo("")
+
+            for s in sources:
+                status_icon = "✓" if s.enabled else "✗"
+                click.echo(f"{status_icon} [{s.id}] {s.type}: {s.name}")
+                click.echo(f"  URL: {s.url}")
+
+                if detailed:
+                    # Get sync state for this source
+                    sync_state_file = (
+                        Path(config.state_dir) / "intake" / "sync" / f"{s.id}.json"
+                    )
+                    if sync_state_file.exists():
+                        import json
+                        with open(sync_state_file) as f:
+                            sync_state = json.load(f)
+                        click.echo(f"  Last Sync: {sync_state.get('last_sync_at', 'Never')}")
+                        click.echo(f"  Mappings: {len(sync_state.get('mappings', []))}")
+
+                click.echo("")
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error getting status: {e}", err=True)
+        ctx.exit(1)
+
+
+@intake.command("webhook")
+@click.option(
+    "--host",
+    "-H",
+    type=str,
+    default="127.0.0.1",
+    help="Host to bind the server to.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port to listen on.",
+)
+@click.option(
+    "--path",
+    type=str,
+    default="/webhook",
+    help="Webhook endpoint path.",
+)
+@click.option(
+    "--no-verify",
+    is_flag=True,
+    help="Disable webhook signature verification.",
+)
+@click.pass_context
+def intake_webhook(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    path: str,
+    no_verify: bool,
+) -> None:
+    """
+    Start the webhook server for receiving issue events.
+
+    Starts a FastAPI-based webhook server that receives and processes
+    issue events from GitHub, GitLab, and Linear.
+
+    \b
+    Examples:
+        autoflow intake webhook
+        autoflow intake webhook --host 0.0.0.0 --port 8080
+        autoflow intake webhook --path /hooks
+        autoflow intake webhook --no-verify
+    """
+    from autoflow.intake import WebhookServer, WebhookConfig
+
+    config: Config = ctx.obj["config"]
+
+    try:
+        # Create webhook config
+        webhook_config = WebhookConfig(
+            host=host,
+            port=port,
+            path=path,
+            verify_signatures=not no_verify,
+        )
+
+        # Create and start server
+        server = WebhookServer(config=webhook_config)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "starting",
+                "host": host,
+                "port": port,
+                "path": path,
+                "verify_signatures": not no_verify,
+            })
+        else:
+            click.echo("Starting Webhook Server")
+            click.echo("=" * 60)
+            click.echo(f"Host: {host}")
+            click.echo(f"Port: {port}")
+            click.echo(f"Path: {path}")
+            click.echo(f"Signature Verification: {not no_verify}")
+            click.echo("")
+            click.echo(f"Webhook URL: http://{host}:{port}{path}")
+            click.echo("")
+            click.echo("Press Ctrl+C to stop the server")
+            click.echo("")
+
+        # Start the server (blocking)
+        _run_async(server.start())
+
+    except ImportError as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": "Missing dependencies",
+                "error": str(e),
+            })
+        else:
+            click.echo("Error: Missing required dependencies.", err=True)
+            click.echo("Install them with: pip install fastapi uvicorn", err=True)
+            click.echo(f"Details: {e}", err=True)
+        ctx.exit(1)
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error starting webhook server: {e}", err=True)
+        ctx.exit(1)
+
+
 if __name__ == "__main__":
     main()
