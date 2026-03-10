@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from autoflow.healing.config import HealingConfig
@@ -61,6 +61,42 @@ class HealthAssessment:
     violations: list[dict]
     recommendations: list[str]
 
+    @property
+    def overall_score(self) -> float:
+        """Calculate overall health score (0.0 to 1.0).
+
+        Returns:
+            1.0 for HEALTHY, 0.5 for DEGRADED, 0.0 for CRITICAL.
+        """
+        if self.status == WorkflowHealthStatus.HEALTHY:
+            return 1.0
+        elif self.status == WorkflowHealthStatus.DEGRADED:
+            return 0.5
+        else:  # CRITICAL
+            return 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert assessment to dictionary for serialization.
+
+        Returns:
+            Dictionary representation of the assessment.
+        """
+        return {
+            "status": self.status.value,
+            "timestamp": self.timestamp.isoformat(),
+            "metrics": {
+                name: {
+                    "value": reading.value,
+                    "timestamp": reading.timestamp.isoformat(),
+                    "metadata": reading.metadata
+                }
+                for name, reading in self.metrics.items()
+            },
+            "violations": self.violations,
+            "recommendations": self.recommendations,
+            "overall_score": self.overall_score,
+        }
+
 
 @dataclass
 class TaskExecution:
@@ -104,6 +140,23 @@ class DegradationSignal:
     degradation_rate: float
     confidence: float
     description: str
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert degradation signal to dictionary for serialization.
+
+        Returns:
+            Dictionary representation of the signal.
+        """
+        return {
+            "signal_type": self.signal_type,
+            "severity": self.severity,
+            "metric_name": self.metric_name,
+            "current_value": self.current_value,
+            "baseline_value": self.baseline_value,
+            "degradation_rate": self.degradation_rate,
+            "confidence": self.confidence,
+            "description": self.description,
+        }
 
 
 class WorkflowHealthMonitor:

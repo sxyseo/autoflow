@@ -1,25 +1,43 @@
 {
   "active": true,
-  "spec": "045-add-docstrings-to-autoflow-py-cli-functions",
+<<<<<<< HEAD
+  "spec": "016-performance-analytics-dashboard",
   "state": "building",
   "subtasks": {
-    "completed": 33,
-    "total": 35,
+    "completed": 19,
+    "total": 22,
+=======
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
+  "state": "building",
+  "subtasks": {
+    "completed": 17,
+    "total": 19,
+>>>>>>> origin/main
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "CLI Setup and Entry Point",
+<<<<<<< HEAD
+    "current": "Testing & Integration",
+=======
+    "current": "Cleanup and Verify",
+>>>>>>> origin/main
     "id": null,
-    "total": 2
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 35,
-    "started_at": "2026-03-09T21:31:35.420565"
+    "number": 17,
+<<<<<<< HEAD
+    "started_at": "2026-03-08T21:43:58.163245"
   },
-  "last_update": "2026-03-09T22:21:31.414834"
+  "last_update": "2026-03-08T22:23:05.180997"
+=======
+    "started_at": "2026-03-07T22:09:26.347246"
+  },
+  "last_update": "2026-03-07T22:33:39.401879"
+>>>>>>> origin/main
 }

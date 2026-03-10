@@ -2,11 +2,8 @@
   "memory": {
     "enabled": true,
     "auto_capture_run_results": true,
-    "default_scopes": [
-      "spec"
-    ],
-    "global_file": ".autoflow/memory/global.md",
-    "spec_dir": ".autoflow/memory/specs"
+    "global_file": "/Users/abel/dev/autoflow/.autoflow/memory/global.md",
+    "spec_dir": "/Users/abel/dev/autoflow/.autoflow/memory/specs"
   },
   "models": {
     "profiles": {
@@ -25,20 +22,6 @@
     }
   },
   "registry": {
-    "acp_agents": [
-      {
-        "name": "example-acp-agent",
-        "transport": {
-          "type": "stdio",
-          "command": "acp-agent",
-          "args": [],
-          "prompt_mode": "argv"
-        },
-        "capabilities": {
-          "resume": false,
-          "task_driven": true
-        }
-      }
-    ]
+    "acp_agents": []
   }
 }
