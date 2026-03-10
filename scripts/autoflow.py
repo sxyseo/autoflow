@@ -768,6 +768,13 @@ def compute_file_hash(path: Path) -> str:
     return hash_value
 
 
+def clear_hash_cache() -> None:
+    """Clear the file hash cache."""
+    global _file_hash_cache, _file_mtime_cache
+    _file_hash_cache.clear()
+    _file_mtime_cache.clear()
+
+
 def planning_contract(spec_slug: str) -> dict[str, Any]:
     task_data = load_tasks(spec_slug)
     tasks = []
