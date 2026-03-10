@@ -28,18 +28,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 
-# Old duplicate functions - replaced by autoflow.utils imports
-# def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-#     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
-#
-# def load_config(path: str) -> dict:
-#     return json.loads((ROOT / path).read_text(encoding="utf-8"))
-#
-# def load_json(path: Path, default: dict | None = None) -> dict:
-#     if not path.exists():
-#         return default or {}
-#     return json.loads(path.read_text(encoding="utf-8"))
-
 
 def git_dirty() -> bool:
     result = run_cmd(["git", "status", "--porcelain"], cwd=ROOT)

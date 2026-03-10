@@ -3,13 +3,13 @@
   "spec": "035-extract-shared-utilities-to-eliminate-code-duplica",
   "state": "building",
   "subtasks": {
-    "completed": 8,
+    "completed": 9,
     "total": 17,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate Scripts to Use New Utilities",
+    "current": "Remove Old Duplicate Code",
     "id": null,
     "total": 4
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 10,
+    "number": 11,
     "started_at": "2026-03-10T21:07:33.055228"
   },
-  "last_update": "2026-03-10T21:21:47.556830"
+  "last_update": "2026-03-10T21:24:11.003209"
 }
