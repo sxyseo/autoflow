@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,12 +88,12 @@ def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
     results = []
     for command in commands:
         rendered = command.replace("{spec}", spec)
+        cmd_list = shlex.split(rendered)
         proc = subprocess.run(
-            rendered,
+            cmd_list,
             cwd=ROOT,
             text=True,
             capture_output=True,
-            shell=True,
         )
         results.append(
             {
