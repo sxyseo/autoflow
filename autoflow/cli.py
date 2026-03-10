@@ -100,6 +100,50 @@ def _format_datetime(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _load_all_tasks_from_specs(config: Optional[Config] = None) -> list[dict[str, Any]]:
+    """
+    Load all tasks from all spec task files.
+
+    Scans .autoflow/tasks/ directory and loads tasks from each spec's task file.
+    Each spec's tasks are stored in .autoflow/tasks/{spec_slug}.json
+
+    Args:
+        config: Optional config object
+
+    Returns:
+        List of all tasks with added 'spec' field indicating source spec
+    """
+    state_dir = get_state_dir(config)
+    tasks_dir = state_dir / "tasks"
+
+    all_tasks = []
+
+    if not tasks_dir.exists():
+        return all_tasks
+
+    for task_file in tasks_dir.glob("*.json"):
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Extract spec slug from filename
+            spec_slug = task_file.stem
+
+            # Add tasks with spec information
+            for task in data.get("tasks", []):
+                task_with_spec = task.copy()
+                task_with_spec["spec"] = spec_slug
+                all_tasks.append(task_with_spec)
+
+        except (json.JSONDecodeError, IOError):
+            # Skip invalid files
+            continue
+
+    # Sort by spec and then by task order
+    all_tasks.sort(key=lambda t: (t.get("spec", ""), t.get("id", "")))
+    return all_tasks
+
+
 @click.group(
     context_settings=CONTEXT_SETTINGS,
     invoke_without_command=True,
@@ -1021,6 +1065,203 @@ def config_show(ctx: click.Context) -> None:
     click.echo("Agents:")
     click.echo(f"  claude-code: {config.agents.claude_code.command}")
     click.echo(f"  codex: {config.agents.codex.command}")
+
+
+# === Search Tasks Command ===
+
+@main.command("search-tasks")
+@click.option(
+    "--status",
+    "-s",
+    "status_filter",
+    type=str,
+    default=None,
+    help="Filter by task status (e.g., todo, in_progress, done, blocked).",
+)
+@click.option(
+    "--owner-role",
+    "-o",
+    type=str,
+    default=None,
+    help="Filter by owner role (e.g., implementation-runner, reviewer).",
+)
+@click.option(
+    "--text",
+    "-t",
+    type=str,
+    default=None,
+    help="Text search in title and notes (case-insensitive substring).",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of tasks to show.",
+)
+@click.pass_context
+def search_tasks_cmd(
+    ctx: click.Context,
+    status_filter: Optional[str],
+    owner_role: Optional[str],
+    text: Optional[str],
+    limit: int,
+) -> None:
+    """
+    Search and filter tasks across all specs.
+
+    This command searches through all spec task files in .autoflow/tasks/ and
+    returns matching tasks. Tasks can be filtered by status, owner role, and
+    text content. Results are displayed in a human-readable format by default,
+    or JSON format with --json.
+
+    \b
+    Common Use Cases:
+        # Find all todo tasks
+        autoflow search-tasks --status todo
+
+        # Find tasks for a specific role
+        autoflow search-tasks --owner-role implementation-runner
+
+        # Search for tasks containing specific text
+        autoflow search-tasks --text "database"
+
+        # Combine multiple filters
+        autoflow search-tasks --status todo --owner-role frontend-dev
+
+    \b
+    Examples:
+        # Show first 5 todo tasks
+        autoflow search-tasks --status todo --limit 5
+
+        # Find in-progress tasks for reviewer
+        autoflow search-tasks --status in_progress --owner-role reviewer
+
+        # Search for API-related tasks
+        autoflow search-tasks --text "api" --limit 10
+
+        # Get JSON output for scripting
+        autoflow search-tasks --status done --json
+
+        # Complex search with multiple filters
+        autoflow search-tasks --status todo --text "auth" --owner-role backend-dev --limit 20
+
+    \b
+    Filter Behavior:
+        --status      Exact match on task status field
+                      Common values: todo, in_progress, done, blocked
+
+        --owner-role  Exact match on owner_role field
+                      Examples: implementation-runner, reviewer, frontend-dev, backend-dev
+
+        --text        Case-insensitive substring search
+                      Searches in: title, notes (both strings and dict values)
+
+        --limit       Maximum number of results to display
+                      Default: 20, Use 0 for unlimited
+
+        Multiple filters are combined with AND logic (all must match).
+        Results are sorted by spec name and task ID.
+
+    \b
+    Output Format (default):
+        [task-id] Task Title
+          Spec: spec-name
+          Status: status
+          Owner: owner-role
+
+    \b
+    Output Format (--json):
+        {
+          "tasks": [...],
+          "count": 10,
+          "total_matching": 42,
+          "filters": {...}
+        }
+    """
+    config: Config = ctx.obj["config"]
+
+    # Load all tasks from all specs
+    all_tasks = _load_all_tasks_from_specs(config)
+
+    # Apply filters
+    filtered_tasks = []
+    for task in all_tasks:
+        # Status filter (exact match)
+        if status_filter and task.get("status") != status_filter:
+            continue
+
+        # Owner role filter (exact match)
+        if owner_role and task.get("owner_role") != owner_role:
+            continue
+
+        # Text filter (case-insensitive substring in title and notes)
+        if text:
+            text_lower = text.lower()
+            title_match = text_lower in task.get("title", "").lower()
+
+            # Check in notes (if present)
+            notes_match = False
+            notes = task.get("notes", [])
+            if notes:
+                # Notes can be a list of strings or dict objects
+                for note in notes:
+                    if isinstance(note, str):
+                        if text_lower in note.lower():
+                            notes_match = True
+                            break
+                    elif isinstance(note, dict):
+                        # Check string values in note dict
+                        note_text = " ".join(str(v) for v in note.values())
+                        if text_lower in note_text.lower():
+                            notes_match = True
+                            break
+
+            if not title_match and not notes_match:
+                continue
+
+        filtered_tasks.append(task)
+
+    # Apply limit
+    limited_tasks = filtered_tasks[:limit]
+
+    if ctx.obj["output_json"]:
+        _print_json({
+            "tasks": limited_tasks,
+            "count": len(limited_tasks),
+            "total_matching": len(filtered_tasks),
+            "filters": {
+                "status": status_filter,
+                "owner_role": owner_role,
+                "text": text,
+            },
+        })
+        return
+
+    # Human-readable output
+    click.echo("Search Results")
+    click.echo("=" * 60)
+    click.echo(f"Found {len(filtered_tasks)} matching task(s)")
+    if len(filtered_tasks) > limit:
+        click.echo(f"Showing {len(limited_tasks)} (use --limit to see more)")
+    click.echo("")
+
+    if not limited_tasks:
+        click.echo("No tasks found matching the criteria.")
+        return
+
+    for task in limited_tasks:
+        task_id = task.get("id", "unknown")
+        title = task.get("title", "N/A")
+        status = task.get("status", "unknown")
+        owner = task.get("owner_role", "N/A")
+        spec = task.get("spec", "N/A")
+
+        click.echo(f"\n[{task_id}] {title}")
+        click.echo(f"  Spec: {spec}")
+        click.echo(f"  Status: {status}")
+        if owner != "N/A":
+            click.echo(f"  Owner: {owner}")
 
 
 # === Memory Commands ===
