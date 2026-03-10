@@ -9,7 +9,7 @@ These gates integrate with CIVerifier and provide higher-level
 abstractions for common CI workflows.
 
 Usage:
-    from autoflow.ci.gates import TestGate, LintGate, SecurityGate
+    from autoflow.ci.gates import TestGate, LintGate, SecurityGate, SymphonyCheckpointGate
 
     # Create individual gates
     test_gate = TestGate()
@@ -18,6 +18,13 @@ Usage:
 
     # Run a single gate
     result = await test_gate.run(workdir="/path/to/project")
+
+    # Wrap a gate with Symphony checkpoint integration
+    checkpoint_gate = SymphonyCheckpointGate(
+        wrapped_gate=test_gate,
+        checkpoint_name="code-review",
+        require_approval=True
+    )
 
     # Run all gates
     from autoflow.ci.gates import GateRunner
@@ -42,6 +49,14 @@ from autoflow.ci.verifier import (
     CheckType,
     CIVerifier,
 )
+
+# Optional Symphony integration
+try:
+    from autoflow.skills.symphony_bridge import SymphonyBridge
+    SYMPHONY_AVAILABLE = True
+except ImportError:
+    SYMPHONY_AVAILABLE = False
+    SymphonyBridge = None  # type: ignore
 
 
 class GateStatus(StrEnum):
@@ -225,7 +240,7 @@ class BaseGate(ABC):
         """
         self._config = config or GateConfig()
         self._workdir = Path(workdir) if workdir else None
-        self._verifier = CIVerifier(parallel=self._config.parallel)
+        self._verifier = CIVerifier(checks=[], parallel=self._config.parallel)
 
         # Register checks
         self._checks = checks if checks is not None else self.default_checks
@@ -622,6 +637,356 @@ class TypeCheckGate(BaseGate):
         if result.passed:
             return f"Type check passed: {passed}/{total}"
         return f"Type errors found: {passed}/{total} passed, {failed} failures"
+
+
+class SymphonyCheckpointGate(BaseGate):
+    """
+    Checkpoint-aware review gate that integrates with Symphony framework.
+
+    This gate wraps other gates and adds Symphony checkpoint integration,
+    allowing workflows to pause at review points and wait for approval.
+    When Symphony is not available, it behaves as a pass-through decorator.
+
+    Example:
+        >>> from autoflow.ci.gates import TestGate, SymphonyCheckpointGate
+        >>>
+        >>> # Wrap a test gate with checkpoint awareness
+        >>> base_gate = TestGate()
+        >>> checkpoint_gate = SymphonyCheckpointGate(
+        ...     wrapped_gate=base_gate,
+        ...     checkpoint_name="code-review",
+        ...     require_approval=True
+        ... )
+        >>>
+        >>> # Run the gate (will pause at checkpoint if configured)
+        >>> result = await checkpoint_gate.run(workdir="/project")
+
+    Attributes:
+        wrapped_gate: The underlying gate to execute
+        checkpoint_name: Name for the Symphony checkpoint
+        require_approval: Whether to wait for approval at checkpoint
+        symphony_bridge: Optional Symphony bridge for checkpoint integration
+    """
+
+    gate_type = "symphony_checkpoint"
+    gate_name = "Symphony Checkpoint"
+
+    def __init__(
+        self,
+        wrapped_gate: BaseGate,
+        checkpoint_name: str = "review-gate",
+        require_approval: bool = True,
+        symphony_bridge: Optional[SymphonyBridge] = None,
+        workdir: Optional[Union[str, Path]] = None,
+    ):
+        """
+        Initialize the checkpoint gate.
+
+        Args:
+            wrapped_gate: The gate to wrap with checkpoint awareness
+            checkpoint_name: Name for the Symphony checkpoint
+            require_approval: Whether to wait for approval before continuing
+            symphony_bridge: Optional Symphony bridge (uses default if not provided)
+            workdir: Working directory for the gate
+        """
+        self._wrapped_gate = wrapped_gate
+        self._checkpoint_name = checkpoint_name
+        self._require_approval = require_approval
+        self._symphony_bridge = symphony_bridge
+        self._checkpoint_id: Optional[str] = None
+        self._approval_received = False
+
+        # Initialize base gate with minimal config
+        # We delegate most operations to the wrapped gate
+        super().__init__(
+            config=wrapped_gate.config,
+            checks=[],
+            workdir=workdir,
+        )
+
+    @property
+    def wrapped_gate(self) -> BaseGate:
+        """Get the wrapped gate."""
+        return self._wrapped_gate
+
+    @property
+    def checkpoint_name(self) -> str:
+        """Get the checkpoint name."""
+        return self._checkpoint_name
+
+    @property
+    def checkpoint_id(self) -> Optional[str]:
+        """Get the checkpoint ID (set after checkpoint creation)."""
+        return self._checkpoint_id
+
+    @property
+    def is_symphony_enabled(self) -> bool:
+        """Check if Symphony integration is available."""
+        return SYMPHONY_AVAILABLE and self._symphony_bridge is not None
+
+    def _get_check_type(self) -> CheckType:
+        """Get the check type (delegate to wrapped gate)."""
+        return self._wrapped_gate._get_check_type()
+
+    def _create_result(self) -> GateResult:
+        """Create a gate result object."""
+        result = GateResult(
+            gate_name=self.gate_name,
+            gate_type=self.gate_type,
+        )
+        # Add wrapped gate info to metadata
+        result.metadata["wrapped_gate"] = self._wrapped_gate.gate_name
+        result.metadata["checkpoint_name"] = self._checkpoint_name
+        result.metadata["symphony_enabled"] = self.is_symphony_enabled
+        return result
+
+    def _generate_summary(self, result: GateResult) -> str:
+        """Generate a human-readable summary."""
+        if self.is_symphony_enabled and self._checkpoint_id:
+            base_summary = self._wrapped_gate._generate_summary(result)
+            return f"{base_summary} (Checkpoint: {self._checkpoint_id})"
+        return self._wrapped_gate._generate_summary(result)
+
+    async def run(
+        self,
+        workdir: Optional[Union[str, Path]] = None,
+        timeout_override: Optional[int] = None,
+    ) -> GateResult:
+        """
+        Run the wrapped gate with checkpoint integration.
+
+        If Symphony is enabled and require_approval is True:
+        1. Create a checkpoint before running the gate
+        2. Run the wrapped gate
+        3. Wait for approval at the checkpoint
+        4. Continue after approval is received
+
+        Args:
+            workdir: Working directory override
+            timeout_override: Timeout override in seconds
+
+        Returns:
+            GateResult with check results and checkpoint info
+        """
+        result = self._create_result()
+        result.required = self.is_required
+
+        if not self.is_enabled:
+            result.mark_complete(
+                status=GateStatus.SKIPPED,
+                passed=True,
+                summary="Checkpoint gate is disabled",
+            )
+            return result
+
+        result.mark_started()
+        cwd = Path(workdir) if workdir else self._workdir
+
+        try:
+            # Initialize Symphony bridge if needed
+            if self.is_symphony_enabled and self._symphony_bridge is None:
+                self._symphony_bridge = SymphonyBridge()
+
+            # Create checkpoint if Symphony is enabled
+            if self.is_symphony_enabled and self._require_approval:
+                self._checkpoint_id = await self._create_checkpoint(cwd)
+                result.metadata["checkpoint_id"] = self._checkpoint_id
+
+            # Run the wrapped gate
+            wrapped_result = await self._wrapped_gate.run(
+                workdir=cwd,
+                timeout_override=timeout_override,
+            )
+
+            # Copy wrapped gate results
+            result.checks = wrapped_result.checks
+            result.passed = wrapped_result.passed
+
+            # Wait for approval if configured
+            if self.is_symphony_enabled and self._require_approval and self._checkpoint_id:
+                await self._wait_for_approval(cwd)
+
+            # Determine final status
+            if result.passed:
+                if result.failed_checks:
+                    status = GateStatus.WARNING
+                else:
+                    status = GateStatus.PASSED
+            else:
+                status = GateStatus.FAILED
+
+            summary = self._generate_summary(result)
+            result.mark_complete(status=status, passed=result.passed, summary=summary)
+
+        except asyncio.TimeoutError:
+            result.mark_complete(
+                status=GateStatus.ERROR,
+                error=f"Checkpoint gate timed out after {timeout_override} seconds",
+            )
+        except Exception as e:
+            result.mark_complete(
+                status=GateStatus.ERROR,
+                error=f"Checkpoint gate failed with error: {str(e)}",
+            )
+
+        return result
+
+    async def _create_checkpoint(self, workdir: Optional[Path]) -> str:
+        """
+        Create a Symphony checkpoint.
+
+        Args:
+            workdir: Working directory for checkpoint
+
+        Returns:
+            Checkpoint ID
+
+        Raises:
+            RuntimeError: If Symphony bridge is not available
+        """
+        if not self.is_symphony_enabled or self._symphony_bridge is None:
+            raise RuntimeError("Symphony bridge is not available for checkpoint creation")
+
+        # Create checkpoint via Symphony bridge
+        checkpoint_id = self._symphony_bridge.create_gate_checkpoint(
+            gate_name=self._wrapped_gate.gate_name,
+            gate_type=self._wrapped_gate.gate_type,
+            workdir=workdir or Path("."),
+            require_approval=self._require_approval,
+            checkpoint_name=self._checkpoint_name,
+        )
+
+        return checkpoint_id
+
+    async def _wait_for_approval(self, workdir: Optional[Path]) -> None:
+        """
+        Wait for approval at the checkpoint.
+
+        Args:
+            workdir: Working directory
+
+        Raises:
+            RuntimeError: If Symphony bridge is not available
+        """
+        if not self.is_symphony_enabled or self._symphony_bridge is None:
+            raise RuntimeError("Symphony bridge is not available for approval waiting")
+
+        # Wait for approval via Symphony bridge
+        # Use a reasonable timeout - can be configured via gate config if needed
+        timeout = self._config.timeout_seconds if self._config else 300
+
+        approved = self._symphony_bridge.wait_for_gate_checkpoint_approval(
+            checkpoint_id=self._checkpoint_id,
+            timeout_seconds=timeout,
+        )
+
+        self._approval_received = approved
+
+        if not approved:
+            # Checkpoint was rejected or timed out
+            status_info = self._symphony_bridge.get_gate_checkpoint_status(
+                self._checkpoint_id
+            )
+            if status_info["status"] == "rejected":
+                raise RuntimeError(
+                    f"Checkpoint {self._checkpoint_id} was rejected. "
+                    f"Reason: {status_info.get('rejection_reason', 'No reason provided')}"
+                )
+            else:
+                raise RuntimeError(
+                    f"Checkpoint {self._checkpoint_id} approval timed out after {timeout} seconds"
+                )
+
+    def approve_checkpoint(
+        self,
+        approver: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        """
+        Approve the checkpoint (external approval callback).
+
+        This method can be called externally to approve the checkpoint
+        and allow the workflow to continue.
+
+        Args:
+            approver: Optional identifier for the approver
+            notes: Optional approval notes
+        """
+        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+            self._symphony_bridge.approve_gate_checkpoint(
+                checkpoint_id=self._checkpoint_id,
+                approver=approver,
+                notes=notes,
+            )
+
+        self._approval_received = True
+
+    def reject_checkpoint(
+        self,
+        reason: str,
+        rejecter: Optional[str] = None,
+    ) -> None:
+        """
+        Reject the checkpoint (external rejection callback).
+
+        This method can be called externally to reject the checkpoint.
+
+        Args:
+            reason: Reason for rejection
+            rejecter: Optional identifier for the rejecter
+        """
+        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+            self._symphony_bridge.reject_gate_checkpoint(
+                checkpoint_id=self._checkpoint_id,
+                reason=reason,
+                rejecter=rejecter,
+            )
+
+        self._approval_received = False
+
+    def add_check(
+        self,
+        name: str,
+        command: Union[str, list[str]],
+        timeout_seconds: Optional[int] = None,
+        required: bool = True,
+        enabled: bool = True,
+    ) -> None:
+        """Add a check to the wrapped gate."""
+        self._wrapped_gate.add_check(
+            name=name,
+            command=command,
+            timeout_seconds=timeout_seconds,
+            required=required,
+            enabled=enabled,
+        )
+
+    def remove_check(self, name: str) -> bool:
+        """Remove a check from the wrapped gate."""
+        return self._wrapped_gate.remove_check(name)
+
+    def enable_check(self, name: str) -> bool:
+        """Enable a check in the wrapped gate."""
+        return self._wrapped_gate.enable_check(name)
+
+    def disable_check(self, name: str) -> bool:
+        """Disable a check in the wrapped gate."""
+        return self._wrapped_gate.disable_check(name)
+
+    @property
+    def check_names(self) -> list[str]:
+        """Get list of check names from wrapped gate."""
+        return self._wrapped_gate.check_names
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return (
+            f"SymphonyCheckpointGate("
+            f"wrapped_gate={self._wrapped_gate.gate_name}, "
+            f"checkpoint={self._checkpoint_name}, "
+            f"symphony_enabled={self.is_symphony_enabled}, "
+            f"require_approval={self._require_approval})"
+        )
 
 
 @dataclass

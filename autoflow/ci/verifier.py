@@ -445,7 +445,10 @@ class CIVerifier:
         self._active_verifications: dict[str, VerificationResult] = {}
 
         # Register default or provided checks
-        for check in checks or DEFAULT_CHECKS:
+        # Empty list [] means no checks, None means load defaults
+        if checks is None:
+            checks = DEFAULT_CHECKS
+        for check in checks:
             self._checks[check.name] = check
 
     @property

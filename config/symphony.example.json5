@@ -1,0 +1,78 @@
+{
+  // ===========================================
+  // Symphony Multi-Agent Framework Configuration
+  // ===========================================
+  // Copy this file to symphony.json5 and customize
+  // for your environment.
+  //
+  // Symphony is an optional multi-agent orchestration framework
+  // that can coordinate multiple AI agents on complex tasks.
+  // ===========================================
+
+  // Enable Symphony integration
+  // Set to true to enable Symphony multi-agent orchestration
+  enabled: false,
+
+  // Symphony API endpoint
+  // URL where the Symphony API server is running
+  api_url: "http://localhost:8080",
+
+  // Agent configuration
+  agent: {
+    // Command to invoke Symphony CLI
+    command: "symphony",
+
+    // Default arguments for Symphony agent execution
+    args: ["agent", "run"],
+
+    // Default execution timeout in seconds
+    timeout_seconds: 300,
+
+    // Runtime type for agent execution
+    // "claude" - Use Claude runtime (default)
+    // "generic" - Use generic agent runtime
+    runtime: "claude",
+  },
+
+  // Workflow configuration
+  workflows: {
+    // Directory for Symphony workflow definitions
+    // Path can be relative to project root or absolute
+    workflow_dir: ".autoflow/symphony/workflows",
+
+    // Directory for workflow checkpoints
+    // Used for state management and resume capability
+    checkpoint_dir: ".autoflow/symphony/checkpoints",
+
+    // List of enabled workflow IDs
+    // Empty list means all workflows are available
+    enabled_workflows: [
+      // "code-review",
+      // "multi-agent-debug",
+      // "distributed-testing",
+    ],
+
+    // Automatically resume interrupted workflows
+    // When true, workflows can be resumed from checkpoints
+    auto_resume: true,
+  },
+
+  // Checkpoint and state management
+  checkpoints: {
+    // Enable checkpoint integration
+    // When true, Symphony creates checkpoints for state recovery
+    enabled: true,
+
+    // Sync checkpoints with review gates
+    // When true, checkpoints are created at review gate boundaries
+    sync_with_review_gates: true,
+
+    // Checkpoint interval in seconds
+    // How often to create automatic checkpoints during execution
+    checkpoint_interval_seconds: 60,
+
+    // Maximum number of checkpoints to retain
+    // Older checkpoints are automatically cleaned up
+    max_checkpoints: 10,
+  },
+}
