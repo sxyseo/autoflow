@@ -1,0 +1,3 @@
+{"at": "20260307T131208Z", "type": "task.status_updated", "payload": {"task": "T1", "status": "todo"}}
+{"at": "20260307T131215Z", "type": "worktree.created", "payload": {"path": "/Users/abel/dev/autoflow/.autoflow/worktrees/tasks/openclaw-autonomy", "branch": "codex/openclaw-autonomy", "base_branch": "main"}}
+{"at": "20260307T131215Z", "type": "run.created", "payload": {"run": "20260307T131215Z-spec-writer-openclaw-autonomy-t1", "task": "T1", "role": "spec-writer"}}
