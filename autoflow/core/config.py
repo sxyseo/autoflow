@@ -99,6 +99,13 @@ class CIConfig(BaseModel):
     require_all: bool = True
 
 
+class ParallelConfig(BaseModel):
+    """Parallel execution configuration."""
+
+    enabled: bool = False
+    max_concurrent_tasks: int = 3
+    timeout_seconds: int = 300
+
 class TeamMemberConfig(BaseModel):
     """Configuration for a team member."""
 
@@ -130,6 +137,7 @@ class Config(BaseModel):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
     collaboration: CollaborationConfig = Field(default_factory=CollaborationConfig)
     state_dir: str = ".autoflow"
 
