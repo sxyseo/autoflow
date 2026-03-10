@@ -8,10 +8,27 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import run_cmd
+from autoflow.utils.time_helpers import now_stamp
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,12 +60,13 @@ VALID_TASK_STATUSES = {
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
 
 
-def now_utc() -> datetime:
-    return datetime.now(UTC)
-
-
-def now_stamp() -> str:
-    return now_utc().strftime("%Y%m%dT%H%M%SZ")
+# Duplicate functions - now using autoflow.utils.time_helpers.now_stamp()
+# def now_utc() -> datetime:
+#     return datetime.now(UTC)
+#
+#
+# def now_stamp() -> str:
+#     return now_utc().strftime("%Y%m%dT%H%M%SZ")
 
 
 def slugify(value: str) -> str:
@@ -124,18 +142,19 @@ def ensure_state() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def run_cmd(
-    args: list[str],
-    cwd: Path | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        cwd=cwd or ROOT,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+# Duplicate function - now using autoflow.utils.run_cmd()
+# def run_cmd(
+#     args: list[str],
+#     cwd: Path | None = None,
+#     check: bool = True,
+# ) -> subprocess.CompletedProcess[str]:
+#     return subprocess.run(
+#         args,
+#         cwd=cwd or ROOT,
+#         check=check,
+#         capture_output=True,
+#         text=True,
+#     )
 
 
 @dataclass
@@ -864,10 +883,10 @@ def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_stat
 
 def detect_base_branch() -> str:
     for branch in ["main", "master"]:
-        result = run_cmd(["git", "rev-parse", "--verify", branch], check=False)
+        result = run_cmd(["git", "rev-parse", "--verify", branch], cwd=ROOT, check=False)
         if result.returncode == 0:
             return branch
-    current = run_cmd(["git", "branch", "--show-current"]).stdout.strip()
+    current = run_cmd(["git", "branch", "--show-current"], cwd=ROOT).stdout.strip()
     return current or "main"
 
 
@@ -894,7 +913,7 @@ def discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
     executable = shutil.which(command)
     if not executable:
         return None
-    help_result = run_cmd([command, "--help"], check=False)
+    help_result = run_cmd([command, "--help"], cwd=ROOT, check=False)
     help_text = (help_result.stdout or "") + (help_result.stderr or "")
     capabilities = {
         "resume": "resume" in help_text.lower() or "--continue" in help_text,
@@ -2063,12 +2082,13 @@ def create_worktree(args: argparse.Namespace) -> None:
 
     branch_exists = run_cmd(
         ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+        cwd=ROOT,
         check=False,
     ).returncode == 0
     if branch_exists:
-        run_cmd(["git", "worktree", "add", str(path), branch])
+        run_cmd(["git", "worktree", "add", str(path), branch], cwd=ROOT)
     else:
-        run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch])
+        run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch], cwd=ROOT)
 
     metadata["worktree"] = {
         "path": str(path),
@@ -2084,9 +2104,9 @@ def remove_worktree(args: argparse.Namespace) -> None:
     path = worktree_path(args.spec)
     branch = worktree_branch(args.spec)
     if path.exists():
-        run_cmd(["git", "worktree", "remove", "--force", str(path)])
+        run_cmd(["git", "worktree", "remove", "--force", str(path)], cwd=ROOT)
     if args.delete_branch:
-        run_cmd(["git", "branch", "-D", branch], check=False)
+        run_cmd(["git", "branch", "-D", branch], cwd=ROOT, check=False)
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
     metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
     write_json(spec_files(args.spec)["metadata"], metadata)
