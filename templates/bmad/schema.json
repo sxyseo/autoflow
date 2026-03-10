@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BMAD Checkpoint Configuration",
+  "description": "Schema for BMAD (Breakdown, Make, and Debug) checkpoint configuration files. Defines role transition checkpoints and required artifacts.",
+  "type": "object",
+  "properties": {
+    "checkpoints": {
+      "type": "array",
+      "description": "List of checkpoint definitions for role transitions.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from_role": {
+            "type": "string",
+            "description": "Source role for the transition (e.g., 'writer', 'reviewer')."
+          },
+          "to_role": {
+            "type": "string",
+            "description": "Destination role for the transition (e.g., 'reviewer', 'integrator')."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of this checkpoint and its purpose."
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this checkpoint must pass for handoff to proceed.",
+            "default": true
+          },
+          "artifacts": {
+            "type": "array",
+            "description": "List of artifact specifications required for this transition.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Unique identifier for this artifact."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["file", "directory", "documentation", "test", "config", "custom"],
+                  "description": "Type of artifact."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Relative path to the artifact."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Whether this artifact must be present.",
+                  "default": true
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Optional description of the artifact."
+                },
+                "content_check": {
+                  "type": "string",
+                  "enum": ["not_empty", "valid_json", "valid_yaml"],
+                  "description": "Optional content validation rule."
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "Additional artifact metadata.",
+                  "additionalProperties": true
+                }
+              },
+              "required": ["name", "type", "path"]
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional checkpoint metadata for tracking and debugging.",
+            "additionalProperties": true
+          }
+        },
+        "required": ["from_role", "to_role"]
+      }
+    }
+  },
+  "required": ["checkpoints"]
+}

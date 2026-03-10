@@ -143,6 +143,32 @@ class IntakeConfig(BaseModel):
     default_priority: str = "no_priority"
     default_category: Optional[str] = None
 
+class ParallelConfig(BaseModel):
+    """Parallel execution configuration."""
+
+    enabled: bool = False
+    max_concurrent_tasks: int = 3
+    timeout_seconds: int = 300
+
+class TeamMemberConfig(BaseModel):
+    """Configuration for a team member."""
+
+    name: str
+    email: str
+    role: str = "member"  # "owner", "admin", "member", "viewer"
+    permissions: list[str] = Field(default_factory=lambda: ["read", "write"])
+
+
+class CollaborationConfig(BaseModel):
+    """Team collaboration settings."""
+
+    enabled: bool = False
+    team_name: str = ""
+    members: list[TeamMemberConfig] = Field(default_factory=list)
+    require_approval_for_deploy: bool = True
+    allow_sharing: bool = False
+    shared_workspaces: list[str] = Field(default_factory=list)
+
 
 class Config(BaseModel):
     """
@@ -156,6 +182,8 @@ class Config(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
     intake: IntakeConfig = Field(default_factory=IntakeConfig)
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
+    collaboration: CollaborationConfig = Field(default_factory=CollaborationConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")

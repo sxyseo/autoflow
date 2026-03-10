@@ -85,6 +85,9 @@ class HealingConfig:
         log_healing_actions: Whether to log all healing actions for transparency.
         thresholds: List of threshold configurations for different metrics.
         project_root: Root directory of the project.
+        learning_enabled: Whether recovery learning is enabled.
+        min_learning_samples: Minimum samples before trusting learned strategies.
+        learning_confidence_threshold: Minimum confidence for using learned strategies.
     """
 
     enabled: bool = True
@@ -94,6 +97,9 @@ class HealingConfig:
     log_healing_actions: bool = True
     thresholds: list[HealingThreshold] | None = None
     project_root: Path | None = None
+    learning_enabled: bool = True
+    min_learning_samples: int = 5
+    learning_confidence_threshold: float = 0.7
 
     def __post_init__(self) -> None:
         """Initialize default thresholds if not provided."""
@@ -172,6 +178,9 @@ class HealingConfig:
             if self.thresholds
             else None,
             "project_root": str(self.project_root) if self.project_root else None,
+            "learning_enabled": self.learning_enabled,
+            "min_learning_samples": self.min_learning_samples,
+            "learning_confidence_threshold": self.learning_confidence_threshold,
         }
 
     @classmethod
@@ -206,6 +215,9 @@ class HealingConfig:
             log_healing_actions=data.get("log_healing_actions", True),
             thresholds=thresholds,
             project_root=project_root,
+            learning_enabled=data.get("learning_enabled", True),
+            min_learning_samples=data.get("min_learning_samples", 5),
+            learning_confidence_threshold=data.get("learning_confidence_threshold", 0.7),
         )
 
     def validate(self) -> list[str]:
@@ -221,6 +233,12 @@ class HealingConfig:
 
         if self.healing_timeout < 0:
             errors.append("healing_timeout cannot be negative")
+
+        if self.min_learning_samples < 1:
+            errors.append("min_learning_samples must be at least 1")
+
+        if not 0 <= self.learning_confidence_threshold <= 1:
+            errors.append("learning_confidence_threshold must be between 0 and 1")
 
         if self.thresholds:
             for threshold in self.thresholds:

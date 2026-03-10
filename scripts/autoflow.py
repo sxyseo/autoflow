@@ -64,6 +64,52 @@ def slugify(value: str) -> str:
     return slug or "spec"
 
 
+def validate_slug_safe(slug: str) -> bool:
+    """Validate that a slug does not contain path traversal patterns.
+
+    Returns True if the slug is safe, False if it contains dangerous patterns
+    that could lead to path traversal attacks.
+
+    Checks for:
+    - '..' sequences (parent directory)
+    - './' sequences (current directory)
+    - Absolute paths starting with '/'
+    - Backslash separators (Windows paths)
+    - Null bytes
+
+    Args:
+        slug: The slug string to validate
+
+    Returns:
+        bool: True if safe, False if dangerous
+    """
+    # Check for null bytes
+    if "\0" in slug:
+        return False
+
+    # Check for parent directory patterns
+    if ".." in slug:
+        return False
+
+    # Check for current directory patterns
+    if "./" in slug:
+        return False
+
+    # Check for absolute paths
+    if slug.startswith("/"):
+        return False
+
+    # Check for Windows path separators
+    if "\\" in slug:
+        return False
+
+    # Check for drive letters (Windows absolute paths like C:)
+    if len(slug) >= 2 and slug[1] == ":":
+        return False
+
+    return True
+
+
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -179,14 +225,20 @@ def load_agents() -> dict[str, AgentSpec]:
 
 
 def spec_dir(slug: str) -> Path:
+    if not validate_slug_safe(slug):
+        raise SystemExit(f"invalid spec slug: {slug}")
     return SPECS_DIR / slug
 
 
 def task_file(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return TASKS_DIR / f"{spec_slug}.json"
 
 
 def worktree_path(spec_slug: str) -> Path:
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
     return WORKTREES_DIR / spec_slug
 
 
@@ -1825,6 +1877,49 @@ def complete_run(args: argparse.Namespace) -> None:
     )
 
 
+def cancel_run(args: argparse.Namespace) -> None:
+    run_dir = RUNS_DIR / args.run
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {args.run}")
+    metadata = read_json(metadata_path)
+    if metadata["status"] == "completed":
+        raise SystemExit(f"cannot cancel run with status {metadata['status']}")
+    reason = args.reason or f"Run {args.run} cancelled."
+    metadata["status"] = "cancelled"
+    metadata["cancelled_at"] = now_stamp()
+    write_json(metadata_path, metadata)
+    (run_dir / "summary.md").write_text(f"# Run Summary\n\n{reason}\n", encoding="utf-8")
+
+    tasks = load_tasks(metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
+    task["status"] = "todo"
+    task.setdefault("notes", []).append({"at": now_stamp(), "note": reason})
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    record_event(
+        metadata["spec"],
+        "run.cancelled",
+        {
+            "run": metadata["id"],
+            "task": metadata["task"],
+            "role": metadata["role"],
+            "reason": reason,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "run": metadata["id"],
+                "task_status": task["status"],
+                "cancelled_at": metadata["cancelled_at"],
+                "reason": reason,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
 def show_task_history(args: argparse.Namespace) -> None:
     print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
 
@@ -2091,6 +2186,23 @@ def show_status(_: argparse.Namespace) -> None:
     print(json.dumps(status, indent=2, ensure_ascii=True))
 
 
+def list_runs(args: argparse.Namespace) -> None:
+    ensure_state()
+    runs = run_metadata_iter()
+
+    # Apply filters if provided
+    if hasattr(args, 'spec') and args.spec:
+        runs = [r for r in runs if r.get("spec") == args.spec]
+    if hasattr(args, 'status') and args.status:
+        runs = [r for r in runs if r.get("status") == args.status]
+    if hasattr(args, 'role') and args.role:
+        runs = [r for r in runs if r.get("role") == args.role]
+    if hasattr(args, 'agent') and args.agent:
+        runs = [r for r in runs if r.get("agent") == args.agent]
+
+    print(json.dumps(runs, indent=2, ensure_ascii=True))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2240,6 +2352,11 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
 
+    cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
+    cancel_cmd.add_argument("--run", required=True)
+    cancel_cmd.add_argument("--reason", default="")
+    cancel_cmd.set_defaults(func=cancel_run)
+
     history_cmd = sub.add_parser("task-history", help="show run history for a task")
     history_cmd.add_argument("--spec", required=True)
     history_cmd.add_argument("--task", required=True)
@@ -2256,6 +2373,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_cmd = sub.add_parser("status", help="print current specs and runs")
     status_cmd.set_defaults(func=show_status)
+
+    list_runs_cmd = sub.add_parser("list-runs", help="list runs with optional filtering")
+    list_runs_cmd.add_argument("--spec", default="", help="filter by spec slug")
+    list_runs_cmd.add_argument("--status", default="", help="filter by run status")
+    list_runs_cmd.add_argument("--role", default="", help="filter by role")
+    list_runs_cmd.add_argument("--agent", default="", help="filter by agent name")
+    list_runs_cmd.set_defaults(func=list_runs)
 
     return parser
 

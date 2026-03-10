@@ -24,6 +24,8 @@ from autoflow.core.state import (
     RunStatus,
     Spec,
     Memory,
+    ParallelTaskGroup,
+    ParallelGroupStatus,
     read_json,
     write_json,
 )
@@ -55,6 +57,8 @@ __all__ = [
     "RunStatus",
     "Spec",
     "Memory",
+    "ParallelTaskGroup",
+    "ParallelGroupStatus",
     "read_json",
     "write_json",
     # Orchestrator
