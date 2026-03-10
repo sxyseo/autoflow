@@ -434,6 +434,49 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(catalog["agents"]["codex"]["resume"]["subcommand"], "resume")
         self.assertEqual(result["total_agents"], 4)
 
+    def test_cache_hit_on_repeated_build_prompt(self) -> None:
+        self.create_spec("cache-spec")
+        self.autoflow.append_memory("global", "global memory", title="Global")
+        self.autoflow.append_memory("spec", "spec memory", spec_slug="cache-spec", title="Spec")
+        self.autoflow.write_fix_request(
+            "cache-spec",
+            "T1",
+            "Reviewer requested changes.",
+            "needs_changes",
+            findings=[
+                {
+                    "id": "F-1",
+                    "title": "Test finding",
+                    "body": "Test finding body.",
+                    "file": "tests/test_phase4d.py",
+                    "line": 1,
+                    "severity": "low",
+                    "category": "tests",
+                }
+            ],
+        )
+        agent = self.autoflow.AgentSpec(
+            name="review-agent",
+            command="claude",
+            args=[],
+            model="claude-sonnet-4-6",
+            memory_scopes=["spec"],
+        )
+        # Clear the cache to ensure clean state
+        self.autoflow._prompt_context_cache.clear()
+        # First call to build_prompt - should populate cache
+        first_prompt = self.autoflow.build_prompt("cache-spec", "reviewer", "T1", agent)
+        # Verify cache entries were created for memory_context, strategy_context, and fix_request_data
+        cache_keys_after_first = list(self.autoflow._prompt_context_cache.keys())
+        self.assertGreater(len(cache_keys_after_first), 0, "Cache should be populated after first build_prompt call")
+        # Second call with same parameters - should hit cache
+        second_prompt = self.autoflow.build_prompt("cache-spec", "reviewer", "T1", agent)
+        # Verify both prompts are identical
+        self.assertEqual(first_prompt, second_prompt, "Repeated build_prompt calls should return identical prompts")
+        # Verify cache still has entries (was not cleared)
+        cache_keys_after_second = list(self.autoflow._prompt_context_cache.keys())
+        self.assertEqual(len(cache_keys_after_second), len(cache_keys_after_first), "Cache entry count should remain the same")
+
 
 if __name__ == "__main__":
     unittest.main()
