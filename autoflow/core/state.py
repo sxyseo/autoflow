@@ -30,10 +30,78 @@ from pathlib import Path
 from typing import Any, Optional, TypeVar, Union
 
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
+
+
+# === TypedDict Definitions for Core State Structures ===
+# These provide type hints for dictionary representations of the models
+
+
+class TaskData(TypedDict, total=False):
+    """
+    TypedDict for task data structure.
+
+    Represents the dictionary form of a Task, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    description: str
+    status: str  # TaskStatus value as string
+    priority: int
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    assigned_agent: str | None
+    labels: list[str]
+    dependencies: list[str]
+    metadata: dict[str, Any]
+
+
+class RunData(TypedDict, total=False):
+    """
+    TypedDict for run data structure.
+
+    Represents the dictionary form of a Run, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    task_id: str | None
+    agent: str
+    status: str  # RunStatus value as string
+    started_at: str  # ISO format datetime
+    completed_at: str | None  # ISO format datetime
+    duration_seconds: float | None
+    workdir: str
+    command: str | None
+    exit_code: int | None
+    output: str | None
+    error: str | None
+    metadata: dict[str, Any]
+
+
+class SpecData(TypedDict, total=False):
+    """
+    TypedDict for specification data structure.
+
+    Represents the dictionary form of a Spec, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    content: str
+    version: str
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    author: str | None
+    tags: list[str]
+    metadata: dict[str, Any]
 
 
 class TaskStatus(str, Enum):

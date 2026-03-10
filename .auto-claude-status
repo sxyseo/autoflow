@@ -1,43 +1,25 @@
 {
   "active": true,
-<<<<<<< HEAD
-  "spec": "016-performance-analytics-dashboard",
-  "state": "building",
+  "spec": "036-improve-type-safety-and-reduce-any-usage",
+  "state": "planning",
   "subtasks": {
-    "completed": 19,
-    "total": 22,
-=======
-  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
-  "state": "building",
-  "subtasks": {
-    "completed": 17,
-    "total": 19,
->>>>>>> origin/main
+    "completed": 0,
+    "total": 0,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-<<<<<<< HEAD
-    "current": "Testing & Integration",
-=======
-    "current": "Cleanup and Verify",
->>>>>>> origin/main
+    "current": "Add Typed Structures",
     "id": null,
-    "total": 4
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 17,
-<<<<<<< HEAD
-    "started_at": "2026-03-08T21:43:58.163245"
+    "number": 2,
+    "started_at": "2026-03-10T21:16:24.370879"
   },
-  "last_update": "2026-03-08T22:23:05.180997"
-=======
-    "started_at": "2026-03-07T22:09:26.347246"
-  },
-  "last_update": "2026-03-07T22:33:39.401879"
->>>>>>> origin/main
+  "last_update": "2026-03-10T21:18:52.958401"
 }
