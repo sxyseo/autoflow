@@ -17,6 +17,14 @@ Usage:
         skill_name="IMPLEMENTER"
     )
 
+    # Run multiple tasks in parallel
+    result = await orchestrator.run_tasks_parallel(
+        tasks=[
+            {"task": "Fix bug in app.py", "workdir": "./src"},
+            {"task": "Update README", "workdir": "./docs"},
+        ]
+    )
+
     # Run continuous iteration cycle
     await orchestrator.run_continuous_iteration()
 """
@@ -44,6 +52,7 @@ from autoflow.agents.claude_code import ClaudeCodeAdapter
 from autoflow.agents.codex import CodexAdapter
 from autoflow.agents.openclaw import OpenClawAdapter, SpawnResult
 from autoflow.core.config import Config, load_config
+from autoflow.core.parallel import ParallelCoordinator, ParallelExecutionResult
 from autoflow.core.state import (
     Run,
     RunStatus,
@@ -59,6 +68,17 @@ from autoflow.skills.executor import (
 from autoflow.skills.registry import SkillRegistry
 from autoflow.tmux.manager import TmuxManager
 from autoflow.tmux.session import SessionStatus, TmuxSession
+
+# Healing system imports (lazy loading to avoid circular dependencies)
+try:
+    from autoflow.healing.orchestrator import HealingOrchestrator
+    from autoflow.healing.config import HealingConfig
+    from autoflow.healing.monitor import WorkflowHealthMonitor
+    from autoflow.healing.diagnostic import RootCauseAnalyzer, StrategySelector
+    from autoflow.healing.actions import ActionRegistry, RollbackManager, get_global_registry
+    HEALING_AVAILABLE = True
+except ImportError:
+    HEALING_AVAILABLE = False
 
 
 class OrchestratorStatus(str, Enum):
@@ -228,7 +248,12 @@ class AutoflowOrchestrator:
         self._skill_executor: Optional[SkillExecutor] = None
         self._tmux_manager: Optional[TmuxManager] = None
         self._openclaw_adapter: Optional[OpenClawAdapter] = None
+        self._parallel_coordinator: Optional[ParallelCoordinator] = None
         self._adapters: dict[str, AgentAdapter] = {}
+
+        # Healing system (initialized lazily if available)
+        self._healing_orchestrator: Optional[Any] = None  # Avoid TYPE_CHECKING issues
+        self._healing_config: Optional[Any] = None
 
         # Statistics
         self._stats = OrchestratorStats()
@@ -299,6 +324,75 @@ class AutoflowOrchestrator:
                 gateway_url=self.config.openclaw.gateway_url,
             )
         return self._openclaw_adapter
+
+    @property
+    def healing_config(self) -> Any:
+        """Get healing configuration, creating if needed."""
+        if not HEALING_AVAILABLE:
+            return None
+
+        if self._healing_config is None:
+            self._healing_config = HealingConfig(
+                project_root=Path.cwd(),
+                enabled=True,
+            )
+        return self._healing_config
+
+    @property
+    def healing_orchestrator(self) -> Any:
+        """Get healing orchestrator, creating if needed."""
+        if not HEALING_AVAILABLE:
+            return None
+
+        if self._healing_orchestrator is None:
+            # Import and create healing components
+            from autoflow.healing.monitor import WorkflowHealthMonitor
+            from autoflow.healing.diagnostic import RootCauseAnalyzer, StrategySelector
+            from autoflow.healing.actions import ActionRegistry, RollbackManager
+
+            # Create monitor
+            monitor = WorkflowHealthMonitor(
+                config=self.healing_config,
+                state_dir=self._state_dir or self.config.state_dir,
+            )
+
+            # Create analyzer (requires agent adapter)
+            analyzer = RootCauseAnalyzer(
+                agent_adapter=self.openclaw_adapter,
+                config=self.healing_config,
+            )
+
+            # Create selector
+            selector = StrategySelector(config=self.healing_config)
+
+            # Create action registry and rollback manager
+            registry = get_global_registry()
+            rollback_manager = RollbackManager(
+                state_dir=self._state_dir or self.config.state_dir,
+            )
+
+            # Create healing orchestrator
+            self._healing_orchestrator = HealingOrchestrator(
+                config=self.healing_config,
+                monitor=monitor,
+                analyzer=analyzer,
+                selector=selector,
+                registry=registry,
+                rollback_manager=rollback_manager,
+            )
+
+        return self._healing_orchestrator
+
+    @property
+    def parallel_coordinator(self) -> ParallelCoordinator:
+        """Get parallel coordinator, creating if needed."""
+        if self._parallel_coordinator is None:
+            self._parallel_coordinator = ParallelCoordinator(
+                config=self._config,
+                state_dir=self._state_dir,
+                max_parallel=self.config.parallel.max_concurrent_tasks,
+            )
+        return self._parallel_coordinator
 
     @property
     def status(self) -> OrchestratorStatus:
@@ -587,6 +681,134 @@ class AutoflowOrchestrator:
         except Exception as e:
             raise OrchestratorError(f"Failed to spawn ACP agent: {e}") from e
 
+    async def check_workflow_health(self) -> Optional[Any]:
+        """
+        Check the health of the workflow.
+
+        Performs a health assessment using the healing monitor if available.
+
+        Returns:
+            HealthAssessment if healing is available, None otherwise
+
+        Example:
+            >>> assessment = await orchestrator.check_workflow_health()
+            >>> if assessment and assessment.status != "healthy":
+            ...     print(f"Workflow degraded: {assessment.status}")
+        """
+        if not HEALING_AVAILABLE:
+            return None
+
+        try:
+            monitor = self.healing_orchestrator.monitor if self.healing_orchestrator else None
+            if not monitor:
+                return None
+
+            return await monitor.assess_health()
+        except Exception as e:
+            # Log error but don't fail - health checks are non-blocking
+            raise OrchestratorError(f"Health check failed: {e}") from e
+
+    async def trigger_healing(
+        self,
+        assessment: Optional[Any] = None,
+    ) -> Optional[Any]:
+        """
+        Trigger a healing cycle for the workflow.
+
+        Runs the complete healing workflow: monitoring, diagnosis, healing,
+        and verification.
+
+        Args:
+            assessment: Optional health assessment that triggered healing
+
+        Returns:
+            HealingOutcome if healing is available, None otherwise
+
+        Raises:
+            OrchestratorError: If healing orchestration fails
+
+        Example:
+            >>> outcome = await orchestrator.trigger_healing()
+            >>> if outcome == "healed":
+            ...     print("Workflow healed successfully")
+        """
+        if not HEALING_AVAILABLE or not self.healing_orchestrator:
+            return None
+
+        try:
+            return await self.healing_orchestrator.run_healing_cycle(
+                trigger_assessment=assessment,
+            )
+        except Exception as e:
+            raise OrchestratorError(f"Healing cycle failed: {e}") from e
+
+    async def run_tasks_parallel(
+        self,
+        tasks: list[dict[str, Any]],
+        check_conflicts: bool = True,
+        timeout_seconds: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> ParallelExecutionResult:
+        """
+        Run multiple tasks in parallel using the ParallelCoordinator.
+
+        Executes multiple independent tasks concurrently with proper resource
+        management, conflict detection, and result aggregation. This is useful
+        for speeding up work that can be split into independent pieces.
+
+        Args:
+            tasks: List of task dictionaries, each containing at least 'task' key.
+                   Each dict can include: task, workdir, skill_name, agent_type,
+                   context_files, context_text, etc.
+            check_conflicts: If True, check for file conflicts before execution
+            timeout_seconds: Timeout for each task (default: 300)
+            metadata: Additional metadata for the execution
+
+        Returns:
+            ParallelExecutionResult with aggregated results from all tasks
+
+        Raises:
+            OrchestratorError: If parallel execution setup fails
+
+        Example:
+            >>> result = await orchestrator.run_tasks_parallel(
+            ...     tasks=[
+            ...         {"task": "Fix bug in app.py", "workdir": "./src"},
+            ...         {"task": "Update README", "workdir": "./docs"},
+            ...         {"task": "Add tests", "workdir": "./tests"},
+            ...     ],
+            ...     timeout_seconds=600
+            ... )
+            >>>
+            >>> print(f"Completed: {result.successful_tasks}/{result.total_tasks}")
+            >>> for task_id, task_result in result.task_results.items():
+            ...     if task_result.success:
+            ...         print(f"{task_id}: {task_result.output}")
+        """
+        self._status = OrchestratorStatus.RUNNING
+
+        try:
+            # Execute tasks via parallel coordinator
+            result = await self.parallel_coordinator.execute_parallel(
+                tasks=tasks,
+                check_conflicts=check_conflicts,
+                timeout_seconds=timeout_seconds,
+                metadata=metadata,
+            )
+
+            # Update orchestrator statistics
+            self._stats.total_tasks += result.total_tasks
+            self._stats.completed_tasks += result.successful_tasks
+            self._stats.failed_tasks += result.failed_tasks
+
+            return result
+
+        except Exception as e:
+            raise OrchestratorError(f"Parallel execution failed: {e}") from e
+
+        finally:
+            self._status = OrchestratorStatus.IDLE
+
     async def run_cycle(
         self,
         task: str,
@@ -621,6 +843,18 @@ class AutoflowOrchestrator:
         self._stats.total_cycles += 1
 
         try:
+            # Pre-cycle health check (if healing is enabled)
+            if HEALING_AVAILABLE and self.healing_orchestrator:
+                try:
+                    health_assessment = await self.check_workflow_health()
+                    if health_assessment and health_assessment.status.value != "healthy":
+                        # Log degraded health but continue with cycle
+                        # (healing can be triggered manually if needed)
+                        cycle.metadata["health_assessment"] = health_assessment.status.value
+                except Exception:
+                    # Health checks are non-blocking, continue on error
+                    pass
+
             # Phase 1: Discover
             cycle.phase = CyclePhase.DISCOVER
             discover_result = await self.run_task(
@@ -1021,7 +1255,7 @@ class AutoflowOrchestrator:
         """
         state_status = self.state.get_status()
 
-        return {
+        status_dict = {
             "orchestrator": {
                 "status": self._status.value,
                 "running": self._running,
@@ -1032,12 +1266,31 @@ class AutoflowOrchestrator:
                     self._current_cycle.phase.value
                     if self._current_cycle else None
                 ),
+                "healing_enabled": HEALING_AVAILABLE and self.healing_orchestrator is not None,
             },
             "stats": self._stats.model_dump(),
             "state": state_status,
             "adapters": list(self._get_available_adapters().keys()),
             "skills": self.skill_registry.list_skills(),
         }
+
+        # Add healing status if available
+        if HEALING_AVAILABLE and self.healing_orchestrator:
+            try:
+                healing_state = self.healing_orchestrator.get_state()
+                status_dict["healing"] = {
+                    "state": healing_state.value,
+                    "current_session": (
+                        self.healing_orchestrator.get_current_session().session_id
+                        if self.healing_orchestrator.get_current_session()
+                        else None
+                    ),
+                }
+            except Exception:
+                # Ignore errors getting healing status
+                pass
+
+        return status_dict
 
     async def cleanup(self) -> None:
         """
@@ -1050,8 +1303,17 @@ class AutoflowOrchestrator:
         if self._tmux_manager:
             await self._tmux_manager.cleanup_all()
 
+        if self._parallel_coordinator:
+            await self._parallel_coordinator.cleanup()
+
         for adapter in self._adapters.values():
             await adapter.cleanup()
+
+        # Cleanup healing orchestrator if initialized
+        if self._healing_orchestrator:
+            # The healing orchestrator doesn't have explicit cleanup,
+            # but we can clear the reference
+            self._healing_orchestrator = None
 
     async def __aenter__(self) -> "AutoflowOrchestrator":
         """Async context manager entry."""

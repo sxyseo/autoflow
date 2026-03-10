@@ -1,25 +1,43 @@
 {
   "active": true,
-  "spec": "032-add-integrity-verification-for-run-artifacts-and-p",
+<<<<<<< HEAD
+  "spec": "016-performance-analytics-dashboard",
   "state": "building",
   "subtasks": {
-    "completed": 13,
-    "total": 14,
+    "completed": 19,
+    "total": 22,
+=======
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
+  "state": "building",
+  "subtasks": {
+    "completed": 17,
+    "total": 19,
+>>>>>>> origin/main
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing and Verification",
+<<<<<<< HEAD
+    "current": "Testing & Integration",
+=======
+    "current": "Cleanup and Verify",
+>>>>>>> origin/main
     "id": null,
-    "total": 5
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 15,
-    "started_at": "2026-03-09T14:15:39.249483"
+    "number": 17,
+<<<<<<< HEAD
+    "started_at": "2026-03-08T21:43:58.163245"
   },
-  "last_update": "2026-03-09T14:39:23.981598"
+  "last_update": "2026-03-08T22:23:05.180997"
+=======
+    "started_at": "2026-03-07T22:09:26.347246"
+  },
+  "last_update": "2026-03-07T22:33:39.401879"
+>>>>>>> origin/main
 }

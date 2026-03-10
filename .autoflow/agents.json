@@ -5,37 +5,31 @@
   },
   "agents": {
     "codex-spec": {
-      "protocol": "cli",
       "command": "codex",
       "args": [
         "--full-auto"
       ],
-      "model_profile": "implementation",
-      "memory_scopes": [
-        "global",
-        "spec"
-      ],
-      "resume": {
-        "mode": "subcommand",
-        "subcommand": "resume",
-        "args": [
-          "--last"
-        ]
-      },
       "supports_write": true,
       "supports_background": true
     },
     "codex-impl": {
-      "protocol": "cli",
       "command": "codex",
       "args": [
         "--full-auto"
       ],
-      "model_profile": "implementation",
-      "memory_scopes": [
-        "global",
-        "spec"
-      ],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "claude-review": {
+      "command": "claude",
+      "args": [],
+      "supports_write": true,
+      "supports_background": true
+    },
+    "codex": {
+      "protocol": "cli",
+      "command": "codex",
+      "args": [],
       "resume": {
         "mode": "subcommand",
         "subcommand": "resume",
@@ -43,39 +37,23 @@
           "--last"
         ]
       },
-      "supports_write": true,
-      "supports_background": true
+      "memory_scopes": [
+        "spec"
+      ]
     },
-    "claude-review": {
+    "claude": {
       "protocol": "cli",
       "command": "claude",
       "args": [],
-      "model_profile": "review",
-      "tool_profile": "claude-review",
-      "memory_scopes": [
-        "spec"
-      ],
       "resume": {
         "mode": "args",
         "args": [
           "--continue"
         ]
       },
-      "supports_write": true,
-      "supports_background": true
-    },
-    "acp-example": {
-      "protocol": "acp",
-      "command": "acp-agent",
-      "args": [],
-      "transport": {
-        "type": "stdio",
-        "command": "acp-agent",
-        "args": [],
-        "prompt_mode": "argv"
-      },
-      "supports_write": true,
-      "supports_background": true
+      "memory_scopes": [
+        "spec"
+      ]
     }
   }
 }

@@ -14,6 +14,14 @@ __author__ = "Autoflow Team"
 # from autoflow.core.config import load_config
 # from autoflow.core.state import StateManager
 
+# Web dashboard components. Treat web dependencies as optional so CLI/control
+# plane modules can be imported in minimal environments.
+try:
+    from autoflow.web import app as web_app
+except ModuleNotFoundError:
+    web_app = None
+
 __all__ = [
     "__version__",
+    "web_app",
 ]

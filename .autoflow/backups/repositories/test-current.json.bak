@@ -1,0 +1,13 @@
+{
+  "id": "test-current",
+  "name": "Current Worktree",
+  "path": ".",
+  "branch": {
+    "default": "main",
+    "current": "main",
+    "protected": [
+      "main",
+      "master"
+    ]
+  }
+}

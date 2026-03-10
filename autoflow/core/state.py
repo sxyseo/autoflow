@@ -31,6 +31,8 @@ from typing import Any, Optional, TypeVar, Union
 
 from pydantic import BaseModel, Field
 
+from autoflow.core.sanitization import sanitize_dict
+
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
@@ -54,6 +56,16 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+
+
+class ParallelGroupStatus(str, Enum):
+    """Status of a parallel task group."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
     CANCELLED = "cancelled"
 
 
@@ -144,6 +156,24 @@ class Memory(BaseModel):
         return datetime.utcnow() > self.expires_at
 
 
+class ParallelTaskGroup(BaseModel):
+    """Represents a group of tasks to be executed in parallel."""
+
+    id: str
+    title: str
+    description: str = ""
+    status: ParallelGroupStatus = ParallelGroupStatus.PENDING
+    task_ids: list[str] = Field(default_factory=list)
+    max_parallel: int = 3  # Maximum number of parallel tasks
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def touch(self) -> None:
+        """Update the updated_at timestamp."""
+        self.updated_at = datetime.utcnow()
+
+
 class StateManager:
     """
     Manages persistent state for Autoflow.
@@ -151,9 +181,13 @@ class StateManager:
     Provides atomic file operations with crash safety using the
     write-to-temporary-and-rename pattern. State is organized into:
     - specs/: Specification documents
+    - specs_archive/: Archived specification documents
     - tasks/: Task definitions and state
     - runs/: Agent execution runs
     - memory/: Persistent memory/context
+    - workspaces/: Shared collaboration workspaces
+    - activities/: Activity feed and event tracking
+    - notifications/: User notifications and alerts
 
     All write operations are atomic - either they complete fully
     or leave the existing state unchanged.
@@ -171,9 +205,16 @@ class StateManager:
 
     # Subdirectories within state directory
     SPECS_DIR = "specs"
+    SPECS_ARCHIVE_DIR = "specs_archive"
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
+    REPOSITORIES_DIR = "repositories"
+    DEPENDENCIES_DIR = "dependencies"
+    PARALLEL_DIR = "parallel"
+    WORKSPACES_DIR = "workspaces"
+    ACTIVITIES_DIR = "activities"
+    NOTIFICATIONS_DIR = "notifications"
     BACKUP_DIR = "backups"
 
     def __init__(self, state_dir: Union[str, Path]):
@@ -193,6 +234,11 @@ class StateManager:
         return self.state_dir / self.SPECS_DIR
 
     @property
+    def archive_dir(self) -> Path:
+        """Path to specs archive directory."""
+        return self.state_dir / self.SPECS_ARCHIVE_DIR
+
+    @property
     def tasks_dir(self) -> Path:
         """Path to tasks directory."""
         return self.state_dir / self.TASKS_DIR
@@ -206,6 +252,36 @@ class StateManager:
     def memory_dir(self) -> Path:
         """Path to memory directory."""
         return self.state_dir / self.MEMORY_DIR
+
+    @property
+    def repositories_dir(self) -> Path:
+        """Path to repositories directory."""
+        return self.state_dir / self.REPOSITORIES_DIR
+
+    @property
+    def dependencies_dir(self) -> Path:
+        """Path to dependencies directory."""
+        return self.state_dir / self.DEPENDENCIES_DIR
+
+    @property
+    def parallel_dir(self) -> Path:
+        """Path to parallel groups directory."""
+        return self.state_dir / self.PARALLEL_DIR
+
+    @property
+    def workspaces_dir(self) -> Path:
+        """Path to workspaces directory."""
+        return self.state_dir / self.WORKSPACES_DIR
+
+    @property
+    def activities_dir(self) -> Path:
+        """Path to activities directory."""
+        return self.state_dir / self.ACTIVITIES_DIR
+
+    @property
+    def notifications_dir(self) -> Path:
+        """Path to notifications directory."""
+        return self.state_dir / self.NOTIFICATIONS_DIR
 
     def initialize(self) -> None:
         """
@@ -222,9 +298,16 @@ class StateManager:
         # Create main directories
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.specs_dir.mkdir(exist_ok=True)
+        self.archive_dir.mkdir(exist_ok=True)
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
+        self.repositories_dir.mkdir(exist_ok=True)
+        self.dependencies_dir.mkdir(exist_ok=True)
+        self.parallel_dir.mkdir(exist_ok=True)
+        self.workspaces_dir.mkdir(exist_ok=True)
+        self.activities_dir.mkdir(exist_ok=True)
+        self.notifications_dir.mkdir(exist_ok=True)
         self.backup_dir.mkdir(exist_ok=True)
 
     def _get_backup_path(self, file_path: Path) -> Path:
@@ -237,20 +320,32 @@ class StateManager:
         Returns:
             Path to the backup file
         """
-        relative = file_path.relative_to(self.state_dir)
+        # Resolve both paths to handle symlinks
+        resolved_file = file_path.resolve()
+        resolved_state_dir = self.state_dir.resolve()
+        relative = resolved_file.relative_to(resolved_state_dir)
         return self.backup_dir / f"{relative}.bak"
 
     def _create_backup(self, file_path: Path) -> Optional[Path]:
         """
         Create a backup of an existing file.
 
+        Only creates backups for files within the state directory.
+
         Args:
             file_path: Path to the file to backup
 
         Returns:
-            Path to the backup file, or None if file doesn't exist
+            Path to the backup file, or None if file doesn't exist or is outside state_dir
         """
         if not file_path.exists():
+            return None
+
+        # Only create backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip backup
             return None
 
         backup_path = self._get_backup_path(file_path)
@@ -262,12 +357,21 @@ class StateManager:
         """
         Restore a file from its backup.
 
+        Only restores backups for files within the state directory.
+
         Args:
             file_path: Path to the file to restore
 
         Returns:
-            True if restored, False if no backup exists
+            True if restored, False if no backup exists or is outside state_dir
         """
+        # Only restore backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip restore
+            return False
+
         backup_path = self._get_backup_path(file_path)
         if backup_path.exists():
             shutil.copy2(backup_path, file_path)
@@ -325,7 +429,8 @@ class StateManager:
         Write JSON data to a file atomically.
 
         Uses write-to-temporary-and-rename pattern for crash safety.
-        Creates parent directories if needed.
+        Creates parent directories if needed. Sanitizes sensitive data
+        before writing to prevent information disclosure.
 
         Args:
             file_path: Destination path
@@ -349,6 +454,9 @@ class StateManager:
         # Create backup of existing file
         self._create_backup(path)
 
+        # Sanitize data to remove sensitive information
+        sanitized_data = sanitize_dict(data) if isinstance(data, dict) else data
+
         # Write to temporary file in same directory (ensures same filesystem)
         temp_fd, temp_path = tempfile.mkstemp(
             dir=path.parent,
@@ -359,7 +467,7 @@ class StateManager:
         try:
             # Write data to temp file
             with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=indent, ensure_ascii=False)
+                json.dump(sanitized_data, f, indent=indent, ensure_ascii=False)
 
             # Atomic rename
             os.replace(temp_path, path)
@@ -466,6 +574,111 @@ class StateManager:
             True if deleted, False if not found
         """
         file_path = self.tasks_dir / f"{task_id}.json"
+        if file_path.exists():
+            self._create_backup(file_path)
+            file_path.unlink()
+            return True
+        return False
+
+    # === Parallel Group Operations ===
+
+    def save_parallel_group(
+        self, group_id: str, group_data: dict[str, Any]
+    ) -> Path:
+        """
+        Save a parallel task group to the state.
+
+        Args:
+            group_id: Unique group identifier
+            group_data: Group data dictionary
+
+        Returns:
+            Path to the saved group file
+
+        Example:
+            >>> state.save_parallel_group("group-001", {
+            ...     "title": "Parallel bug fixes",
+            ...     "task_ids": ["task-001", "task-002"],
+            ...     "max_parallel": 3
+            ... })
+        """
+        # Ensure timestamps
+        if "created_at" not in group_data:
+            group_data["created_at"] = datetime.utcnow().isoformat()
+        group_data["updated_at"] = datetime.utcnow().isoformat()
+
+        file_path = self.parallel_dir / f"{group_id}.json"
+        return self.write_json(file_path, group_data)
+
+    def load_parallel_group(
+        self, group_id: str
+    ) -> Optional[dict[str, Any]]:
+        """
+        Load a parallel task group from the state.
+
+        Args:
+            group_id: Group identifier
+
+        Returns:
+            Group data dictionary or None if not found
+
+        Example:
+            >>> group = state.load_parallel_group("group-001")
+            >>> if group:
+            ...     print(group["title"])
+        """
+        file_path = self.parallel_dir / f"{group_id}.json"
+        try:
+            return self.read_json(file_path)
+        except FileNotFoundError:
+            return None
+
+    def list_parallel_groups(
+        self,
+        status: Optional[ParallelGroupStatus] = None,
+    ) -> list[dict[str, Any]]:
+        """
+        List parallel task groups, optionally filtered.
+
+        Args:
+            status: Filter by group status
+
+        Returns:
+            List of group dictionaries
+
+        Example:
+            >>> active_groups = state.list_parallel_groups(
+            ...     status=ParallelGroupStatus.IN_PROGRESS
+            ... )
+        """
+        groups = []
+        if not self.parallel_dir.exists():
+            return groups
+
+        for group_file in self.parallel_dir.glob("*.json"):
+            try:
+                group = self.read_json(group_file)
+                if status and group.get("status") != status.value:
+                    continue
+                groups.append(group)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        # Sort by created_at descending
+        groups.sort(key=lambda g: g.get("created_at", ""), reverse=True)
+        return groups
+
+    def delete_parallel_group(self, group_id: str) -> bool:
+        """
+        Delete a parallel task group from the state.
+
+        Args:
+            group_id: Group identifier
+
+        Returns:
+            True if deleted, False if not found
+        """
+        file_path = self.parallel_dir / f"{group_id}.json"
         if file_path.exists():
             self._create_backup(file_path)
             file_path.unlink()
@@ -583,12 +796,17 @@ class StateManager:
         except FileNotFoundError:
             return None
 
-    def list_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_specs(
+        self,
+        tags: Optional[list[str]] = None,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
         """
         List specifications, optionally filtered by tags.
 
         Args:
             tags: Filter by tags (specs must have all tags)
+            include_archived: If True, include archived specs in results
 
         Returns:
             List of spec dictionaries
@@ -598,6 +816,92 @@ class StateManager:
             return specs
 
         for spec_file in self.specs_dir.glob("*.json"):
+            try:
+                spec = self.read_json(spec_file)
+                if tags:
+                    spec_tags = set(spec.get("tags", []))
+                    if not set(tags).issubset(spec_tags):
+                        continue
+                specs.append(spec)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        # Optionally include archived specs
+        if include_archived and self.archive_dir.exists():
+            for spec_file in self.archive_dir.glob("*.json"):
+                try:
+                    spec = self.read_json(spec_file)
+                    if tags:
+                        spec_tags = set(spec.get("tags", []))
+                        if not set(tags).issubset(spec_tags):
+                            continue
+                    specs.append(spec)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        # Sort by created_at descending
+        specs.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+        return specs
+
+    def archive_spec(self, spec_id: str) -> bool:
+        """
+        Archive a specification by moving it to the archive directory.
+
+        Args:
+            spec_id: Spec identifier
+
+        Returns:
+            True if archived, False if not found
+
+        Example:
+            >>> success = state.archive_spec("spec-001")
+        """
+        source_path = self.specs_dir / f"{spec_id}.json"
+
+        if not source_path.exists():
+            return False
+
+        # Ensure archive directory exists
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create backup before moving
+        self._create_backup(source_path)
+
+        # Read spec to update metadata
+        spec_data = self.read_json(source_path)
+
+        # Add archived flag to metadata
+        if "metadata" not in spec_data:
+            spec_data["metadata"] = {}
+        spec_data["metadata"]["archived"] = True
+
+        # Write updated spec back to source before moving
+        self.write_json(source_path, spec_data)
+
+        # Move to archive directory
+        target_path = self.archive_dir / f"{spec_id}.json"
+        shutil.move(str(source_path), str(target_path))
+
+        return True
+
+    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+        """
+        List archived specifications, optionally filtered by tags.
+
+        Args:
+            tags: Filter by tags (specs must have all tags)
+
+        Returns:
+            List of archived spec dictionaries
+
+        Example:
+            >>> archived = state.list_archived_specs()
+        """
+        specs = []
+        if not self.archive_dir.exists():
+            return specs
+
+        for spec_file in self.archive_dir.glob("*.json"):
             try:
                 spec = self.read_json(spec_file)
                 if tags:
@@ -769,6 +1073,29 @@ class StateManager:
             "memory": {
                 "total": len(list(self.memory_dir.glob("*.json")))
                 if self.memory_dir.exists()
+                else 0,
+            },
+            "parallel": {
+                "total": len(list(self.parallel_dir.glob("*.json")))
+                if self.parallel_dir.exists()
+                else 0,
+                "by_status": self._count_by_status(
+                    self.parallel_dir, "status"
+                ),
+            },
+            "workspaces": {
+                "total": len(list(self.workspaces_dir.glob("*.json")))
+                if self.workspaces_dir.exists()
+                else 0,
+            },
+            "activities": {
+                "total": len(list(self.activities_dir.glob("*.json")))
+                if self.activities_dir.exists()
+                else 0,
+            },
+            "notifications": {
+                "total": len(list(self.notifications_dir.glob("*.json")))
+                if self.notifications_dir.exists()
                 else 0,
             },
         }

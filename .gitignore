@@ -46,6 +46,7 @@ env/
 .autoflow/worktrees/
 .autoflow/discovered_agents.json
 .autoflow/.DS_Store
+.autoflow/recovery_patterns.json
 
 # OS
 .DS_Store
@@ -59,3 +60,4 @@ logs/security/
 *.tmp
 *.temp
 *.log
+.coverage

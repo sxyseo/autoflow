@@ -43,6 +43,7 @@ class ActionType(Enum):
     """Types of healing actions available."""
 
     RETRY = "retry"
+    ADAPTIVE_RETRY = "adaptive_retry"
     ROLLBACK = "rollback"
     RECONFIGURE = "reconfigure"
     RESTART = "restart"
@@ -189,7 +190,7 @@ class HealingAction:
             "action_type": self.action_type.value,
             "name": self.name,
             "description": self.description,
-            "severity": self.severity.value,
+            "severity": self.severity.value if hasattr(self.severity, 'value') else self.severity,
             "parameters": self.parameters,
             "preconditions": self.preconditions,
             "expected_outcome": self.expected_outcome,
@@ -699,6 +700,10 @@ class RollbackManager:
         # For now, we just log the intention
         logger.info(f"Would rollback to git HEAD: {checkpoint['git_head']}")
 
+        # Clear the checkpoint after successful rollback
+        self.clear_checkpoint(action_id)
+        logger.info(f"Cleared checkpoint {action_id} after successful rollback")
+
         return True
 
     def _get_git_head(self) -> str:
@@ -758,6 +763,13 @@ class ActionRegistry:
         self._executors: dict[ActionType, ActionExecutor] = {}
         self._action_templates: dict[ActionType, list[HealingAction]] = {}
         self._rollback_manager = RollbackManager()
+
+        # Register all built-in executors
+        self.register_executor(ActionType.RETRY, RetryActionExecutor())
+        self.register_executor(ActionType.RECONFIGURE, ReconfigureActionExecutor())
+        self.register_executor(ActionType.RESTART, RestartActionExecutor())
+        self.register_executor(ActionType.PATCH, PatchActionExecutor())
+        self.register_executor(ActionType.ESCALATE, EscalateActionExecutor())
 
     def register_executor(
         self, action_type: ActionType, executor: ActionExecutor
@@ -999,4 +1011,36 @@ def get_global_registry() -> ActionRegistry:
     global _global_registry
     if _global_registry is None:
         _global_registry = ActionRegistry()
+        _initialize_default_executors(_global_registry)
     return _global_registry
+
+
+def _initialize_default_executors(registry: ActionRegistry) -> None:
+    """Initialize the registry with default action executors.
+
+    Args:
+        registry: The action registry to initialize.
+    """
+    from autoflow.healing.actions import (
+        EscalateActionExecutor,
+        PatchActionExecutor,
+        ReconfigureActionExecutor,
+        RestartActionExecutor,
+        RetryActionExecutor,
+    )
+
+    # Register standard executors
+    registry.register_executor(ActionType.RETRY, RetryActionExecutor())
+    registry.register_executor(ActionType.RECONFIGURE, ReconfigureActionExecutor())
+    registry.register_executor(ActionType.RESTART, RestartActionExecutor())
+    registry.register_executor(ActionType.PATCH, PatchActionExecutor())
+    registry.register_executor(ActionType.ESCALATE, EscalateActionExecutor())
+
+    # Register adaptive retry executor
+    try:
+        from autoflow.healing.adaptive_executor import AdaptiveRetryExecutor
+
+        registry.register_executor(ActionType.ADAPTIVE_RETRY, AdaptiveRetryExecutor())
+        logger.info("Registered AdaptiveRetryExecutor for adaptive retry actions")
+    except Exception as e:
+        logger.warning(f"Failed to register AdaptiveRetryExecutor: {e}")

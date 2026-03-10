@@ -1,0 +1,49 @@
+{
+  "windows": {
+    "task_duration": {
+      "metric_name": "task_duration",
+      "max_size": 1000,
+      "readings": [
+        {
+          "metric_name": "task_duration",
+          "value": 45.2,
+          "timestamp": "2026-03-08T12:30:35.570075+00:00",
+          "metric_type": "gauge",
+          "metadata": {
+            "task_id": "build-123"
+          },
+          "labels": {}
+        },
+        {
+          "metric_name": "task_duration",
+          "value": 32.1,
+          "timestamp": "2026-03-08T12:30:35.570817+00:00",
+          "metric_type": "gauge",
+          "metadata": {
+            "task_id": "build-124"
+          },
+          "labels": {}
+        }
+      ]
+    },
+    "tests_passed": {
+      "metric_name": "tests_passed",
+      "max_size": 1000,
+      "readings": [
+        {
+          "metric_name": "tests_passed",
+          "value": 12.0,
+          "timestamp": "2026-03-08T12:30:35.571092+00:00",
+          "metric_type": "counter",
+          "metadata": {},
+          "labels": {}
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "total_metrics": 2,
+    "total_readings": 3,
+    "last_updated": "2026-03-08T12:30:35.571103+00:00"
+  }
+}

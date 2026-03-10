@@ -1,0 +1,223 @@
+{
+  // ===========================================
+  // Autoflow Issue Intake Configuration
+  // ===========================================
+  // Copy this file to intake.json5 and customize
+  // for your issue sources.
+  // ===========================================
+
+  // Enable/disable issue intake system
+  enabled: true,
+
+  // Issue source configurations
+  sources: [
+    {
+      // GitHub Issues configuration
+      name: "github-main",
+      type: "github",
+      enabled: true,
+
+      // GitHub API settings
+      base_url: "https://api.github.com",  // Optional: for GitHub Enterprise
+      token: "ghp_xxxxxxxxxxxxxxxxxxxx",  // GitHub Personal Access Token
+
+      // Repository to monitor (format: owner/repo)
+      repository: "myorg/myproject",
+
+      // Webhook configuration (for receiving issue updates)
+      webhook_secret: "webhook_secret_key_here",  // Optional: for webhook verification
+      webhook_url: "https://your-domain.com/webhooks/github",
+
+      // Request settings
+      timeout_seconds: 30,
+      retry_attempts: 3,
+      retry_delay_seconds: 1.0,
+
+      // Optional metadata
+      metadata: {
+        // Sync settings
+        sync_labels: true,
+        sync_comments: true,
+        sync_assignees: true,
+
+        // Filter settings
+        include_labels: ["bug", "feature", "enhancement"],
+        exclude_labels: ["wontfix", "duplicate"],
+
+        // State mapping (optional)
+        state_mapping: {
+          "open": "todo",
+          "in_progress": "in_progress",
+          "closed": "done",
+        },
+      },
+    },
+
+    {
+      // GitLab Issues configuration
+      name: "gitlab-main",
+      type: "gitlab",
+      enabled: true,
+
+      // GitLab API settings
+      base_url: "https://gitlab.com/api/v4",  // Optional: for self-hosted GitLab
+      token: "glpat-xxxxxxxxxxxxxxxxxxxx",  // GitLab Personal Access Token
+
+      // Project to monitor (format: owner/repo or group/project)
+      repository: "myorg/myproject",
+
+      // Webhook configuration (for receiving issue updates)
+      webhook_secret: "gitlab_webhook_secret",  // Optional: for webhook verification
+      webhook_url: "https://your-domain.com/webhooks/gitlab",
+
+      // Request settings
+      timeout_seconds: 30,
+      retry_attempts: 3,
+      retry_delay_seconds: 1.0,
+
+      // Optional metadata
+      metadata: {
+        // Sync settings
+        sync_labels: true,
+        sync_comments: true,
+        sync_assignees: true,
+
+        // Filter settings
+        include_labels: ["bug", "feature", "enhancement"],
+        exclude_labels: ["wontfix", "duplicate"],
+
+        // State mapping (optional)
+        state_mapping: {
+          "opened": "todo",
+          "in_progress": "in_progress",
+          "closed": "done",
+        },
+      },
+    },
+
+    {
+      // Linear configuration
+      name: "linear-main",
+      type: "linear",
+      enabled: true,
+
+      // Linear API settings
+      base_url: "https://api.linear.app/graphql",  // Usually don't need to change this
+      token: "lin_api_xxxxxxxxxxxxxxxxxxxx",  // Linear API Key
+
+      // Workspace identifier
+      repository: "my-workspace",  // Your Linear workspace key
+
+      // Webhook configuration (for receiving issue updates)
+      webhook_secret: "linear_webhook_secret",  // Optional: for webhook verification
+      webhook_url: "https://your-domain.com/webhooks/linear",
+
+      // Request settings
+      timeout_seconds: 30,
+      retry_attempts: 3,
+      retry_delay_seconds: 1.0,
+
+      // Optional metadata
+      metadata: {
+        // Sync settings
+        sync_labels: true,
+        sync_comments: true,
+        sync_assignees: true,
+
+        // Filter settings
+        include_teams: ["Engineering", "Product"],  // Teams to sync
+        exclude_teams: ["Operations"],  // Teams to exclude
+
+        // State mapping (optional)
+        state_mapping: {
+          "backlog": "backlog",
+          "todo": "todo",
+          "in_progress": "in_progress",
+          "done": "done",
+          "canceled": "cancelled",
+        },
+
+        // Priority mapping (optional)
+        priority_mapping: {
+          "urgent": 1,
+          "high": 2,
+          "medium": 3,
+          "low": 4,
+          "no_priority": 0,
+        },
+      },
+    },
+  ],
+
+  // Global sync settings
+  sync: {
+    // Auto-sync interval in seconds
+    interval_seconds: 300,  // 5 minutes
+
+    // Enable automatic sync on webhook events
+    sync_on_webhook: true,
+
+    // Batch size for fetching issues
+    batch_size: 50,
+
+    // Maximum number of issues to sync per run
+    max_issues: 1000,
+  },
+
+  // Pipeline settings
+  pipeline: {
+    // Enable issue processing pipeline
+    enabled: true,
+
+    // Number of concurrent workers
+    workers: 4,
+
+    // Queue size
+    queue_size: 1000,
+
+    // Processing timeout per issue (seconds)
+    timeout_seconds: 60,
+  },
+
+  // Conversion settings
+  conversion: {
+    // Default status when no mapping exists
+    default_status: "todo",
+
+    // Default priority
+    default_priority: 3,  // medium
+
+    // Create missing labels
+    create_missing_labels: false,
+
+    // Preserve original identifiers
+    preserve_external_ids: true,
+  },
+
+  // Logging settings
+  logging: {
+    // Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level: "INFO",
+
+    // Log file path (relative to state directory)
+    file: "logs/intake.log",
+
+    // Maximum log file size in MB
+    max_size: 10,
+
+    // Number of backup log files
+    backup_count: 5,
+  },
+
+  // State management
+  state: {
+    // Directory for state files (relative to project root)
+    directory: ".autoflow/intake",
+
+    // Backup interval in seconds
+    backup_interval: 300,  // 5 minutes
+
+    // Maximum number of backups to keep
+    max_backups: 10,
+  },
+}
