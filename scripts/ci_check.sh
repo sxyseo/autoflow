@@ -15,6 +15,8 @@ ruff check scripts/ tests/
 
 black --check scripts/ tests/
 
+python3 -m mypy scripts/ tests/
+
 python3 -m unittest tests/test_phase4d.py tests/test_agent_runner.py tests/test_autonomy_orchestrator.py
 
 bash -n scripts/run-agent.sh
