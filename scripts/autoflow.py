@@ -661,7 +661,7 @@ def spec_files(slug: str) -> dict[str, Path]:
     }
 
 
-def review_state_default() -> dict[str, Any]:
+def review_state_default() -> ReviewState:
     """
     Get the default review state structure.
 
