@@ -4,10 +4,26 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import continuous_iteration
+
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import load_config, load_json, run_cmd
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,23 +31,21 @@ STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
 
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=check, capture_output=True, text=True)
-
-
-def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not path.exists():
-        return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def load_config(path: str) -> dict[str, Any]:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
+# Old duplicate functions - replaced by autoflow.utils imports
+# def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+#     return subprocess.run(cmd, cwd=ROOT, check=check, capture_output=True, text=True)
+#
+# def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
+#     if not path.exists():
+#         return default or {}
+#     return json.loads(path.read_text(encoding="utf-8"))
+#
+# def load_config(path: str) -> dict[str, Any]:
+#     return json.loads((ROOT / path).read_text(encoding="utf-8"))
 
 
 def autoflow_json(*args: str) -> dict[str, Any]:
-    result = run(["python3", "scripts/autoflow.py", *args])
+    result = run_cmd(["python3", "scripts/autoflow.py", *args], cwd=ROOT)
     return json.loads(result.stdout)
 
 
@@ -39,7 +53,7 @@ def health_report(required: list[str] | None = None) -> dict[str, Any]:
     cmd = ["python3", "scripts/cli_healthcheck.py"]
     for item in required or []:
         cmd.extend(["--require", item])
-    result = run(cmd, check=False)
+    result = run_cmd(cmd, cwd=ROOT, check=False)
     payload = json.loads(result.stdout) if result.stdout.strip() else {"binaries": [], "tmux_sessions": []}
     payload["status"] = "ok" if result.returncode == 0 else "degraded"
     payload["returncode"] = result.returncode
@@ -63,7 +77,7 @@ def taskmaster_sync(spec: str, config: dict[str, Any]) -> dict[str, Any]:
     export_file = tm_cfg.get("export_file", "")
     if export_file:
         output_path = ROOT / export_file if not Path(export_file).is_absolute() else Path(export_file)
-        run(["python3", "scripts/autoflow.py", "export-taskmaster", "--spec", spec, "--output", str(output_path)])
+        run_cmd(["python3", "scripts/autoflow.py", "export-taskmaster", "--spec", spec, "--output", str(output_path)], cwd=ROOT)
         payload["export_file"] = str(output_path)
     return payload
 
@@ -135,7 +149,7 @@ def run_tick(
         cmd.append("--commit-if-dirty")
     if push:
         cmd.append("--push")
-    iteration = json.loads(run(cmd).stdout)
+    iteration = json.loads(run_cmd(cmd, cwd=ROOT).stdout)
 
     return {
         "spec": spec,
