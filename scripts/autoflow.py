@@ -2370,6 +2370,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     # NOTE: This writes to AGENTS_FILE (agents.json)
     # Cache invalidation required: call invalidate_config_cache() after this write
     write_json(AGENTS_FILE, payload)
+    invalidate_config_cache()
     return {
         "agents_file": str(AGENTS_FILE),
         "added": added,
