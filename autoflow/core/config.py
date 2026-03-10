@@ -23,11 +23,35 @@ import json5
 from pydantic import BaseModel, Field, field_validator
 
 
-# Default configuration paths
-DEFAULT_CONFIG_PATH = "config/settings.json5"
-DEFAULT_SYSTEM_CONFIG_PATH = "config/system.json5"
-ENV_CONFIG_PATH = "AUTOFLOW_CONFIG"
-ENV_STATE_DIR = "AUTOFLOW_STATE_DIR"
+class AutoflowConfig:
+    """
+    Autoflow configuration constants.
+
+    Centralizes all configuration-related constants including default paths,
+    environment variable names, and other configuration metadata.
+
+    This class provides constants for configuration file paths and environment
+    variable names used throughout the Autoflow system.
+
+    Class Attributes:
+        DEFAULT_CONFIG_PATH: Default path to main configuration file
+        DEFAULT_SYSTEM_CONFIG_PATH: Default path to system configuration file
+        ENV_CONFIG_PATH: Environment variable name for custom config path
+        ENV_STATE_DIR: Environment variable name for custom state directory
+
+    Example:
+        >>> from autoflow.core.config import AutoflowConfig
+        >>> print(AutoflowConfig.DEFAULT_CONFIG_PATH)
+        'config/settings.json5'
+    """
+
+    # Default configuration file paths
+    DEFAULT_CONFIG_PATH = "config/settings.json5"
+    DEFAULT_SYSTEM_CONFIG_PATH = "config/system.json5"
+
+    # Environment variable names
+    ENV_CONFIG_PATH = "AUTOFLOW_CONFIG"
+    ENV_STATE_DIR = "AUTOFLOW_STATE_DIR"
 
 
 class OpenClawConfig(BaseModel):
@@ -225,7 +249,9 @@ def load_config(
         >>> print(config.agents.claude_code.command)
         'claude'
     """
-    config_path = _resolve_config_path(path, ENV_CONFIG_PATH, DEFAULT_CONFIG_PATH)
+    config_path = _resolve_config_path(
+        path, AutoflowConfig.ENV_CONFIG_PATH, AutoflowConfig.DEFAULT_CONFIG_PATH
+    )
 
     try:
         config_dict = _load_json5_file(config_path)
@@ -268,7 +294,7 @@ def load_system_config(
         'INFO'
     """
     config_path = _resolve_config_path(
-        path, "AUTOFLOW_SYSTEM_CONFIG", DEFAULT_SYSTEM_CONFIG_PATH
+        path, "AUTOFLOW_SYSTEM_CONFIG", AutoflowConfig.DEFAULT_SYSTEM_CONFIG_PATH
     )
 
     try:
@@ -295,7 +321,7 @@ def get_state_dir(config: Optional[Config] = None) -> Path:
     Returns:
         Path to the state directory
     """
-    env_state_dir = os.environ.get(ENV_STATE_DIR)
+    env_state_dir = os.environ.get(AutoflowConfig.ENV_STATE_DIR)
     if env_state_dir:
         return Path(env_state_dir).expanduser().resolve()
 
