@@ -179,6 +179,7 @@ class StateManager:
     Provides atomic file operations with crash safety using the
     write-to-temporary-and-rename pattern. State is organized into:
     - specs/: Specification documents
+    - specs_archive/: Archived specification documents
     - tasks/: Task definitions and state
     - runs/: Agent execution runs
     - memory/: Persistent memory/context
@@ -202,6 +203,7 @@ class StateManager:
 
     # Subdirectories within state directory
     SPECS_DIR = "specs"
+    SPECS_ARCHIVE_DIR = "specs_archive"
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
@@ -226,6 +228,11 @@ class StateManager:
     def specs_dir(self) -> Path:
         """Path to specs directory."""
         return self.state_dir / self.SPECS_DIR
+
+    @property
+    def archive_dir(self) -> Path:
+        """Path to specs archive directory."""
+        return self.state_dir / self.SPECS_ARCHIVE_DIR
 
     @property
     def tasks_dir(self) -> Path:
@@ -276,6 +283,7 @@ class StateManager:
         # Create main directories
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.specs_dir.mkdir(exist_ok=True)
+        self.archive_dir.mkdir(exist_ok=True)
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
@@ -746,12 +754,17 @@ class StateManager:
         except FileNotFoundError:
             return None
 
-    def list_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_specs(
+        self,
+        tags: Optional[list[str]] = None,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
         """
         List specifications, optionally filtered by tags.
 
         Args:
             tags: Filter by tags (specs must have all tags)
+            include_archived: If True, include archived specs in results
 
         Returns:
             List of spec dictionaries
@@ -761,6 +774,92 @@ class StateManager:
             return specs
 
         for spec_file in self.specs_dir.glob("*.json"):
+            try:
+                spec = self.read_json(spec_file)
+                if tags:
+                    spec_tags = set(spec.get("tags", []))
+                    if not set(tags).issubset(spec_tags):
+                        continue
+                specs.append(spec)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        # Optionally include archived specs
+        if include_archived and self.archive_dir.exists():
+            for spec_file in self.archive_dir.glob("*.json"):
+                try:
+                    spec = self.read_json(spec_file)
+                    if tags:
+                        spec_tags = set(spec.get("tags", []))
+                        if not set(tags).issubset(spec_tags):
+                            continue
+                    specs.append(spec)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+        # Sort by created_at descending
+        specs.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+        return specs
+
+    def archive_spec(self, spec_id: str) -> bool:
+        """
+        Archive a specification by moving it to the archive directory.
+
+        Args:
+            spec_id: Spec identifier
+
+        Returns:
+            True if archived, False if not found
+
+        Example:
+            >>> success = state.archive_spec("spec-001")
+        """
+        source_path = self.specs_dir / f"{spec_id}.json"
+
+        if not source_path.exists():
+            return False
+
+        # Ensure archive directory exists
+        self.archive_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create backup before moving
+        self._create_backup(source_path)
+
+        # Read spec to update metadata
+        spec_data = self.read_json(source_path)
+
+        # Add archived flag to metadata
+        if "metadata" not in spec_data:
+            spec_data["metadata"] = {}
+        spec_data["metadata"]["archived"] = True
+
+        # Write updated spec back to source before moving
+        self.write_json(source_path, spec_data)
+
+        # Move to archive directory
+        target_path = self.archive_dir / f"{spec_id}.json"
+        shutil.move(str(source_path), str(target_path))
+
+        return True
+
+    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+        """
+        List archived specifications, optionally filtered by tags.
+
+        Args:
+            tags: Filter by tags (specs must have all tags)
+
+        Returns:
+            List of archived spec dictionaries
+
+        Example:
+            >>> archived = state.list_archived_specs()
+        """
+        specs = []
+        if not self.archive_dir.exists():
+            return specs
+
+        for spec_file in self.archive_dir.glob("*.json"):
             try:
                 spec = self.read_json(spec_file)
                 if tags:

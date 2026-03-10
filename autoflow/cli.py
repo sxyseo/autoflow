@@ -1502,6 +1502,140 @@ def memory_delete(ctx: click.Context, key: str) -> None:
         ctx.exit(1)
 
 
+# === Spec Commands ===
+
+@main.group()
+def spec() -> None:
+    """Manage specifications."""
+    pass
+
+
+@spec.command("list")
+@click.option(
+    "--archived",
+    "-a",
+    is_flag=True,
+    help="Include archived specifications.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of specs to show.",
+)
+@click.pass_context
+def spec_list(
+    ctx: click.Context,
+    archived: bool,
+    limit: int,
+) -> None:
+    """
+    List specifications.
+
+    Shows specifications, optionally including archived ones.
+    """
+    state_manager = _get_state_manager_from_ctx(ctx)
+
+    specs = state_manager.list_specs(include_archived=archived)[:limit]
+
+    if ctx.obj["output_json"]:
+        _print_json({"specs": specs, "count": len(specs)})
+        return
+
+    click.echo("Specifications")
+    click.echo("=" * 60)
+
+    if not specs:
+        click.echo("No specifications found.")
+        return
+
+    for spec_data in specs:
+        spec_id = spec_data.get("id", "unknown")
+        spec_title = spec_data.get("title", "N/A")
+        click.echo(f"\n[{spec_id}] {spec_title}")
+        if spec_data.get("tags"):
+            tags = ", ".join(spec_data["tags"])
+            click.echo(f"  Tags: {tags}")
+
+
+@spec.command("archive")
+@click.argument("spec_id", type=str)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force archiving without confirmation.",
+)
+@click.pass_context
+def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
+    """
+    Archive a completed specification.
+
+    Moves a specification to the archive directory.
+    Requires the specification to be in a completed state.
+    """
+    state_manager = _get_state_manager_from_ctx(ctx)
+
+    try:
+        spec_data = state_manager.load_spec(spec_id)
+
+        if spec_data is None:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": f"Specification '{spec_id}' not found.",
+                })
+            else:
+                click.echo(f"Error: Specification '{spec_id}' not found.", err=True)
+            ctx.exit(1)
+
+        status = spec_data.get("status", "unknown")
+        if status != "completed" and not force:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "current_status": status,
+                    "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
+                })
+            else:
+                click.echo(f"Error: Specification is not completed (status: {status}).", err=True)
+                click.echo("Use --force to archive anyway.")
+            ctx.exit(1)
+
+        if state_manager.archive_spec(spec_id):
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "archived",
+                    "spec_id": spec_id,
+                })
+            else:
+                click.echo(f"Archived: {spec_id}")
+        else:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": "Failed to archive specification.",
+                })
+            else:
+                click.echo(f"Error: Failed to archive specification '{spec_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "spec_id": spec_id,
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+
+
 # === Workspace Commands ===
 
 @main.group()
