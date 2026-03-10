@@ -247,6 +247,7 @@ class StateManager:
         """Path to parallel groups directory."""
         return self.state_dir / self.PARALLEL_DIR
 
+    @property
     def workspaces_dir(self) -> Path:
         """Path to workspaces directory."""
         return self.state_dir / self.WORKSPACES_DIR
@@ -294,8 +295,28 @@ class StateManager:
 
         Returns:
             Path to the backup file
+
+        Raises:
+            ValueError: If file_path is not relative to state_dir
         """
-        relative = file_path.relative_to(self.state_dir)
+        try:
+            relative = file_path.relative_to(self.state_dir)
+        except ValueError:
+            # file_path is not within state_dir, try to make it relative
+            # by using its path components relative to state_dir's parent
+            try:
+                # If file is at same level as state_dir, use its name
+                if file_path.parent == self.state_dir.parent:
+                    relative = Path(file_path.name)
+                else:
+                    # Try to make it relative from state_dir's parent
+                    relative = file_path.relative_to(self.state_dir.parent)
+            except ValueError:
+                # Can't make it relative, use absolute path as hash
+                import hashlib
+                path_hash = hashlib.md5(str(file_path).encode()).hexdigest()
+                relative = Path(f"external/{path_hash}")
+
         return self.backup_dir / f"{relative}.bak"
 
     def _create_backup(self, file_path: Path) -> Optional[Path]:
@@ -383,7 +404,8 @@ class StateManager:
         Write JSON data to a file atomically.
 
         Uses write-to-temporary-and-rename pattern for crash safety.
-        Creates parent directories if needed.
+        Creates parent directories if needed. Backs up the newly written content
+        for recovery in case of future corruption.
 
         Args:
             file_path: Destination path
@@ -404,9 +426,6 @@ class StateManager:
         # Create parent directories
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create backup of existing file
-        self._create_backup(path)
-
         # Write to temporary file in same directory (ensures same filesystem)
         temp_fd, temp_path = tempfile.mkstemp(
             dir=path.parent,
@@ -421,6 +440,10 @@ class StateManager:
 
             # Atomic rename
             os.replace(temp_path, path)
+
+            # Create backup of newly written file for corruption recovery
+            self._create_backup(path)
+
             return path
         except Exception:
             # Clean up temp file on failure
