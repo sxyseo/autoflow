@@ -415,6 +415,14 @@ class Phase4DTests(unittest.TestCase):
         summary = self.autoflow.strategy_summary("note-spec")
         self.assertEqual(summary["planner_notes"][-1]["content"], "Remember to validate the retry gate.")
 
+    def test_resolve_root_path_remaps_foreign_autoflow_paths_into_current_root(self) -> None:
+        foreign = Path("/tmp/other-repo/.autoflow/memory/specs/example.md")
+        resolved = self.autoflow.resolve_root_path(foreign)
+        self.assertEqual(
+            resolved,
+            self.root / ".autoflow" / "memory" / "specs" / "example.md",
+        )
+
     def test_taskmaster_export_import_round_trip(self) -> None:
         self.create_spec("taskmaster-spec")
         export_path = self.root / "taskmaster.json"

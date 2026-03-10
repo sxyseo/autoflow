@@ -392,7 +392,12 @@ def resolve_root_path(raw: str | Path) -> Path:
         Absolute Path object
     """
     path = Path(raw)
-    return path if path.is_absolute() else ROOT / path
+    if not path.is_absolute():
+        return ROOT / path
+    if ".autoflow" in path.parts and not path.is_relative_to(ROOT):
+        marker = path.parts.index(".autoflow")
+        return STATE_DIR.joinpath(*path.parts[marker + 1 :])
+    return path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
