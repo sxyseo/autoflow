@@ -1,0 +1,7 @@
+{"at": "20260306T175634Z", "type": "review.approved", "payload": {"approved_by": "auto"}}
+{"at": "20260306T175644Z", "type": "run.created", "payload": {"run": "20260306T175644Z-reviewer-phase2-validation-t2", "task": "T2", "role": "reviewer"}}
+{"at": "20260306T175807Z", "type": "worktree.created", "payload": {"path": "/Users/abel/dev/autoflow/.autoflow/worktrees/tasks/phase2-validation", "branch": "codex/phase2-validation", "base_branch": "main"}}
+{"at": "20260306T175828Z", "type": "handoff.created", "payload": {"task": "T2", "role": "reviewer", "result": "success"}}
+{"at": "20260306T175828Z", "type": "run.completed", "payload": {"run": "20260306T175644Z-reviewer-phase2-validation-t2", "task": "T2", "role": "reviewer", "result": "success"}}
+{"at": "20260306T175839Z", "type": "run.created", "payload": {"run": "20260306T175839Z-implementation-runner-phase2-validation-t3", "task": "T3", "role": "implementation-runner"}}
+{"at": "20260306T175903Z", "type": "review.invalidated", "payload": {"reason": "planning_artifacts_changed"}}
