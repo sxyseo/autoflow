@@ -10,6 +10,47 @@ Autoflow is a thin control plane for autonomous software delivery, inspired by O
 
 The architecture treats autonomous development as a multi-layer system with explicit state and swappable agent backends, supporting OpenClaw, Claude Code, Codex, and custom agents through unified protocols.
 
+## Python Module Structure
+
+The `autoflow/` directory contains the main Python package with the following architecture:
+
+### Core Modules (`autoflow/core/`)
+- **config.py**: Configuration management for agents, system settings, and profiles
+- **orchestrator.py**: Main orchestration logic for agent execution and workflow coordination
+- **state.py**: State management for specs, tasks, runs, and workflow status
+
+### Agent System (`autoflow/agents/`)
+- **base.py**: Base agent interface and common functionality
+- **claude_code.py**: Claude Code agent implementation
+- **codex.py**: Codex agent implementation
+- **openclaw.py**: OpenClaw agent implementation
+
+### CI/CD System (`autoflow/ci/`)
+- Gates, health checks, and verification logic
+- Pre-commit and pre-merge validation
+- Automated quality assurance
+
+### Self-Healing (`autoflow/healing/`)
+- Automatic error detection and recovery
+- Rollback mechanisms
+- Retry strategies with exponential backoff
+
+### Quality Prediction (`autoflow/prediction/`)
+- ML-based quality prediction using scikit-learn
+- Success probability estimation for tasks
+- Risk assessment and mitigation recommendations
+
+### Review System (`autoflow/review/`)
+- Cross-review implementation
+- Structured findings generation
+- Review state management and approval tracking
+
+### Additional Systems
+- **rollback/**: Automatic rollback and recovery mechanisms
+- **scheduler/**: Task scheduling and dependency management
+- **skills/**: Skill system for role-based workflows
+- **tmux/**: Tmux session management for background agent execution
+
 ## Core Architecture
 
 The system is organized into four layers:
@@ -26,6 +67,30 @@ The system is organized into four layers:
 - `runs/`: Per-execution prompts, logs, outputs, metadata (timestamped run directories)
 - `memory/`: Scoped memory capture (global.md and per-spec memory)
 - `worktrees/`: Per-spec git worktrees for isolated execution
+- `agents.json`: Agent configuration and protocol settings
+- `system.json`: Model profiles, tool profiles, memory configuration
+
+### Configuration Files
+
+**`.autoflow/agents.json`**: Agent catalog and configuration
+- Defines available agents (codex, claude, openclaw, custom)
+- Specifies protocol type (cli, acp)
+- Maps roles to agents
+- Configures model and tool profiles
+- Sets resume behavior per agent
+
+**`.autoflow/system.json`**: System-level configuration
+- Model profiles (spec, implementation, review models)
+- Tool profiles (allowed tools per profile)
+- Memory configuration (scopes, file paths)
+- ACP agent registry for local discovery
+
+**`config/continuous-iteration.example.json`**: Continuous iteration settings
+- Role-to-agent mappings
+- Agent selection preferences
+- Pre-commit verification commands
+- Commit message prefixing and push behavior
+- Retry policies and fix request handling
 
 ### Task Status Workflow
 
@@ -232,17 +297,85 @@ Memory is scoped and automatically captured:
 - **Auto-capture**: Enabled by default for successful runs
 - **Prompt injection**: Memory is injected based on agent's `memory_scopes` config
 
-## Testing
+## Development Commands
+
+### Testing
 
 ```bash
-# Run unit tests
+# Run all tests
 python3 -m pytest tests/
 
 # Run specific test file
 python3 -m pytest tests/test_agent_runner.py
 
+# Run tests with coverage
+python3 -m pytest tests/ --cov=autoflow --cov-report=html
+
 # Run with verbose output
 python3 -m pytest tests/ -v
+
+# Run specific test function
+python3 -m pytest tests/test_state.py::test_task_state_transitions -v
+
+# Run performance benchmarks
+python3 benchmark_results.py
+```
+
+### Test Organization
+
+Tests are organized by component:
+- **test_state.py**: State management and workflow transitions
+- **test_orchestrator.py**: Main orchestration logic
+- **test_agent_runner.py**: Agent execution and protocol handling
+- **test_codex_adapter.py**: Codex agent integration
+- **test_claude_code_adapter.py**: Claude Code agent integration
+- **test_ci_gates.py**: Quality gates and verification
+- **test_cross_review.py**: Review system and approval workflow
+- **test_tmux_manager.py**: Tmux session management
+- **test_scheduler.py**: Task scheduling and dependency resolution
+- **test_skill_registry.py**: Skill system functionality
+- **test_run_metadata_performance.py**: Performance optimization validation
+- **test_run_cache_integration.py**: Caching strategy verification
+
+### Code Quality
+
+```bash
+# Run linting (ruff)
+ruff check autoflow/ tests/
+
+# Format code
+ruff format autoflow/ tests/
+
+# Type checking
+mypy autoflow/
+
+# Security checks
+bandit -r autoflow/
+
+# Run all quality checks
+ruff check autoflow/ tests/ && mypy autoflow/ && bandit -r autoflow/
+```
+
+### CLI Usage
+
+```bash
+# Show help
+autoflow --help
+
+# Initialize Autoflow state
+autoflow init
+
+# Create a new spec
+autoflow new-spec --slug my-feature --title "My Feature" --summary "Description"
+
+# Initialize tasks for a spec
+autoflow init-tasks --spec my-feature
+
+# Show workflow state
+autoflow workflow-state --spec my-feature
+
+# Create and run a new run
+autoflow new-run --spec my-feature --role implementation-runner --agent codex --task T1
 ```
 
 ## Peter's AI Development Principles
@@ -380,7 +513,54 @@ To achieve Peter-style continuous development, setup cron jobs:
 0 3 * * 0 cd /path/to/autoflow && python3 scripts/autoflow.py consolidate-memory --global
 ```
 
-## Troubleshooting Common Issues
+## Key Architectural Patterns
+
+### Agent Protocol Abstraction
+
+The system uses a unified agent protocol that abstracts different AI backends:
+- **CLI Protocol** (codex, claude): Command-line tools with optional resume support
+- **ACP Protocol** (acp-agent): stdio-based communication with prompt via argv
+- **Agent Registry**: Dynamic discovery and sync of local agents
+
+All agents implement the same interface defined in `autoflow/agents/base.py`, enabling seamless swapping of backends without changing workflow logic.
+
+### State-Driven Execution
+
+Autoflow is fundamentally state-driven:
+1. **State is source of truth**: All workflow decisions derive from `.autoflow/` state
+2. **Immutable runs**: Completed runs never change; new runs create new state
+3. **Deterministic state transitions**: Task statuses follow strict workflows
+4. **Reproducible artifacts**: Every run has prompt, logs, output, and metadata
+
+### Multi-Layer Isolation
+
+- **Spec isolation**: Each spec has its own directory in `.autoflow/specs/`
+- **Task isolation**: Tasks track dependencies and block/unlock appropriately
+- **Execution isolation**: Runs execute in per-spec worktrees (`.autoflow/worktrees/`)
+- **Agent isolation**: Agents run in tmux sessions with separate processes
+
+### Quality Gates
+
+The system implements multiple quality gates:
+1. **Acceptance criteria**: Every task has defined acceptance criteria
+2. **Pre-commit verification**: Tests, linting, and security checks before commit
+3. **Cross-review**: Separate reviewer role validates implementation
+4. **Review approval**: Hash-based approval system prevents unreviewed code from dispatching
+
+### Scripts Directory Structure
+
+The `scripts/` directory contains essential automation:
+
+- **autoflow.py**: Main control-plane CLI (85KB, comprehensive state management)
+- **continuous_iteration.py**: Scheduled iteration loop with commit, verify, dispatch logic
+- **agent_runner.py**: Agent execution wrapper handling resume protocols
+- **workflow-dispatch.sh**: End-to-end dispatch pipeline
+- **tmux-start.sh**: Background execution wrapper
+- **e2e_verify.py**: End-to-end verification testing
+- **generate_fix_tasks.py**: Automatic fix task generation from review findings
+- **maintenance.py**: System maintenance and cleanup operations
+
+## Important Architectural Invariants
 
 ### Agent Runs Stall or Hang
 ```bash
@@ -432,6 +612,47 @@ python3 scripts/autoflow.py cleanup-runs --spec <spec>
 # Rebuild worktree
 python3 scripts/autoflow.py create-worktree --spec <spec> --force
 ```
+
+## Common Development Patterns
+
+### Adding New Agent Types
+
+When adding a new agent backend:
+1. Create a new class in `autoflow/agents/` inheriting from `BaseAgent`
+2. Implement the required methods: `execute()`, `supports_resume()`, `cleanup()`
+3. Add agent configuration to `.autoflow/agents.json`
+4. Add tests in `tests/test_<agent>_adapter.py`
+
+### Modifying Workflow State
+
+When working with workflow state:
+1. Always use the state management functions in `autoflow/core/state.py`
+2. Never manually edit `.autoflow/specs/*/TASKS.json` - use the CLI
+3. Task status transitions must follow valid workflows
+4. State changes should be atomic - use transactions when possible
+
+### Testing Strategy
+
+The project uses a comprehensive testing approach:
+- **Unit tests**: Individual component testing
+- **Integration tests**: Multi-component interaction testing
+- **E2E tests**: Full workflow testing with `e2e_verify.py`
+- **Performance tests**: Benchmark and optimization validation
+- **Security tests**: Bandit scanning for vulnerabilities
+
+When adding new features:
+1. Write tests first (TDD approach)
+2. Ensure all tests pass before committing
+3. Add coverage for new code paths
+4. Run security scans on changes to agent execution or file handling
+
+### Error Handling
+
+The system implements comprehensive error handling:
+- **Structured errors**: All errors are logged with context
+- **Recovery patterns**: Automatic retry with exponential backoff
+- **Rollback support**: Failed runs can be rolled back
+- **Human escalation**: Unrecoverable errors trigger human notification
 
 ## Performance Optimization
 
