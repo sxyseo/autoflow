@@ -1,0 +1,18 @@
+{
+  "project": "openclaw-autonomy",
+  "exported_at": "20260306T192746Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Create architecture and workflow skeleton",
+      "status": "todo",
+      "dependencies": [],
+      "owner_role": "spec-writer",
+      "acceptanceCriteria": [
+        "Repository contains spec, scripts, and role skills.",
+        "A run can be generated for at least one backend agent."
+      ],
+      "notes": []
+    }
+  ]
+}
