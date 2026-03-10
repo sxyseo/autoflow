@@ -20,6 +20,7 @@ import click
 from autoflow import __version__
 from autoflow.cli.agent import agent
 from autoflow.cli.ci import ci
+from autoflow.cli.config import config
 from autoflow.cli.init import init
 from autoflow.cli.review import review
 from autoflow.cli.run import run
@@ -145,3 +146,4 @@ main.add_command(task)
 main.add_command(scheduler)
 main.add_command(ci)
 main.add_command(review)
+main.add_command(config)
