@@ -44,6 +44,13 @@ _EXPORTS = {
     "CyclePhase": ("autoflow.core.orchestrator", "CyclePhase"),
     "CycleResult": ("autoflow.core.orchestrator", "CycleResult"),
     "OrchestratorError": ("autoflow.core.orchestrator", "OrchestratorError"),
+    # Commands
+    "get_workflow_state": ("autoflow.core.commands", "get_workflow_state"),
+    "get_task_history": ("autoflow.core.commands", "get_task_history"),
+    "get_strategy_summary": ("autoflow.core.commands", "get_strategy_summary"),
+    "sync_agents": ("autoflow.core.commands", "sync_agents"),
+    "taskmaster_import": ("autoflow.core.commands", "taskmaster_import"),
+    "taskmaster_export": ("autoflow.core.commands", "taskmaster_export"),
 }
 
 
@@ -93,4 +100,11 @@ __all__ = [
     "CyclePhase",
     "CycleResult",
     "OrchestratorError",
+    # Commands
+    "get_workflow_state",
+    "get_task_history",
+    "get_strategy_summary",
+    "sync_agents",
+    "taskmaster_import",
+    "taskmaster_export",
 ]
