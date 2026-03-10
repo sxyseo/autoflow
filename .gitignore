@@ -60,3 +60,4 @@ logs/security/
 *.tmp
 *.temp
 *.log
+.coverage
