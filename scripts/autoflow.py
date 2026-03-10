@@ -1454,8 +1454,18 @@ def build_prompt(
     strategy_context = render_strategy_context(spec_slug)
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
+        cache_key = _get_cache_key("handoff", spec_slug, handoff_path.name)
+        cached_entry = _prompt_context_cache.get(cache_key)
+        if cached_entry and not _is_cache_stale(cached_entry, handoff_path):
+            handoff_content = cached_entry["data"]
+        else:
+            handoff_content = handoff_path.read_text(encoding="utf-8")
+            _prompt_context_cache[cache_key] = {
+                "data": handoff_content,
+                "mtime": handoff_path.stat().st_mtime,
+            }
         handoff_sections.append(f"### {handoff_path.name}\n")
-        handoff_sections.append(handoff_path.read_text(encoding="utf-8"))
+        handoff_sections.append(handoff_content)
     recovery = recovery_context(spec_slug, selected_task["id"]) if selected_task else "No task selected."
     return "\n".join(
         [
