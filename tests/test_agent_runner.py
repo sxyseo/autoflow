@@ -1,3 +1,13 @@
+"""
+Unit Tests for Agent Runner
+
+Tests the agent_runner module for building commands and executing
+different AI agents (Claude, Codex, ACP, etc.) with various configurations.
+
+These tests use dynamic module loading to test the agent_runner script
+in isolation, mocking file system and subprocess execution.
+"""
+
 from __future__ import annotations
 
 import importlib.util

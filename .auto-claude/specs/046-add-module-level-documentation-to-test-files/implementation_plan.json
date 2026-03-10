@@ -1,0 +1,178 @@
+{
+  "feature": "Add module-level documentation to test files",
+  "workflow_type": "simple",
+  "workflow_rationale": "This is a documentation-only task affecting a single service (test suite). No multi-service coordination or complex dependencies. Each file modification is independent and can be done in any order.",
+  "phases": [
+    {
+      "id": "phase-1-documentation",
+      "name": "Add Module Docstrings to Test Files",
+      "type": "implementation",
+      "description": "Add module-level docstrings to test files that lack them, following the existing pattern in other test files",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Add module docstring to test_agent_runner.py",
+          "service": "test_suite",
+          "files_to_modify": [
+            "tests/test_agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_ci_gates.py",
+            "tests/test_scheduler.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "head -10 tests/test_agent_runner.py | grep -c '\"\"\"' && python3 -c \"import ast; ast.parse(open('tests/test_agent_runner.py').read())\" && echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Add module docstring to test_autonomy_orchestrator.py",
+          "service": "test_suite",
+          "files_to_modify": [
+            "tests/test_autonomy_orchestrator.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_ci_gates.py",
+            "tests/test_orchestrator.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "head -10 tests/test_autonomy_orchestrator.py | grep -c '\"\"\"' && python3 -c \"import ast; ast.parse(open('tests/test_autonomy_orchestrator.py').read())\" && echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Add module docstring to test_phase4d.py",
+          "service": "test_suite",
+          "files_to_modify": [
+            "tests/test_phase4d.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_ci_gates.py",
+            "tests/test_orchestrator.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "head -10 tests/test_phase4d.py | grep -c '\"\"\"' && python3 -c \"import ast; ast.parse(open('tests/test_phase4d.py').read())\" && echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-4",
+          "description": "Verify all docstrings follow consistent pattern",
+          "service": "test_suite",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_ci_gates.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "for f in tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_phase4d.py; do echo \"=== $f ===\"; head -7 \"$f\"; done && echo 'PASS'",
+            "expected": "PASS"
+          },
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 1,
+    "total_subtasks": 4,
+    "services_involved": [
+      "test_suite"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential - each subtask is independent but simple"
+    },
+    "startup_command": "source .auto-claude/.venv/bin/activate && python .auto-claude/run.py --spec 046"
+  },
+  "verification_strategy": {
+    "risk_level": "trivial",
+    "skip_validation": true,
+    "test_creation_phase": "none",
+    "test_types_required": [],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All three test files have module-level docstrings",
+      "Docstrings follow the existing pattern from other test files",
+      "Files remain syntactically valid Python",
+      "No functional code changes - only documentation additions"
+    ],
+    "verification_steps": [
+      {
+        "name": "Verify docstrings exist",
+        "command": "head -10 tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_phase4d.py | grep -c '\"\"\"'",
+        "expected_outcome": "3 docstrings found",
+        "type": "manual",
+        "required": true,
+        "blocking": false
+      },
+      {
+        "name": "Verify Python syntax",
+        "command": "python3 -m py_compile tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_phase4d.py",
+        "expected_outcome": "No syntax errors",
+        "type": "command",
+        "required": true,
+        "blocking": false
+      },
+      {
+        "name": "Run affected tests",
+        "command": "pytest tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_phase4d.py -v",
+        "expected_outcome": "Tests still pass (no functional changes)",
+        "type": "test",
+        "required": true,
+        "blocking": false
+      }
+    ],
+    "reasoning": "Trivial documentation-only change. No functional code modifications, so minimal validation required. Verification ensures docstrings exist and files remain syntactically valid."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_phase4d.py -v"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-10T00:02:35.956Z"
+}
