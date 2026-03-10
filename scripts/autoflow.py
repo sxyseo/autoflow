@@ -79,6 +79,7 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
+INACTIVE_RUN_STATUSES = {"completed", "abandoned", "cancelled", "cleaned"}
 
 
 def repository_manager():
@@ -391,7 +392,12 @@ def resolve_root_path(raw: str | Path) -> Path:
         Absolute Path object
     """
     path = Path(raw)
-    return path if path.is_absolute() else ROOT / path
+    if not path.is_absolute():
+        return ROOT / path
+    if ".autoflow" in path.parts and not path.is_relative_to(ROOT):
+        marker = path.parts.index(".autoflow")
+        return STATE_DIR.joinpath(*path.parts[marker + 1 :])
+    return path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
@@ -553,6 +559,20 @@ def spec_files(slug: str) -> dict[str, Path]:
         "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
         "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
     }
+
+
+def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
+    path = spec_files(spec_slug)["metadata"]
+    if not path.exists():
+        raise SystemExit(f"unknown spec: {spec_slug}")
+    return read_json(path)
+
+
+def save_spec_metadata(spec_slug: str, metadata: dict[str, Any]) -> Path:
+    metadata["updated_at"] = now_stamp()
+    path = spec_files(spec_slug)["metadata"]
+    write_json(path, metadata)
+    return path
 
 
 def review_state_default() -> dict[str, Any]:
@@ -1456,6 +1476,48 @@ def task_lookup(data: dict[str, Any], task_id: str, spec_slug: str | None = None
         if task["id"] == task_id:
             return task
     raise SystemExit(f"unknown task: {task_id}")
+
+
+def replace_markdown_section(markdown: str, heading: str, content: str) -> str:
+    lines = markdown.splitlines()
+    target = f"## {heading}".strip()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip() == target:
+            start = index
+            break
+    if start is None:
+        return markdown.rstrip() + f"\n\n## {heading}\n\n{content.strip()}\n"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("## "):
+            end = index
+            break
+    replacement = [target, "", content.strip()]
+    new_lines = lines[:start] + replacement + lines[end:]
+    return "\n".join(new_lines).rstrip() + "\n"
+
+
+def normalize_worktree_metadata(spec_slug: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = dict(metadata or load_spec_metadata(spec_slug))
+    worktree = dict(payload.get("worktree", {}))
+    expected = worktree_path(spec_slug)
+    current_path = worktree.get("path", "")
+    branch = worktree.get("branch", worktree_branch(spec_slug))
+    base_branch = worktree.get("base_branch", detect_base_branch())
+    resolved_path = ""
+    if expected.exists():
+        resolved_path = str(expected)
+    elif current_path:
+        current = Path(current_path)
+        if current.exists():
+            resolved_path = str(current)
+    payload["worktree"] = {
+        "path": resolved_path,
+        "branch": branch,
+        "base_branch": base_branch,
+    }
+    return payload
 
 
 def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -2493,7 +2555,7 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
     return [
         item
         for item in _run_metadata_cache.get(spec_slug, [])
-        if item.get("status") != "completed"
+        if item.get("status") not in INACTIVE_RUN_STATUSES
     ]
 
 
@@ -2908,6 +2970,91 @@ Describe the problem this system is solving.
     print(str(files["dir"]))
 
 
+def init_tasks_cmd(args: argparse.Namespace) -> None:
+    ensure_state()
+    load_spec_metadata(args.spec)
+    path = task_file(args.spec)
+    created = False
+    if not path.exists() or args.force:
+        write_json(
+            path,
+            {
+                "spec_slug": args.spec,
+                "updated_at": now_stamp(),
+                "tasks": default_tasks(),
+            },
+        )
+        sync_review_state(args.spec, reason="tasks_initialized")
+        record_event(args.spec, "tasks.initialized", {"force": args.force})
+        created = True
+    payload = load_tasks(args.spec)
+    print(
+        json.dumps(
+            {
+                "spec": args.spec,
+                "tasks_file": str(path),
+                "created": created,
+                "task_count": len(payload.get("tasks", [])),
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def show_spec(args: argparse.Namespace) -> None:
+    metadata = normalize_worktree_metadata(args.slug)
+    files = spec_files(args.slug)
+    payload = {
+        "metadata": metadata,
+        "review_status": review_status_summary(args.slug),
+        "tasks": load_tasks(args.slug),
+        "spec_markdown": files["spec"].read_text(encoding="utf-8"),
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def update_spec(args: argparse.Namespace) -> None:
+    metadata = load_spec_metadata(args.slug)
+    files = spec_files(args.slug)
+    spec_markdown = files["spec"].read_text(encoding="utf-8")
+    changes = []
+    if args.title:
+        metadata["title"] = args.title
+        lines = spec_markdown.splitlines()
+        if lines and lines[0].startswith("# "):
+            lines[0] = f"# {args.title}"
+            spec_markdown = "\n".join(lines).rstrip() + "\n"
+        changes.append("title")
+    if args.summary:
+        metadata["summary"] = args.summary
+        spec_markdown = replace_markdown_section(spec_markdown, "Summary", args.summary)
+        changes.append("summary")
+    if args.status:
+        metadata["status"] = args.status
+        changes.append("status")
+    if args.append:
+        spec_markdown = spec_markdown.rstrip() + (
+            f"\n\n## Updates\n\n### {now_stamp()}\n\n{args.append.strip()}\n"
+        )
+        changes.append("append")
+    files["spec"].write_text(spec_markdown, encoding="utf-8")
+    save_spec_metadata(args.slug, normalize_worktree_metadata(args.slug, metadata))
+    sync_review_state(args.slug, reason="spec_updated")
+    record_event(args.slug, "spec.updated", {"changes": changes or ["touch"]})
+    print(
+        json.dumps(
+            {
+                "slug": args.slug,
+                "changed_fields": changes,
+                "metadata": normalize_worktree_metadata(args.slug),
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
 def list_tasks(args: argparse.Namespace) -> None:
     """
     List all tasks for a spec in JSON format.
@@ -3019,6 +3166,48 @@ def set_task_status(args: argparse.Namespace) -> None:
     save_tasks(args.spec, data, reason="task_status_updated")
     record_event(args.spec, "task.status_updated", {"task": args.task, "status": args.status})
     print_json(task)
+
+
+def update_task_cmd(args: argparse.Namespace) -> None:
+    data = load_tasks(args.spec)
+    task = task_lookup(data, args.task)
+    changed_fields = []
+    if args.status:
+        if args.status not in VALID_TASK_STATUSES:
+            raise SystemExit(f"invalid status: {args.status}")
+        task["status"] = args.status
+        changed_fields.append("status")
+    if args.title:
+        task["title"] = args.title
+        changed_fields.append("title")
+    if args.owner_role:
+        task["owner_role"] = args.owner_role
+        changed_fields.append("owner_role")
+    if args.append_criterion:
+        task.setdefault("acceptance_criteria", []).append(args.append_criterion)
+        changed_fields.append("acceptance_criteria")
+    if args.note:
+        task.setdefault("notes", []).append({"at": now_stamp(), "note": args.note})
+        changed_fields.append("notes")
+    elif args.status:
+        task.setdefault("notes", []).append({"at": now_stamp(), "note": f"status set to {args.status}"})
+    if not changed_fields:
+        raise SystemExit("no task update provided")
+    save_tasks(args.spec, data, reason="task_updated")
+    record_event(args.spec, "task.updated", {"task": args.task, "fields": changed_fields})
+    print(json.dumps(task, indent=2, ensure_ascii=True))
+
+
+def reset_task_cmd(args: argparse.Namespace) -> None:
+    data = load_tasks(args.spec)
+    task = task_lookup(data, args.task)
+    task["status"] = "todo"
+    task.setdefault("notes", []).append(
+        {"at": now_stamp(), "note": args.note or "task reset to todo"}
+    )
+    save_tasks(args.spec, data, reason="task_reset")
+    record_event(args.spec, "task.reset", {"task": args.task})
+    print(json.dumps(task, indent=2, ensure_ascii=True))
 
 
 def write_handoff(
@@ -3881,26 +4070,11 @@ def show_strategy_cmd(args: argparse.Namespace) -> None:
 
 
 def add_planner_note_cmd(args: argparse.Namespace) -> None:
-    """
-    Add a planner note to strategy memory.
-
-    Creates a timestamped, categorized planner note for tracking strategic
-    decisions, observations, or guidance. Notes are retained in memory
-    with the last 25 notes preserved. Can be scoped globally or to a
-    specific spec.
-
-    Args:
-        args: Namespace containing:
-            - spec: Spec slug for scoping the note
-            - title: Short title describing the note
-            - content: Detailed content of the note
-            - category: Category for organizing notes (default: "strategy")
-            - scope: Memory scope - "global" or "spec" (default: "spec")
-
-    Output:
-        Prints the path to the updated strategy memory file
-    """
-    path = add_planner_note(args.spec, args.title, args.content, category=args.category, scope=args.scope)
+    content = args.content or args.note or ""
+    if not content:
+        raise SystemExit("planner note content is required")
+    title = args.title or "Planner note"
+    path = add_planner_note(args.spec, title, content, category=args.category, scope=args.scope)
     print(str(path))
 
 
@@ -4080,7 +4254,11 @@ def create_worktree(args: argparse.Namespace) -> None:
     path = worktree_path(args.spec, repository=repository)
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
-    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
+    metadata = load_spec_metadata(args.spec)
+
+    if args.force and path.exists():
+        run_cmd(["git", "worktree", "remove", "--force", str(path)], check=False)
+        shutil.rmtree(path, ignore_errors=True)
 
     if path.exists():
         worktree_metadata = {
@@ -4091,7 +4269,7 @@ def create_worktree(args: argparse.Namespace) -> None:
         if repository:
             worktree_metadata["repository"] = repository
         metadata["worktree"] = worktree_metadata
-        write_json(spec_files(args.spec)["metadata"], metadata)
+        save_spec_metadata(args.spec, metadata)
         print_json(metadata["worktree"])
         return
 
@@ -4112,7 +4290,7 @@ def create_worktree(args: argparse.Namespace) -> None:
     if repository:
         worktree_metadata["repository"] = repository
     metadata["worktree"] = worktree_metadata
-    write_json(spec_files(args.spec)["metadata"], metadata)
+    save_spec_metadata(args.spec, metadata)
     record_event(args.spec, "worktree.created", metadata["worktree"])
     print_json(metadata["worktree"])
 
@@ -4145,12 +4323,13 @@ def remove_worktree(args: argparse.Namespace) -> None:
         run_cmd(["git", "worktree", "remove", "--force", str(path)])
     if args.delete_branch:
         run_cmd(["git", "branch", "-D", branch], check=False)
-    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
     worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
     if repository:
         worktree_metadata["repository"] = repository
     metadata["worktree"] = worktree_metadata
-    write_json(spec_files(args.spec)["metadata"], metadata)
+    metadata = load_spec_metadata(args.spec)
+    metadata["worktree"] = worktree_metadata
+    save_spec_metadata(args.spec, metadata)
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
     print_json(metadata["worktree"])
 
@@ -4158,7 +4337,7 @@ def remove_worktree(args: argparse.Namespace) -> None:
 def list_specs(_: argparse.Namespace) -> None:
     items = []
     for metadata_path in SPECS_DIR.glob("*/metadata.json"):
-        metadata = read_json(metadata_path)
+        metadata = normalize_worktree_metadata(metadata_path.parent.name, read_json(metadata_path))
         slug = metadata.get("slug", metadata_path.parent.name)
         review_state = load_review_state(slug)
         items.append(
@@ -4218,7 +4397,7 @@ def list_worktrees(_: argparse.Namespace) -> None:
     """
     items = []
     for metadata_path in sorted(SPECS_DIR.glob("*/metadata.json")):
-        metadata = read_json(metadata_path)
+        metadata = normalize_worktree_metadata(metadata_path.parent.name, read_json(metadata_path))
         items.append(
             {
                 "spec": metadata.get("slug", metadata_path.parent.name),
@@ -4289,7 +4468,7 @@ def workflow_state(args: argparse.Namespace) -> None:
     payload = {
         "spec": args.spec,
         "review_status": review_summary,
-        "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
+        "worktree": normalize_worktree_metadata(args.spec).get("worktree", {}),
         "fix_request_present": bool(load_fix_request(args.spec)),
         "fix_request": load_fix_request_data(args.spec),
         "strategy_summary": strategy_summary(args.spec),
@@ -4439,6 +4618,200 @@ def repo_validate_cmd(args: argparse.Namespace) -> None:
             raise SystemExit(1)
 
 
+def validate_config_cmd(_: argparse.Namespace) -> None:
+    ensure_state()
+    issues: list[str] = []
+    warnings: list[str] = []
+    system_config = load_system_config()
+    checks: dict[str, Any] = {
+        "system_config_file": {
+            "path": str(SYSTEM_CONFIG_FILE),
+            "exists": SYSTEM_CONFIG_FILE.exists(),
+        },
+        "agents_file": {
+            "path": str(AGENTS_FILE),
+            "exists": AGENTS_FILE.exists(),
+        },
+    }
+    if not AGENTS_FILE.exists():
+        issues.append("missing .autoflow/agents.json")
+        agents_payload = {"agents": {}}
+    else:
+        agents_payload = read_json_or_default(AGENTS_FILE, {"agents": {}})
+    model_profiles = system_config.get("models", {}).get("profiles", {})
+    tool_profiles = system_config.get("tools", {}).get("profiles", {})
+    agent_checks = []
+    for name, spec in agents_payload.get("agents", {}).items():
+        entry = {
+            "name": name,
+            "protocol": spec.get("protocol", "cli"),
+            "command": spec.get("command", ""),
+            "valid": True,
+            "issues": [],
+            "warnings": [],
+        }
+        if not entry["command"]:
+            entry["valid"] = False
+            entry["issues"].append("missing command")
+        if spec.get("model_profile") and spec["model_profile"] not in model_profiles:
+            entry["warnings"].append(f"unknown model_profile: {spec['model_profile']}")
+        if spec.get("tool_profile") and spec["tool_profile"] not in tool_profiles:
+            entry["warnings"].append(f"unknown tool_profile: {spec['tool_profile']}")
+        if spec.get("protocol") == "acp" and not spec.get("transport"):
+            entry["valid"] = False
+            entry["issues"].append("missing ACP transport")
+        if not entry["valid"]:
+            issues.extend(f"{name}: {item}" for item in entry["issues"])
+        warnings.extend(f"{name}: {item}" for item in entry["warnings"])
+        agent_checks.append(entry)
+    checks["agents"] = agent_checks
+    print(
+        json.dumps(
+            {
+                "valid": not issues,
+                "issues": issues,
+                "warnings": warnings,
+                "checks": checks,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def test_agent_cmd(args: argparse.Namespace) -> None:
+    configured = read_json_or_default(AGENTS_FILE, {"agents": {}}).get("agents", {}).get(args.agent)
+    payload = {
+        "agent": args.agent,
+        "configured": bool(configured),
+        "ready": False,
+        "issues": [],
+    }
+    if configured:
+        resolved = resolve_agent_profiles(configured, load_system_config())
+        payload["protocol"] = resolved.get("protocol", "cli")
+        payload["command"] = resolved.get("command", "")
+        payload["model"] = resolved.get("model", "")
+        if payload["protocol"] == "acp":
+            transport = resolved.get("transport", {})
+            payload["transport"] = transport
+            command = transport.get("command", resolved.get("command", ""))
+            payload["path"] = shutil.which(command) or ""
+            payload["ready"] = bool(command) and bool(payload["path"])
+            if not payload["ready"]:
+                payload["issues"].append("ACP transport command is not executable")
+        else:
+            discovered = discover_cli_agent(args.agent, resolved.get("command", ""))
+            if not discovered:
+                payload["issues"].append("CLI agent binary not found")
+            else:
+                payload["path"] = discovered.get("path", "")
+                payload["capabilities"] = discovered.get("capabilities", {})
+                payload["ready"] = True
+    else:
+        discovered = discover_cli_agent(args.agent, args.agent)
+        if not discovered:
+            payload["issues"].append("agent is neither configured nor discoverable by binary name")
+        else:
+            payload.update(
+                {
+                    "protocol": discovered.get("protocol", "cli"),
+                    "command": discovered.get("command", args.agent),
+                    "path": discovered.get("path", ""),
+                    "capabilities": discovered.get("capabilities", {}),
+                    "ready": True,
+                }
+            )
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def capture_memory_cmd(args: argparse.Namespace) -> None:
+    run_dir = RUNS_DIR / args.run
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {args.run}")
+    metadata = read_json(metadata_path)
+    if metadata.get("status") != "completed":
+        raise SystemExit("capture-memory requires a completed run")
+    summary_path = run_dir / "summary.md"
+    summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+    scopes = args.scopes or metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]
+    written = []
+    content = "\n".join(
+        [
+            f"run={metadata.get('id', '')}",
+            f"spec={metadata.get('spec', '')}",
+            f"task={metadata.get('task', '')}",
+            f"role={metadata.get('role', '')}",
+            f"result={metadata.get('result', '')}",
+            "",
+            summary or "No summary recorded.",
+        ]
+    )
+    for scope in scopes:
+        written.append(
+            str(
+                append_memory(
+                    scope,
+                    content,
+                    spec_slug=metadata.get("spec", ""),
+                    title=f"{metadata.get('task', '')} {metadata.get('role', '')} {metadata.get('result', '')}".strip(),
+                )
+            )
+        )
+    print(json.dumps({"run": args.run, "scopes": scopes, "written": written}, indent=2, ensure_ascii=True))
+
+
+def cleanup_runs_cmd(args: argparse.Namespace) -> None:
+    cleaned = []
+    tasks = load_tasks(args.spec)
+    task_updates = []
+    for metadata in active_runs_for_spec(args.spec):
+        if metadata.get("status") not in args.include_status:
+            continue
+        run_dir = RUNS_DIR / metadata["id"]
+        run_json = run_dir / "run.json"
+        if not run_json.exists():
+            continue
+        payload = read_json(run_json)
+        payload["status"] = args.target_status
+        payload["cleanup_at"] = now_stamp()
+        payload["cleanup_reason"] = args.reason
+        write_json(run_json, payload)
+        cleaned.append(metadata["id"])
+        task = task_lookup(tasks, payload["task"])
+        if task.get("status") == "in_progress":
+            fallback_status = args.task_status or ("in_review" if payload.get("role") == "reviewer" else "todo")
+            task["status"] = fallback_status
+            task.setdefault("notes", []).append(
+                {
+                    "at": now_stamp(),
+                    "note": f"run {metadata['id']} cleaned up; task returned to {fallback_status}",
+                }
+            )
+            task_updates.append({"task": payload["task"], "status": fallback_status})
+        record_event(
+            args.spec,
+            "run.cleaned",
+            {"run": metadata["id"], "status": args.target_status, "task": payload["task"]},
+        )
+    if task_updates:
+        save_tasks(args.spec, tasks, reason="run_cleanup")
+    invalidate_run_cache()
+    print(
+        json.dumps(
+            {
+                "spec": args.spec,
+                "cleaned_runs": cleaned,
+                "target_status": args.target_status,
+                "task_updates": task_updates,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """
     Build and configure the Autoflow CLI argument parser.
@@ -4501,6 +4874,23 @@ def build_parser() -> argparse.ArgumentParser:
     spec_cmd.add_argument("--repository", default="", help="repository ID for multi-repo specs")
     spec_cmd.set_defaults(func=create_spec)
 
+    show_spec_cmd = sub.add_parser("show-spec", help="show spec metadata, markdown, review state, and tasks")
+    show_spec_cmd.add_argument("--slug", required=True)
+    show_spec_cmd.set_defaults(func=show_spec)
+
+    update_spec_cmd = sub.add_parser("update-spec", help="update a spec's metadata or append new context")
+    update_spec_cmd.add_argument("--slug", required=True)
+    update_spec_cmd.add_argument("--title", default="")
+    update_spec_cmd.add_argument("--summary", default="")
+    update_spec_cmd.add_argument("--status", default="")
+    update_spec_cmd.add_argument("--append", default="")
+    update_spec_cmd.set_defaults(func=update_spec)
+
+    init_tasks = sub.add_parser("init-tasks", help="initialize default tasks for a spec if missing")
+    init_tasks.add_argument("--spec", required=True)
+    init_tasks.add_argument("--force", action="store_true")
+    init_tasks.set_defaults(func=init_tasks_cmd)
+
     tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
     tasks_cmd.add_argument("--spec", required=True)
     tasks_cmd.set_defaults(func=list_tasks)
@@ -4516,6 +4906,22 @@ def build_parser() -> argparse.ArgumentParser:
     set_task_cmd.add_argument("--status", required=True)
     set_task_cmd.add_argument("--note", default="")
     set_task_cmd.set_defaults(func=set_task_status)
+
+    update_task = sub.add_parser("update-task", help="update task state or metadata using README-compatible flags")
+    update_task.add_argument("--spec", required=True)
+    update_task.add_argument("--task", required=True)
+    update_task.add_argument("--status", default="")
+    update_task.add_argument("--title", default="")
+    update_task.add_argument("--owner-role", default="")
+    update_task.add_argument("--append-criterion", default="")
+    update_task.add_argument("--note", default="")
+    update_task.set_defaults(func=update_task_cmd)
+
+    reset_task = sub.add_parser("reset-task", help="reset a task back to todo")
+    reset_task.add_argument("--spec", required=True)
+    reset_task.add_argument("--task", required=True)
+    reset_task.add_argument("--note", default="")
+    reset_task.set_defaults(func=reset_task_cmd)
 
     handoff_cmd = sub.add_parser("create-handoff", help="write a handoff artifact")
     handoff_cmd.add_argument("--spec", required=True)
@@ -4557,6 +4963,7 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_create_cmd.add_argument("--spec", required=True)
     worktree_create_cmd.add_argument("--base-branch", default="")
     worktree_create_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
+    worktree_create_cmd.add_argument("--force", action="store_true")
     worktree_create_cmd.set_defaults(func=create_worktree)
 
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
@@ -4600,6 +5007,13 @@ def build_parser() -> argparse.ArgumentParser:
     sync_cmd.add_argument("--overwrite", action="store_true")
     sync_cmd.set_defaults(func=sync_agents_cmd)
 
+    validate_cmd = sub.add_parser("validate-config", help="validate Autoflow system and agent config files")
+    validate_cmd.set_defaults(func=validate_config_cmd)
+
+    test_agent = sub.add_parser("test-agent", help="test whether a configured or named agent is actually runnable")
+    test_agent.add_argument("--agent", required=True)
+    test_agent.set_defaults(func=test_agent_cmd)
+
     write_memory = sub.add_parser("write-memory", help="append to global or spec memory")
     write_memory.add_argument("--scope", choices=["global", "spec"], required=True)
     write_memory.add_argument("--spec")
@@ -4612,14 +5026,20 @@ def build_parser() -> argparse.ArgumentParser:
     show_memory.add_argument("--spec")
     show_memory.set_defaults(func=show_memory_cmd)
 
+    capture_memory = sub.add_parser("capture-memory", help="capture memory from a completed run into its configured scopes")
+    capture_memory.add_argument("--run", required=True)
+    capture_memory.add_argument("--scopes", nargs="+")
+    capture_memory.set_defaults(func=capture_memory_cmd)
+
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
     strategy_cmd.set_defaults(func=show_strategy_cmd)
 
     planner_cmd = sub.add_parser("add-planner-note", help="append a planner strategy note to strategy memory")
     planner_cmd.add_argument("--spec", required=True)
-    planner_cmd.add_argument("--title", required=True)
-    planner_cmd.add_argument("--content", required=True)
+    planner_cmd.add_argument("--title", default="")
+    planner_cmd.add_argument("--content", default="")
+    planner_cmd.add_argument("--note", default="")
     planner_cmd.add_argument("--category", default="strategy")
     planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
     planner_cmd.set_defaults(func=add_planner_note_cmd)
@@ -4664,6 +5084,14 @@ def build_parser() -> argparse.ArgumentParser:
     history_cmd.add_argument("--spec", required=True)
     history_cmd.add_argument("--task", required=True)
     history_cmd.set_defaults(func=show_task_history)
+
+    cleanup_runs = sub.add_parser("cleanup-runs", help="mark stale or manual-selected runs as inactive")
+    cleanup_runs.add_argument("--spec", required=True)
+    cleanup_runs.add_argument("--reason", default="manual_cleanup")
+    cleanup_runs.add_argument("--target-status", default="abandoned")
+    cleanup_runs.add_argument("--task-status", default="")
+    cleanup_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
+    cleanup_runs.set_defaults(func=cleanup_runs_cmd)
 
     events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
     events_cmd.add_argument("--spec", required=True)
