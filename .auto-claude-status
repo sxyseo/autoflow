@@ -3,7 +3,7 @@
   "spec": "036-improve-type-safety-and-reduce-any-usage",
   "state": "building",
   "subtasks": {
-    "completed": 11,
+    "completed": 13,
     "total": 21,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 13,
+    "number": 15,
     "started_at": "2026-03-10T21:16:24.370879"
   },
-  "last_update": "2026-03-10T21:37:28.938460"
+  "last_update": "2026-03-10T21:40:58.388012"
 }
