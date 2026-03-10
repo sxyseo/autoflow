@@ -13,6 +13,52 @@ STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 
 
+def validate_slug_safe(slug: str) -> bool:
+    """Validate that a slug does not contain path traversal patterns.
+
+    Returns True if the slug is safe, False if it contains dangerous patterns
+    that could lead to path traversal attacks.
+
+    Checks for:
+    - '..' sequences (parent directory)
+    - './' sequences (current directory)
+    - Absolute paths starting with '/'
+    - Backslash separators (Windows paths)
+    - Null bytes
+
+    Args:
+        slug: The slug string to validate
+
+    Returns:
+        bool: True if safe, False if dangerous
+    """
+    # Check for null bytes
+    if "\0" in slug:
+        return False
+
+    # Check for parent directory patterns
+    if ".." in slug:
+        return False
+
+    # Check for current directory patterns
+    if "./" in slug:
+        return False
+
+    # Check for absolute paths
+    if slug.startswith("/"):
+        return False
+
+    # Check for Windows path separators
+    if "\\" in slug:
+        return False
+
+    # Check for drive letters (Windows absolute paths like C:)
+    if len(slug) >= 2 and slug[1] == ":":
+        return False
+
+    return True
+
+
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
 
@@ -213,6 +259,20 @@ def main() -> None:
     parser.add_argument("--commit-if-dirty", action="store_true")
     parser.add_argument("--push", action="store_true")
     args = parser.parse_args()
+
+    # Validate spec slug to prevent command injection
+    if not validate_slug_safe(args.spec):
+        print(
+            json.dumps(
+                {
+                    "error": "invalid_spec_slug",
+                    "message": f"Spec slug '{args.spec}' contains dangerous patterns (path traversal, absolute paths, etc.)",
+                },
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
+        raise SystemExit(1)
 
     config = load_config(args.config)
     result = {"spec": args.spec}
