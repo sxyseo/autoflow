@@ -1143,6 +1143,9 @@ class TestEdgeCases:
 
         An empty spec could cause issues with command construction or
         lead to unexpected behavior in the rendered command.
+
+        SECURITY FIX: This test now verifies that shell=True is NOT used,
+        confirming the command injection vulnerability has been fixed.
         """
         mock_proc = MagicMock()
         mock_proc.returncode = 0
@@ -1156,8 +1159,9 @@ class TestEdgeCases:
             assert mock_run.called
             call_kwargs = mock_run.call_args[1]
 
-            # The command should still be executed with shell=True
-            assert call_kwargs.get("shell") is True
+            # SECURITY FIX: shell=True should NOT be used (command injection fixed)
+            assert call_kwargs.get("shell") is not True, \
+                "shell=True should not be used after security fix"
 
             # The empty string should result in just the base command
             assert result.commands_run == 1
@@ -1165,11 +1169,14 @@ class TestEdgeCases:
 
     def test_run_verify_commands_special_characters(self) -> None:
         """
-        Test that special shell metacharacters in spec are handled.
+        Test that special shell metacharacters in spec are handled safely.
 
         This test verifies that various shell metacharacters that could
-        be used for command injection are present in the rendered command,
-        demonstrating the current vulnerability.
+        be used for command injection are now safely handled after the
+        security fix.
+
+        SECURITY FIX: This test now verifies that shell=True is NOT used,
+        preventing command injection through special characters.
 
         Characters tested:
         - Semicolon (;): Command chaining
@@ -1212,11 +1219,12 @@ class TestEdgeCases:
                 assert mock_run.called, f"Command not executed for: {description}"
                 call_kwargs = mock_run.call_args[1]
 
-                # Verify shell=True is used (enables injection)
-                assert call_kwargs.get("shell") is True, \
-                    f"shell=True not set for: {description}"
+                # SECURITY FIX: shell=True should NOT be used (command injection fixed)
+                assert call_kwargs.get("shell") is not True, \
+                    f"shell=True should not be used for: {description}"
 
                 # Verify the special characters are present in the rendered command
+                # (They are now safely escaped/contained by shlex.split())
                 rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Special characters not preserved for: {description}"
@@ -1282,12 +1290,13 @@ class TestEdgeCases:
 
     def test_run_verify_commands_path_traversal_attempts(self) -> None:
         """
-        Test that path traversal attempts in spec are handled.
+        Test that path traversal attempts in spec are handled safely.
 
         This test verifies that various path traversal patterns are
-        present in the rendered command, demonstrating the potential
-        for path traversal attacks if the command execution environment
-        allows file system access.
+        now safely handled after the security fix.
+
+        SECURITY FIX: This test now verifies that shell=True is NOT used,
+        preventing command execution through path traversal patterns.
 
         Path traversal patterns tested:
         - Parent directory references (..)
@@ -1332,11 +1341,12 @@ class TestEdgeCases:
                 assert mock_run.called, f"Command not executed for: {description}"
                 call_kwargs = mock_run.call_args[1]
 
-                # Verify shell=True is used
-                assert call_kwargs.get("shell") is True, \
-                    f"shell=True not set for: {description}"
+                # SECURITY FIX: shell=True should NOT be used (command injection fixed)
+                assert call_kwargs.get("shell") is not True, \
+                    f"shell=True should not be used for: {description}"
 
                 # Verify the path traversal pattern is present in the rendered command
+                # (They are now safely escaped/contained by shlex.split())
                 rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Path traversal pattern not preserved for: {description}"
@@ -1493,35 +1503,59 @@ class TestEdgeCases:
         Test that various quote patterns are handled correctly.
 
         Quotes can be used to break out of command arguments and inject
-        arbitrary commands. This test verifies that quote characters are
-        present in the rendered command.
+        arbitrary commands.
+
+        SECURITY FIX: This test now verifies that malformed quotes are
+        properly rejected by shlex.split(), which raises InvalidCommandError.
+        This is the correct secure behavior - it prevents command injection
+        through unclosed quotes.
+
+        Valid quotes should be preserved and executed safely without shell=True.
         """
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = ""
         mock_proc.stderr = ""
 
-        quote_specs = [
-            ("spec'test", "Single quote"),
-            ('spec"test', "Double quote"),
-            ("spec`test", "Backtick"),
-            ("spec'test'; malicious", "Single quote with injection"),
-            ('spec"test"; malicious', "Double quote with injection"),
-            ("spec\\'test", "Escaped single quote"),
-            ("spec\\\"test", "Escaped double quote"),
-            ("spec'test'\"test\"", "Mixed quotes"),
-            ("'spec'", "Single quoted spec"),
-            ('"spec"', "Double quoted spec"),
-            ("'spec'; malicious", "Single quoted with injection"),
-            ("\"spec\"; malicious", "Double quoted with injection"),
+        # Malformed quotes that should raise InvalidCommandError
+        # Note: shlex.split() is lenient - it treats quotes as word delimiters
+        # Truly malformed quotes are those that never close
+        malformed_quote_specs = [
+            ("spec'test", "Unclosed single quote"),
+            ('spec"test', "Unclosed double quote"),
+            ("spec'test\"test", "Mixed unclosed quotes (no closing)"),
+            ("'spec", "Unclosed single quoted spec"),
+            ("\"spec", "Unclosed double quoted spec"),
+            ("spec'", "Unclosed single quote at end"),
+            ('spec"', "Unclosed double quote at end"),
         ]
 
-        for spec, description in quote_specs:
+        # Test that malformed quotes are properly rejected
+        # Note: No need to mock subprocess.run() since shlex.split() will fail first
+        for spec, description in malformed_quote_specs:
+            with pytest.raises(InvalidCommandError, match="Failed to parse command"):
+                result = run_verify_commands(["pytest {spec}"], spec)
+
+        # Valid quote patterns that should work (properly escaped or balanced)
+        valid_quote_specs = [
+            ("spec\\'test", "Escaped single quote"),
+            ("spec\\\"test", "Escaped double quote"),
+            ("spec'test'", "Closed single quotes"),
+            ('spec"test"', "Closed double quotes"),
+        ]
+
+        for spec, description in valid_quote_specs:
             with patch("subprocess.run", return_value=mock_proc) as mock_run:
                 result = run_verify_commands(["pytest {spec}"], spec)
 
                 # Verify the command was executed
                 assert mock_run.called, f"Command not executed for: {description}"
+                call_kwargs = mock_run.call_args[1]
+
+                # SECURITY FIX: shell=True should NOT be used
+                assert call_kwargs.get("shell") is not True, \
+                    f"shell=True should not be used for: {description}"
+
                 assert result.commands_run == 1, f"Result length incorrect for: {description}"
 
                 # Verify the quotes are preserved in the rendered command
@@ -1531,11 +1565,14 @@ class TestEdgeCases:
 
     def test_run_verify_commands_combined_attacks(self) -> None:
         """
-        Test that combined attack patterns are handled.
+        Test that combined attack patterns are handled safely.
 
         This test verifies that combinations of multiple attack vectors
         (e.g., path traversal + command injection, Unicode + special characters)
-        are present in the rendered command.
+        are now safely handled after the security fix.
+
+        SECURITY FIX: This test now verifies that shell=True is NOT used,
+        preventing command execution through combined attack patterns.
         """
         mock_proc = MagicMock()
         mock_proc.returncode = 0
@@ -1563,11 +1600,12 @@ class TestEdgeCases:
                 assert mock_run.called, f"Command not executed for: {description}"
                 call_kwargs = mock_run.call_args[1]
 
-                # Verify shell=True is used (enables the injection)
-                assert call_kwargs.get("shell") is True, \
-                    f"shell=True not set for: {description}"
+                # SECURITY FIX: shell=True should NOT be used (command injection fixed)
+                assert call_kwargs.get("shell") is not True, \
+                    f"shell=True should not be used for: {description}"
 
                 # Verify the combined attack is present in the rendered command
+                # (They are now safely escaped/contained by shlex.split())
                 rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Combined attack not preserved for: {description}"
