@@ -52,6 +52,14 @@ from continuous_iteration import (
 
 
 @pytest.fixture
+def temp_workdir(tmp_path: Path) -> Path:
+    """Create a temporary working directory for testing."""
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    return workdir
+
+
+@pytest.fixture
 def temp_config_file(tmp_path: Path) -> Path:
     """Create a temporary config file."""
     config_file = tmp_path / "config.json"
@@ -97,6 +105,46 @@ def mock_subprocess_failure() -> MagicMock:
     mock.returncode = 1
     mock.stdout = ""
     mock.stderr = "Error output"
+    return mock
+
+
+@pytest.fixture
+def mock_subprocess_timeout() -> MagicMock:
+    """Mock subprocess that times out."""
+    mock = MagicMock()
+    mock.returncode = None
+    mock.stdout = ""
+    mock.stderr = "Timeout error"
+    return mock
+
+
+@pytest.fixture
+def mock_subprocess_empty() -> MagicMock:
+    """Mock subprocess that returns empty output."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = ""
+    mock.stderr = ""
+    return mock
+
+
+@pytest.fixture
+def mock_git_clean_repo() -> MagicMock:
+    """Mock git status for a clean repository."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = ""
+    mock.stderr = ""
+    return mock
+
+
+@pytest.fixture
+def mock_git_dirty_repo() -> MagicMock:
+    """Mock git status for a dirty repository."""
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = "M scripts/test.py\nA src/new_file.py"
+    mock.stderr = ""
     return mock
 
 
