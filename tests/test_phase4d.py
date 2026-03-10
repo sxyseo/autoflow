@@ -521,6 +521,77 @@ class Phase4DTests(unittest.TestCase):
         self.assertNotIn("original global memory", second_prompt)
         self.assertNotIn("original spec memory", second_prompt)
 
+    def test_cache_invalidation_on_strategy_change(self) -> None:
+        self.create_spec("strategy-cache-spec")
+        # Create initial strategy memory by completing a run with findings
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="strategy-cache-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(
+                run=run_id,
+                result="needs_changes",
+                summary="Original strategy reflection",
+                findings_json=json.dumps(
+                    [
+                        {
+                            "title": "Original finding",
+                            "body": "Original finding body",
+                            "category": "tests",
+                            "severity": "high",
+                            "file": "tests/test_phase4d.py",
+                            "line": 1,
+                        }
+                    ]
+                ),
+                findings_file="",
+            ),
+        )
+
+        agent = self.autoflow.AgentSpec(
+            name="review-agent",
+            command="claude",
+            args=[],
+            model="claude-sonnet-4-6",
+            memory_scopes=["spec"],
+        )
+
+        # Clear cache and build first prompt
+        self.autoflow._prompt_context_cache.clear()
+        first_prompt = self.autoflow.build_prompt("strategy-cache-spec", "reviewer", "T1", agent)
+
+        # Verify original content is in prompt
+        self.assertIn("Original strategy reflection", first_prompt)
+        self.assertIn("Original finding", first_prompt)
+
+        # Modify the strategy memory file directly
+        strategy_memory_file = self.autoflow.STRATEGY_MEMORY_DIR / "strategy-cache-spec.md"
+        existing_content = strategy_memory_file.read_text(encoding="utf-8")
+        modified_content = existing_content.replace("Original strategy reflection", "Updated strategy reflection")
+        modified_content = modified_content.replace("Original finding", "Updated finding")
+        strategy_memory_file.write_text(modified_content, encoding="utf-8")
+
+        # Build prompt again - should detect file changes and invalidate cache
+        second_prompt = self.autoflow.build_prompt("strategy-cache-spec", "reviewer", "T1", agent)
+
+        # Verify updated content is in prompt
+        self.assertIn("Updated strategy reflection", second_prompt)
+        self.assertIn("Updated finding", second_prompt)
+        # Verify original content is NOT in prompt
+        self.assertNotIn("Original strategy reflection", second_prompt)
+        self.assertNotIn("Original finding", second_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
