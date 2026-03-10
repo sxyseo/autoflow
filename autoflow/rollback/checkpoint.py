@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -248,9 +248,7 @@ class CheckpointManager:
         checkpoints = []
 
         for checkpoint_file in self.checkpoints_dir.glob("checkpoint-*.json"):
-            metadata = self.get_checkpoint(
-                checkpoint_file.stem
-            )
+            metadata = self.get_checkpoint(checkpoint_file.stem)
             if metadata:
                 checkpoints.append(metadata)
 
@@ -296,9 +294,7 @@ class CheckpointManager:
         checkpoints = self.list_checkpoints()
 
         if health_status:
-            checkpoints = [
-                c for c in checkpoints if c.health_status == health_status
-            ]
+            checkpoints = [c for c in checkpoints if c.health_status == health_status]
 
         return checkpoints[0] if checkpoints else None
 

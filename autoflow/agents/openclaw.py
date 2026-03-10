@@ -21,9 +21,9 @@ import asyncio
 import json
 import shutil
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.agents.base import (
     AgentAdapter,
@@ -34,7 +34,7 @@ from autoflow.agents.base import (
 )
 
 
-class OpenClawRuntime(str, Enum):
+class OpenClawRuntime(StrEnum):
     """Runtime types for OpenClaw session spawning."""
 
     CLAUDE = "claude"  # Default Claude runtime
@@ -86,10 +86,10 @@ class OpenClawAdapter(AgentAdapter):
 
     def __init__(
         self,
-        command: Optional[str] = None,
-        default_args: Optional[list[str]] = None,
-        default_timeout: Optional[int] = None,
-        gateway_url: Optional[str] = None,
+        command: str | None = None,
+        default_args: list[str] | None = None,
+        default_timeout: int | None = None,
+        gateway_url: str | None = None,
     ) -> None:
         """
         Initialize the OpenClaw adapter.
@@ -122,7 +122,7 @@ class OpenClawAdapter(AgentAdapter):
         self,
         prompt: str,
         config: AgentConfig,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> list[str]:
         """
         Build the full command to execute.
@@ -188,9 +188,12 @@ class OpenClawAdapter(AgentAdapter):
             config.command or self._command,
             "tool",
             "call",
-            "--tool", tool_name,
-            "--payload", json.dumps(payload),
-            "--gateway", gateway_url,
+            "--tool",
+            tool_name,
+            "--payload",
+            json.dumps(payload),
+            "--gateway",
+            gateway_url,
         ]
 
         process = await asyncio.create_subprocess_exec(
@@ -202,9 +205,7 @@ class OpenClawAdapter(AgentAdapter):
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            raise RuntimeError(
-                f"OpenClaw tool call failed: {stderr.decode('utf-8')}"
-            )
+            raise RuntimeError(f"OpenClaw tool call failed: {stderr.decode('utf-8')}")
 
         return json.loads(stdout.decode("utf-8"))
 
@@ -212,11 +213,11 @@ class OpenClawAdapter(AgentAdapter):
         self,
         task: str,
         label: str,
-        agent_id: Optional[str] = None,
-        model: Optional[str] = None,
+        agent_id: str | None = None,
+        model: str | None = None,
         timeout_seconds: int = 300,
-        workdir: Optional[Union[str, Path]] = None,
-        config: Optional[AgentConfig] = None,
+        workdir: str | Path | None = None,
+        config: AgentConfig | None = None,
     ) -> SpawnResult:
         """
         Spawn an isolated sub-agent session via OpenClaw.
@@ -292,7 +293,7 @@ class OpenClawAdapter(AgentAdapter):
         task: str,
         agent_id: str,
         thread: bool = True,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> SpawnResult:
         """
         Spawn an ACP runtime agent (e.g., Codex) via OpenClaw.
@@ -354,7 +355,7 @@ class OpenClawAdapter(AgentAdapter):
     async def execute(
         self,
         prompt: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         config: AgentConfig,
     ) -> ExecutionResult:
         """
@@ -447,7 +448,7 @@ class OpenClawAdapter(AgentAdapter):
                 if parsed:
                     result.metadata["parsed_output"] = parsed
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 process.kill()
                 await process.wait()
@@ -477,7 +478,7 @@ class OpenClawAdapter(AgentAdapter):
         self,
         session_id: str,
         new_prompt: str,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> ExecutionResult:
         """
         Resume an existing session with a new prompt.
@@ -556,7 +557,7 @@ class OpenClawAdapter(AgentAdapter):
                 if parsed:
                     result.metadata["parsed_output"] = parsed
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 result.mark_complete(
@@ -581,7 +582,7 @@ class OpenClawAdapter(AgentAdapter):
 
         return result
 
-    def _extract_session_id(self, output: Optional[str]) -> Optional[str]:
+    def _extract_session_id(self, output: str | None) -> str | None:
         """
         Extract session ID from OpenClaw output.
 
@@ -612,7 +613,7 @@ class OpenClawAdapter(AgentAdapter):
 
         return None
 
-    def _parse_output(self, output: Optional[str]) -> dict[str, Any]:
+    def _parse_output(self, output: str | None) -> dict[str, Any]:
         """
         Parse output from OpenClaw.
 
@@ -639,7 +640,7 @@ class OpenClawAdapter(AgentAdapter):
         """
         return shutil.which(self._command) is not None
 
-    async def cleanup(self, session_id: Optional[str] = None) -> None:
+    async def cleanup(self, session_id: str | None = None) -> None:
         """
         Clean up resources after execution.
 

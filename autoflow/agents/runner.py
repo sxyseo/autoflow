@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.core.config import Config
 
@@ -87,7 +87,7 @@ class AgentRunner:
         return json.loads(path.read_text(encoding="utf-8"))
 
     @staticmethod
-    def load_prompt(prompt_file: Union[str, Path]) -> str:
+    def load_prompt(prompt_file: str | Path) -> str:
         """
         Load prompt text from a file.
 
@@ -104,7 +104,9 @@ class AgentRunner:
         return path.read_text(encoding="utf-8")
 
     @staticmethod
-    def apply_runtime_config(command: list[str], agent_spec: dict[str, Any]) -> list[str]:
+    def apply_runtime_config(
+        command: list[str], agent_spec: dict[str, Any]
+    ) -> list[str]:
         """
         Apply runtime configuration to a command.
 
@@ -135,8 +137,8 @@ class AgentRunner:
     def build_command(
         self,
         agent_spec: dict[str, Any],
-        prompt_file: Union[str, Path],
-        run_metadata: Optional[dict[str, Any]] = None,
+        prompt_file: str | Path,
+        run_metadata: dict[str, Any] | None = None,
     ) -> list[str]:
         """
         Build a command list for running an agent.
@@ -202,8 +204,7 @@ class AgentRunner:
 
         # Handle CLI protocol
         command = self.apply_runtime_config(
-            [agent_spec["command"], *agent_spec.get("args", [])],
-            agent_spec
+            [agent_spec["command"], *agent_spec.get("args", [])], agent_spec
         )
 
         # Handle resume configuration
@@ -243,8 +244,8 @@ class AgentRunner:
 
 def build_command(
     agent_spec: dict[str, Any],
-    prompt_file: Union[str, Path],
-    run_metadata: Optional[dict[str, Any]] = None,
+    prompt_file: str | Path,
+    run_metadata: dict[str, Any] | None = None,
 ) -> list[str]:
     """
     Build a command list for running an agent.

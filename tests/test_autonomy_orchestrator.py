@@ -10,7 +10,6 @@ instead of dynamic module loading.
 
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,7 +22,6 @@ from autoflow.orchestration.autonomy import (
     taskmaster_sync,
 )
 
-
 # ============================================================================
 # Binary Probe Tests
 # ============================================================================
@@ -35,7 +33,10 @@ class TestProbeBinary(unittest.TestCase):
     def test_probe_binary_reports_resume_and_model_capabilities(self) -> None:
         """Test that probe_binary detects resume and model capabilities."""
         with (
-            patch("autoflow.orchestration.autonomy.shutil.which", return_value="/usr/bin/codex"),
+            patch(
+                "autoflow.orchestration.autonomy.shutil.which",
+                return_value="/usr/bin/codex",
+            ),
             patch(
                 "autoflow.orchestration.autonomy.subprocess.run",
                 side_effect=[
@@ -77,14 +78,22 @@ class TestCoordinationBrief(unittest.TestCase):
         mock_ci.select_agent_for_role.return_value = ("claude", "fallback")
 
         with (
-            patch("autoflow.orchestration.autonomy.load_config_from_path") as mock_load_config,
-            patch("autoflow.orchestration.autonomy.health_report") as mock_health_report,
+            patch(
+                "autoflow.orchestration.autonomy.load_config_from_path"
+            ) as mock_load_config,
+            patch(
+                "autoflow.orchestration.autonomy.health_report"
+            ) as mock_health_report,
             patch("autoflow.orchestration.autonomy.load_json") as mock_load_json,
-            patch("autoflow.orchestration.autonomy.autoflow_json") as mock_autoflow_json,
+            patch(
+                "autoflow.orchestration.autonomy.autoflow_json"
+            ) as mock_autoflow_json,
             patch.dict("sys.modules", {"continuous_iteration": mock_ci}),
         ):
             # Setup mocks
-            mock_load_config.return_value = {"role_agents": {"reviewer": "claude-review"}}
+            mock_load_config.return_value = {
+                "role_agents": {"reviewer": "claude-review"}
+            }
             mock_health_report.return_value = {
                 "binaries": [{"name": "codex", "available": True}]
             }
@@ -99,7 +108,15 @@ class TestCoordinationBrief(unittest.TestCase):
                         "owner_role": "reviewer",
                     }
                 },
-                {"playbook": [{"category": "tests", "rule": "write tests", "evidence_count": 2}]},
+                {
+                    "playbook": [
+                        {
+                            "category": "tests",
+                            "rule": "write tests",
+                            "evidence_count": 2,
+                        }
+                    ]
+                },
             ]
 
             brief = coordination_brief(

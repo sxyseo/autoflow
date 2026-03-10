@@ -13,7 +13,6 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -28,7 +27,6 @@ from autoflow.core.state import (
     read_json,
     write_json,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -495,7 +493,9 @@ class TestStateManagerJSON:
 
         assert result == {"default": True}
 
-    def test_write_json_atomic(self, state_manager: StateManager, tmp_path: Path) -> None:
+    def test_write_json_atomic(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
         """Test write_json uses atomic write pattern."""
         file_path = tmp_path / "atomic.json"
 
@@ -521,7 +521,9 @@ class TestStateManagerJSON:
 class TestStateManagerTasks:
     """Tests for StateManager task operations."""
 
-    def test_save_task(self, state_manager: StateManager, sample_task_data: dict) -> None:
+    def test_save_task(
+        self, state_manager: StateManager, sample_task_data: dict
+    ) -> None:
         """Test save_task creates task file."""
         result = state_manager.save_task("task-001", sample_task_data)
 
@@ -572,9 +574,7 @@ class TestStateManagerTasks:
         self, state_manager: StateManager, sample_task_data: dict
     ) -> None:
         """Test list_tasks filters by status."""
-        state_manager.save_task(
-            "task-001", {**sample_task_data, "status": "pending"}
-        )
+        state_manager.save_task("task-001", {**sample_task_data, "status": "pending"})
         state_manager.save_task(
             "task-002", {**sample_task_data, "id": "task-002", "status": "completed"}
         )
@@ -593,7 +593,8 @@ class TestStateManagerTasks:
             "task-001", {**sample_task_data, "assigned_agent": "claude-code"}
         )
         state_manager.save_task(
-            "task-002", {**sample_task_data, "id": "task-002", "assigned_agent": "codex"}
+            "task-002",
+            {**sample_task_data, "id": "task-002", "assigned_agent": "codex"},
         )
 
         claude_tasks = state_manager.list_tasks(agent="claude-code")
@@ -700,7 +701,9 @@ class TestStateManagerRuns:
     ) -> None:
         """Test list_runs respects limit."""
         for i in range(10):
-            state_manager.save_run(f"run-{i:03d}", {**sample_run_data, "id": f"run-{i:03d}"})
+            state_manager.save_run(
+                f"run-{i:03d}", {**sample_run_data, "id": f"run-{i:03d}"}
+            )
 
         runs = state_manager.list_runs(limit=5)
 
@@ -715,7 +718,9 @@ class TestStateManagerRuns:
 class TestStateManagerSpecs:
     """Tests for StateManager spec operations."""
 
-    def test_save_spec(self, state_manager: StateManager, sample_spec_data: dict) -> None:
+    def test_save_spec(
+        self, state_manager: StateManager, sample_spec_data: dict
+    ) -> None:
         """Test save_spec creates spec file."""
         result = state_manager.save_spec("spec-001", sample_spec_data)
 
@@ -887,7 +892,9 @@ class TestStateManagerMemory:
 class TestStateManagerUtilities:
     """Tests for StateManager utility methods."""
 
-    def test_get_status(self, state_manager: StateManager, sample_task_data: dict) -> None:
+    def test_get_status(
+        self, state_manager: StateManager, sample_task_data: dict
+    ) -> None:
         """Test get_status returns summary."""
         state_manager.save_task("task-001", sample_task_data)
         state_manager.save_run("run-001", {"id": "run-001", "agent": "test"})
@@ -1045,7 +1052,9 @@ class TestEdgeCases:
         assert tasks[0]["id"] == "task-002"
         assert tasks[1]["id"] == "task-001"
 
-    def test_write_json_with_unicode(self, state_manager: StateManager, tmp_path: Path) -> None:
+    def test_write_json_with_unicode(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
         """Test write_json handles unicode characters."""
         file_path = tmp_path / "unicode.json"
         data = {"message": "Hello 世界 🌍"}

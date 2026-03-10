@@ -18,16 +18,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import yaml
-
 from pydantic import BaseModel, Field, field_validator
 
 
-class SkillStatus(str, Enum):
+class SkillStatus(StrEnum):
     """Status of a skill in the registry."""
 
     LOADED = "loaded"
@@ -69,9 +68,7 @@ class SkillMetadata(BaseModel):
         if not v:
             raise ValueError("Skill name cannot be empty")
         if not re.match(r"^[A-Z][A-Z0-9_]*$", v):
-            raise ValueError(
-                f"Skill name must be UPPER_SNAKE_CASE: {v}"
-            )
+            raise ValueError(f"Skill name must be UPPER_SNAKE_CASE: {v}")
         return v
 
 
@@ -168,14 +165,11 @@ class SkillRegistry:
     """
 
     # Pattern to match YAML frontmatter
-    FRONTMATTER_PATTERN = re.compile(
-        r"^---\s*\n(.*?)\n---\s*\n(.*)$",
-        re.DOTALL
-    )
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
 
     def __init__(
         self,
-        skills_dirs: Optional[list[Union[str, Path]]] = None,
+        skills_dirs: list[str | Path] | None = None,
         auto_load: bool = False,
     ):
         """
@@ -196,7 +190,7 @@ class SkillRegistry:
         if auto_load:
             self.load_skills()
 
-    def add_skills_dir(self, dir_path: Union[str, Path]) -> None:
+    def add_skills_dir(self, dir_path: str | Path) -> None:
         """
         Add a directory to search for skills.
 
@@ -272,9 +266,7 @@ class SkillRegistry:
                         f"Invalid skill '{skill.name}': {', '.join(skill.errors)}"
                     )
             except Exception as e:
-                self._errors.append(
-                    f"Failed to load skill from {skill_file}: {e}"
-                )
+                self._errors.append(f"Failed to load skill from {skill_file}: {e}")
 
         # Also check for SKILL.md files directly in the directory
         for skill_file in skills_dir.glob("SKILL.md"):
@@ -284,13 +276,11 @@ class SkillRegistry:
                     self._skills[skill.name] = skill
                     loaded_count += 1
             except Exception as e:
-                self._errors.append(
-                    f"Failed to load skill from {skill_file}: {e}"
-                )
+                self._errors.append(f"Failed to load skill from {skill_file}: {e}")
 
         return loaded_count
 
-    def _load_skill_file(self, file_path: Path) -> Optional[SkillDefinition]:
+    def _load_skill_file(self, file_path: Path) -> SkillDefinition | None:
         """
         Load and parse a single SKILL.md file.
 
@@ -366,7 +356,7 @@ class SkillRegistry:
             errors=errors,
         )
 
-    def get_skill(self, name: str) -> Optional[SkillDefinition]:
+    def get_skill(self, name: str) -> SkillDefinition | None:
         """
         Get a skill by name.
 
@@ -457,7 +447,7 @@ class SkillRegistry:
 
     def register_skill(
         self,
-        metadata: Union[SkillMetadata, dict[str, Any]],
+        metadata: SkillMetadata | dict[str, Any],
         content: str,
     ) -> SkillDefinition:
         """
@@ -531,7 +521,7 @@ class SkillRegistry:
 
 
 def create_registry(
-    skills_dirs: Optional[list[Union[str, Path]]] = None,
+    skills_dirs: list[str | Path] | None = None,
     auto_load: bool = True,
 ) -> SkillRegistry:
     """

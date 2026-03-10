@@ -17,23 +17,21 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
-
-from pydantic import BaseModel
+from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Valid task statuses in the workflow."""
 
     TODO = "todo"
@@ -44,7 +42,7 @@ class TaskStatus(str, Enum):
     DONE = "done"
 
 
-class RunResult(str, Enum):
+class RunResult(StrEnum):
     """Possible results of an agent run."""
 
     SUCCESS = "success"
@@ -111,8 +109,8 @@ class AutoflowCLI:
     def __init__(
         self,
         config: Config,
-        root: Optional[Union[str, Path]] = None,
-        state_dir: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
+        state_dir: str | Path | None = None,
     ):
         """
         Initialize the AutoflowCLI.
@@ -310,7 +308,7 @@ class AutoflowCLI:
     def run_cmd(
         self,
         args: list[str],
-        cwd: Optional[Path] = None,
+        cwd: Path | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         """
@@ -410,7 +408,7 @@ class AutoflowCLI:
             "worktree": worktree,
         }
 
-    def memory_file(self, scope: str, spec_slug: Optional[str] = None) -> Path:
+    def memory_file(self, scope: str, spec_slug: str | None = None) -> Path:
         """
         Get the path to a memory file.
 
@@ -425,9 +423,7 @@ class AutoflowCLI:
             return self.memory_dir / "specs" / spec_slug / f"{scope}.md"
         return self.memory_dir / f"{scope}.md"
 
-    def strategy_memory_file(
-        self, scope: str, spec_slug: Optional[str] = None
-    ) -> Path:
+    def strategy_memory_file(self, scope: str, spec_slug: str | None = None) -> Path:
         """
         Get the path to a strategy memory file.
 
@@ -449,7 +445,7 @@ class AutoflowCLI:
         slug: str,
         title: str,
         summary: str,
-        content: Optional[str] = None,
+        content: str | None = None,
     ) -> dict[str, Any]:
         """
         Create a new spec.
@@ -514,10 +510,16 @@ class AutoflowCLI:
             Tasks data dictionary
         """
         path = self.task_file(spec_slug)
-        return self.read_json_or_default(path, {"tasks": [], "updated_at": self.now_stamp()})
+        return self.read_json_or_default(
+            path, {"tasks": [], "updated_at": self.now_stamp()}
+        )
 
     def save_tasks(
-        self, spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated"
+        self,
+        spec_slug: str,
+        data: dict[str, Any],
+        *,
+        reason: str = "task_state_updated",
     ) -> None:
         """
         Save tasks for a spec.
@@ -560,7 +562,9 @@ class AutoflowCLI:
             Review state dictionary
         """
         files = self.spec_files(spec_slug)
-        return self.read_json_or_default(files["review_state"], self.review_state_default())
+        return self.read_json_or_default(
+            files["review_state"], self.review_state_default()
+        )
 
     def save_review_state(self, spec_slug: str, state: dict[str, Any]) -> None:
         """
@@ -666,10 +670,8 @@ class AutoflowCLI:
         # Load from template and save
         default = self.system_config_default()
         if self.system_config_template.exists():
-            try:
+            with contextlib.suppress(json.JSONDecodeError, OSError):
                 default = self.read_json(self.system_config_template)
-            except (json.JSONDecodeError, OSError):
-                pass
 
         self.write_json(self.system_config_file, default)
         return default
@@ -732,7 +734,7 @@ class AutoflowCLI:
         self,
         scope: str,
         content: str,
-        spec_slug: Optional[str] = None,
+        spec_slug: str | None = None,
         title: str = "",
     ) -> Path:
         """
@@ -765,7 +767,7 @@ class AutoflowCLI:
         return path
 
     def load_memory_context(
-        self, spec_slug: str, scopes: Optional[list[str]] = None
+        self, spec_slug: str, scopes: list[str] | None = None
     ) -> str:
         """
         Load memory context for a spec.
@@ -793,7 +795,7 @@ class AutoflowCLI:
     # === Strategy Memory Operations ===
 
     def load_strategy_memory(
-        self, scope: str, spec_slug: Optional[str] = None
+        self, scope: str, spec_slug: str | None = None
     ) -> dict[str, Any]:
         """
         Load strategy memory.
@@ -809,7 +811,7 @@ class AutoflowCLI:
         return self.read_json_or_default(path, self.strategy_memory_default())
 
     def save_strategy_memory(
-        self, scope: str, payload: dict[str, Any], spec_slug: Optional[str] = None
+        self, scope: str, payload: dict[str, Any], spec_slug: str | None = None
     ) -> Path:
         """
         Save strategy memory.
@@ -915,7 +917,7 @@ class AutoflowCLI:
             return []
 
         events = []
-        with open(files["events"], "r", encoding="utf-8") as f:
+        with open(files["events"], encoding="utf-8") as f:
             for line in f:
                 try:
                     events.append(json.loads(line.strip()))
@@ -1026,8 +1028,12 @@ class AutoflowCLI:
                         "title": finding.get("title") or "Follow-up required",
                         "body": finding.get("body") or summary,
                         "file": finding.get("file", ""),
-                        "line": int(start_line) if start_line not in (None, "") else None,
-                        "end_line": int(end_line) if end_line not in (None, "") else None,
+                        "line": (
+                            int(start_line) if start_line not in (None, "") else None
+                        ),
+                        "end_line": (
+                            int(end_line) if end_line not in (None, "") else None
+                        ),
                         "severity": finding.get("severity", "medium"),
                         "category": finding.get("category", "general"),
                         "suggested_fix": finding.get("suggested_fix", ""),
@@ -1085,7 +1091,10 @@ class AutoflowCLI:
             line_display = ""
             if finding.get("line") is not None:
                 line_display = str(finding["line"])
-                if finding.get("end_line") is not None and finding["end_line"] != finding["line"]:
+                if (
+                    finding.get("end_line") is not None
+                    and finding["end_line"] != finding["line"]
+                ):
                     line_display = f"{line_display}-{finding['end_line']}"
             lines.append(
                 f"| {finding['id']} | {finding['severity']} | {finding['category']} | "
@@ -1154,7 +1163,9 @@ class AutoflowCLI:
             "finding_count": len(normalized),
             "findings": normalized,
         }
-        content = self.format_fix_request_markdown(task_id, reviewer_summary, result, normalized)
+        content = self.format_fix_request_markdown(
+            task_id, reviewer_summary, result, normalized
+        )
         content = "\n".join([content])
         path.write_text(content, encoding="utf-8")
         self.write_json(json_path, payload)
@@ -1249,7 +1260,10 @@ class AutoflowCLI:
         spec_slug = metadata["spec"]
         task_id = metadata["task"]
 
-        if metadata["role"] == "reviewer" and args.result in ("needs_changes", "blocked"):
+        if metadata["role"] == "reviewer" and args.result in (
+            "needs_changes",
+            "blocked",
+        ):
             self.write_fix_request(
                 spec_slug,
                 task_id,
@@ -1284,9 +1298,12 @@ class AutoflowCLI:
         result = {
             "run": args.run,
             "result": args.result,
-            "fix_request": str(self.spec_files(spec_slug)["qa_fix_request"])
-            if metadata["role"] == "reviewer" and args.result in ("needs_changes", "blocked")
-            else None,
+            "fix_request": (
+                str(self.spec_files(spec_slug)["qa_fix_request"])
+                if metadata["role"] == "reviewer"
+                and args.result in ("needs_changes", "blocked")
+                else None
+            ),
             "strategy_memory": [str(p) for p in strategy_memory_paths],
         }
 
@@ -1457,7 +1474,7 @@ class AutoflowCLI:
 
     def derive_strategy_actions(
         self,
-        role: str,
+        role: str,  # noqa: ARG002
         result: str,
         findings: list[dict[str, Any]],
         stats: dict[str, Any],
@@ -1555,7 +1572,9 @@ class AutoflowCLI:
         updated_paths: list[Path] = []
 
         for scope in ["global", "spec"]:
-            memory = self.load_strategy_memory(scope, spec_slug if scope == "spec" else None)
+            memory = self.load_strategy_memory(
+                scope, spec_slug if scope == "spec" else None
+            )
             stats = memory.setdefault(
                 "stats",
                 {
@@ -1571,12 +1590,15 @@ class AutoflowCLI:
 
             for finding in normalized:
                 self.increment_counter(
-                    stats.setdefault("finding_categories", {}), finding.get("category", "general")
+                    stats.setdefault("finding_categories", {}),
+                    finding.get("category", "general"),
                 )
                 self.increment_counter(
                     stats.setdefault("severity", {}), finding.get("severity", "medium")
                 )
-                self.increment_counter(stats.setdefault("files", {}), finding.get("file", ""))
+                self.increment_counter(
+                    stats.setdefault("files", {}), finding.get("file", "")
+                )
 
             reflection = {
                 "at": self.now_stamp(),
@@ -1584,7 +1606,9 @@ class AutoflowCLI:
                 "result": result,
                 "summary": summary,
                 "findings": normalized,
-                "recommended_actions": self.derive_strategy_actions(role, result, normalized, stats),
+                "recommended_actions": self.derive_strategy_actions(
+                    role, result, normalized, stats
+                ),
             }
 
             reflections = memory.setdefault("reflections", [])
@@ -1594,7 +1618,9 @@ class AutoflowCLI:
             memory["updated_at"] = self.now_stamp()
 
             updated_paths.append(
-                self.save_strategy_memory(scope, memory, spec_slug if scope == "spec" else None)
+                self.save_strategy_memory(
+                    scope, memory, spec_slug if scope == "spec" else None
+                )
             )
 
         return updated_paths
@@ -1629,14 +1655,30 @@ class AutoflowCLI:
         tasks = self.load_tasks(spec_slug)
         selected_task = self.task_lookup(tasks, task_id) if task_id else None
 
-        review_summary = self.review_status_summary(spec_slug) if hasattr(self, 'review_status_summary') else {}
+        review_summary = (
+            self.review_status_summary(spec_slug)
+            if hasattr(self, "review_status_summary")
+            else {}
+        )
         fix_request = self.load_fix_request(spec_slug)
         fix_request_data = self.load_fix_request_data(spec_slug)
-        memory_context = self.load_memory_context(spec_slug, agent.memory_scopes) if agent.memory_scopes else ""
+        memory_context = (
+            self.load_memory_context(spec_slug, agent.memory_scopes)
+            if agent.memory_scopes
+            else ""
+        )
         strategy_context = ""  # Simplified
-        worktree_context_val = f"Worktree: {files['worktree']}" if files['worktree'].exists() else "No worktree"
-        recovery_context_val = f"Task: {selected_task['id']}" if selected_task else "No task selected"
-        resume_context_val = f"Resuming from: {resume_from}" if resume_from else "No resume context"
+        worktree_context_val = (
+            f"Worktree: {files['worktree']}"
+            if files["worktree"].exists()
+            else "No worktree"
+        )
+        recovery_context_val = (
+            f"Task: {selected_task['id']}" if selected_task else "No task selected"
+        )
+        resume_context_val = (
+            f"Resuming from: {resume_from}" if resume_from else "No resume context"
+        )
 
         return "\n".join(
             [
@@ -1694,7 +1736,11 @@ class AutoflowCLI:
                 files["spec_md"].read_text(encoding="utf-8"),
                 "",
                 "## Selected task",
-                json.dumps(selected_task, indent=2, ensure_ascii=True) if selected_task else "{}",
+                (
+                    json.dumps(selected_task, indent=2, ensure_ascii=True)
+                    if selected_task
+                    else "{}"
+                ),
                 "",
                 "## Full task graph",
                 json.dumps(tasks, indent=2, ensure_ascii=True),
@@ -1752,9 +1798,19 @@ class AutoflowCLI:
         normalized = []
         for index, item in enumerate(tasks_input, start=1):
             depends = item.get("depends_on", item.get("dependencies", [])) or []
-            criteria = item.get("acceptance_criteria", item.get("acceptanceCriteria", [])) or []
+            criteria = (
+                item.get("acceptance_criteria", item.get("acceptanceCriteria", []))
+                or []
+            )
             status = item.get("status", "todo")
-            if status not in {"todo", "in_progress", "in_review", "needs_changes", "blocked", "done"}:
+            if status not in {
+                "todo",
+                "in_progress",
+                "in_review",
+                "needs_changes",
+                "blocked",
+                "done",
+            }:
                 status = "todo"
 
             normalized.append(
@@ -1763,7 +1819,9 @@ class AutoflowCLI:
                     "title": item.get("title", item.get("name", f"Task {index}")),
                     "status": status,
                     "depends_on": depends,
-                    "owner_role": item.get("owner_role", item.get("role", "implementation-runner")),
+                    "owner_role": item.get(
+                        "owner_role", item.get("role", "implementation-runner")
+                    ),
                     "acceptance_criteria": criteria,
                     "notes": item.get("notes", []),
                 }
@@ -1783,7 +1841,13 @@ class AutoflowCLI:
             {"task_count": len(normalized), "source": args.input},
         )
 
-        print(json.dumps({"spec": args.spec, "task_count": len(normalized)}, indent=2, ensure_ascii=True))
+        print(
+            json.dumps(
+                {"spec": args.spec, "task_count": len(normalized)},
+                indent=2,
+                ensure_ascii=True,
+            )
+        )
 
     # === Review State ===
 
@@ -1843,7 +1907,8 @@ class AutoflowCLI:
 
         for task in data.get("tasks", []):
             deps_done = all(
-                self.task_lookup(data, dep)["status"] == "done" for dep in task.get("depends_on", [])
+                self.task_lookup(data, dep)["status"] == "done"
+                for dep in task.get("depends_on", [])
             )
             entry = {
                 "id": task["id"],

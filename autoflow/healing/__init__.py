@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from autoflow.healing.actions import (
     ActionExecutor,
-    ActionResult,
     ActionRegistry,
+    ActionResult,
     ActionSeverity,
     ActionStatus,
     ActionType,

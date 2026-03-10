@@ -7,22 +7,17 @@ registry for managing available healing actions.
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import os
-import tempfile
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from autoflow.healing.config import HealingConfig
-    from autoflow.healing.diagnostic import RootCause
 
 
 logger = logging.getLogger(__name__)
@@ -90,7 +85,7 @@ class ActionResult:
     changes_made: list[str] = field(default_factory=list)
     verification_passed: bool = False
     can_rollback: bool = False
-    rollback_action: "HealingAction | None" = None
+    rollback_action: HealingAction | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
 
@@ -117,7 +112,7 @@ class ActionResult:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ActionResult":
+    def from_dict(cls, data: dict[str, Any]) -> ActionResult:
         """Create action result from dictionary.
 
         Args:
@@ -136,9 +131,11 @@ class ActionResult:
             verification_passed=data.get("verification_passed", False),
             can_rollback=data.get("can_rollback", False),
             metadata=data.get("metadata", {}),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if "timestamp" in data
-            else datetime.now(),
+            timestamp=(
+                datetime.fromisoformat(data["timestamp"])
+                if "timestamp" in data
+                else datetime.now()
+            ),
         )
 
 
@@ -201,7 +198,7 @@ class HealingAction:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "HealingAction":
+    def from_dict(cls, data: dict[str, Any]) -> HealingAction:
         """Create healing action from dictionary.
 
         Args:
@@ -221,15 +218,15 @@ class HealingAction:
             rollback_strategy=data.get("rollback_strategy"),
             timeout=data.get("timeout", 300),
             requires_approval=data.get("requires_approval", False),
-            created_at=datetime.fromisoformat(data["created_at"])
-            if "created_at" in data
-            else datetime.now(),
+            created_at=(
+                datetime.fromisoformat(data["created_at"])
+                if "created_at" in data
+                else datetime.now()
+            ),
             id=data.get("id", ""),
         )
 
-    def should_require_approval(
-        self, config: "HealingConfig | None" = None
-    ) -> bool:
+    def should_require_approval(self, config: HealingConfig | None = None) -> bool:
         """Determine if this action requires approval based on severity and config.
 
         Args:
@@ -242,10 +239,7 @@ class HealingAction:
             return True
 
         # High and critical severity actions require approval by default
-        if self.severity in (ActionSeverity.HIGH, ActionSeverity.CRITICAL):
-            return True
-
-        return False
+        return self.severity in (ActionSeverity.HIGH, ActionSeverity.CRITICAL)
 
 
 class ActionExecutor(ABC):
@@ -587,12 +581,16 @@ class EscalateActionExecutor(ActionExecutor):
         logger.info(f"Executing escalate action: {action.name}")
 
         severity = action.parameters.get("severity", "medium")
-        message = action.parameters.get("message", "")
+        action.parameters.get("message", "")
         recipients = action.parameters.get("recipients", [])
 
         changes_made = [
             f"Escalated issue with {severity} severity",
-            f"Notified {len(recipients)} recipients" if recipients else "Escalation logged",
+            (
+                f"Notified {len(recipients)} recipients"
+                if recipients
+                else "Escalation logged"
+            ),
         ]
 
         return ActionResult(
@@ -843,7 +841,7 @@ class ActionRegistry:
     async def execute_action(
         self,
         action: HealingAction,
-        config: "HealingConfig | None" = None,
+        config: HealingConfig | None = None,
     ) -> ActionResult:
         """Execute a healing action with full lifecycle management.
 
@@ -916,7 +914,9 @@ class ActionRegistry:
                         # Rollback if verification fails
                         if self._rollback_manager.rollback_to_checkpoint(action.id):
                             result.status = ActionStatus.ROLLED_BACK
-                            result.message = "Action executed but verification failed, rolled back"
+                            result.message = (
+                                "Action executed but verification failed, rolled back"
+                            )
                 except Exception as e:
                     logger.error(f"Verification failed for action {action.name}: {e}")
                     result.verification_passed = False
@@ -981,7 +981,7 @@ class ActionRegistry:
             "registered_templates": sum(
                 len(templates) for templates in self._action_templates.values()
             ),
-            "action_types": [t.value for t in self._executors.keys()],
+            "action_types": [t.value for t in self._executors],
             "active_checkpoints": len(self._rollback_manager._checkpoints),
         }
 

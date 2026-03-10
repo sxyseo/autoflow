@@ -23,7 +23,6 @@ import pytest
 from autoflow.autoflow_cli import AgentSpec, AutoflowCLI
 from autoflow.core.config import Config
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -33,7 +32,9 @@ from autoflow.core.config import Config
 def temp_root(tmp_path: Path) -> Path:
     """Create a temporary root directory with git repo and config."""
     # Initialize git repo
-    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
 
     # Create config directory
     (tmp_path / "config").mkdir(parents=True, exist_ok=True)
@@ -49,7 +50,12 @@ def temp_root(tmp_path: Path) -> Path:
                     "global_file": ".autoflow/memory/global.md",
                     "spec_dir": ".autoflow/memory/specs",
                 },
-                "models": {"profiles": {"implementation": "gpt-5-codex", "review": "claude-sonnet-4-6"}},
+                "models": {
+                    "profiles": {
+                        "implementation": "gpt-5-codex",
+                        "review": "claude-sonnet-4-6",
+                    }
+                },
                 "tools": {"profiles": {"claude-review": ["Read", "Bash(git:*)"]}},
                 "registry": {"acp_agents": []},
             },
@@ -68,7 +74,9 @@ def temp_root(tmp_path: Path) -> Path:
         "reviewer",
         "maintainer",
     ]:
-        (tmp_path / "templates" / "bmad" / f"{role}.md").write_text(f"# {role}\n", encoding="utf-8")
+        (tmp_path / "templates" / "bmad" / f"{role}.md").write_text(
+            f"# {role}\n", encoding="utf-8"
+        )
 
     return tmp_path
 
@@ -102,7 +110,9 @@ def cli(temp_root: Path) -> AutoflowCLI:
 def create_spec_helper(cli: AutoflowCLI):
     """Helper fixture to create a spec."""
 
-    def _create(slug: str = "phase4d", title: str = "Phase 4D", summary: str = "Validation spec"):
+    def _create(
+        slug: str = "phase4d", title: str = "Phase 4D", summary: str = "Validation spec"
+    ):
         with redirect_stdout(io.StringIO()):
             cli.create_spec(slug, title, summary)
 
@@ -166,7 +176,9 @@ class TestPhase4DFixRequests:
         )
 
         assert result["fix_request"].endswith("QA_FIX_REQUEST.md")
-        fix_request = cli.spec_files("phase4d")["qa_fix_request"].read_text(encoding="utf-8")
+        fix_request = cli.spec_files("phase4d")["qa_fix_request"].read_text(
+            encoding="utf-8"
+        )
         assert "Reviewer found two issues" in fix_request
 
     def test_structured_findings_are_written_to_markdown_and_json(
@@ -221,7 +233,10 @@ class TestPhase4DFixRequests:
         assert payload["findings"][0]["severity"] == "high"
 
         markdown = cli.load_fix_request("findings-spec")
-        assert "| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |" in markdown
+        assert (
+            "| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |"
+            in markdown
+        )
 
 
 class TestPhase4DPrompts:
@@ -390,7 +405,9 @@ class TestPhase4DRunResume:
 
         capture_json_output(
             cli.complete_run,
-            SimpleNamespace(run=first_run, result="blocked", summary="First attempt blocked."),
+            SimpleNamespace(
+                run=first_run, result="blocked", summary="First attempt blocked."
+            ),
         )
 
         resumed = io.StringIO()
@@ -416,7 +433,9 @@ class TestPhase4DWorkflowState:
         cli.task_lookup(tasks, "T2")["status"] = "done"
         cli.save_tasks("gate-spec", tasks, reason="task_status_updated")
 
-        state = capture_json_output(cli.workflow_state, SimpleNamespace(spec="gate-spec"))
+        state = capture_json_output(
+            cli.workflow_state, SimpleNamespace(spec="gate-spec")
+        )
         assert state["blocking_reason"] == "review_approval_required"
         assert state["recommended_next_action"] is None
 
@@ -439,8 +458,18 @@ class TestPhase4DAgentDiscovery:
         cli.write_json(cli.system_config_file, config)
 
         with (
-            patch.object(cli.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None),
-            patch.object(cli, "run_cmd", return_value=SimpleNamespace(stdout="resume --model", stderr="", returncode=0)),
+            patch.object(
+                cli.shutil,
+                "which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None,
+            ),
+            patch.object(
+                cli,
+                "run_cmd",
+                return_value=SimpleNamespace(
+                    stdout="resume --model", stderr="", returncode=0
+                ),
+            ),
         ):
             payload = cli.discover_agents_registry()
 
@@ -448,7 +477,9 @@ class TestPhase4DAgentDiscovery:
         assert "codex" in names
         assert "test-acp" in names
 
-    def test_load_agents_applies_model_and_tool_profiles(self, cli: AutoflowCLI) -> None:
+    def test_load_agents_applies_model_and_tool_profiles(
+        self, cli: AutoflowCLI
+    ) -> None:
         """Test that loading agents applies model and tool profiles."""
         cli.write_json(
             cli.agents_file,
@@ -488,14 +519,18 @@ class TestPhase4DAgentDiscovery:
             patch.object(
                 cli.shutil,
                 "which",
-                side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None,
+                side_effect=lambda cmd: (
+                    f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None
+                ),
             ),
             patch.object(
                 cli,
                 "run_cmd",
                 side_effect=[
                     SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
-                    SimpleNamespace(stdout="--continue --model", stderr="", returncode=0),
+                    SimpleNamespace(
+                        stdout="--continue --model", stderr="", returncode=0
+                    ),
                 ],
             ),
         ):

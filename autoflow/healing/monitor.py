@@ -8,16 +8,14 @@ It follows the severity-based categorization pattern from the rollback/recovery 
 from __future__ import annotations
 
 import statistics
-import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from autoflow.healing.config import HealingConfig
+    from autoflow.healing.config import HealingConfig, HealthMetricType as HealingThresholdType
 
 
 class WorkflowHealthStatus(Enum):
@@ -131,7 +129,7 @@ class WorkflowHealthMonitor:
 
     def __init__(
         self,
-        config: "HealingConfig | None" = None,
+        config: HealingConfig | None = None,
         window_size: int = 100,
     ) -> None:
         """Initialize the workflow health monitor.
@@ -189,14 +187,10 @@ class WorkflowHealthMonitor:
                 self._baseline_duration = duration
             else:
                 # Moving average for baseline
-                self._baseline_duration = (
-                    self._baseline_duration * 0.9 + duration * 0.1
-                )
+                self._baseline_duration = self._baseline_duration * 0.9 + duration * 0.1
             self._baseline_samples += 1
 
-    def get_task_failure_rate(
-        self, window: int | None = None
-    ) -> float:
+    def get_task_failure_rate(self, window: int | None = None) -> float:
         """Calculate the task failure rate over a window.
 
         Args:
@@ -216,9 +210,7 @@ class WorkflowHealthMonitor:
         failed = sum(1 for e in executions if not e.success)
         return failed / len(executions)
 
-    def get_average_execution_time(
-        self, window: int | None = None
-    ) -> float:
+    def get_average_execution_time(self, window: int | None = None) -> float:
         """Calculate average execution time over a window.
 
         Args:
@@ -307,46 +299,50 @@ class WorkflowHealthMonitor:
         )
         if failure_threshold:
             if failure_threshold.is_critical(failure_rate):
-                violations.append({
-                    "metric_type": HealingThresholdType.TASK_FAILURE_RATE,
-                    "severity": "critical",
-                    "current_value": failure_rate,
-                    "threshold_value": failure_threshold.critical_threshold,
-                })
+                violations.append(
+                    {
+                        "metric_type": HealingThresholdType.TASK_FAILURE_RATE,
+                        "severity": "critical",
+                        "current_value": failure_rate,
+                        "threshold_value": failure_threshold.critical_threshold,
+                    }
+                )
             elif failure_threshold.is_warning(failure_rate):
-                violations.append({
-                    "metric_type": HealingThresholdType.TASK_FAILURE_RATE,
-                    "severity": "warning",
-                    "current_value": failure_rate,
-                    "threshold_value": failure_threshold.warning_threshold,
-                })
+                violations.append(
+                    {
+                        "metric_type": HealingThresholdType.TASK_FAILURE_RATE,
+                        "severity": "warning",
+                        "current_value": failure_rate,
+                        "threshold_value": failure_threshold.warning_threshold,
+                    }
+                )
 
         # Check execution time
         time_ratio = self.get_execution_time_ratio()
-        time_threshold = self.config.get_threshold(
-            HealingThresholdType.EXECUTION_TIME
-        )
+        time_threshold = self.config.get_threshold(HealingThresholdType.EXECUTION_TIME)
         if time_threshold:
             if time_threshold.is_critical(time_ratio):
-                violations.append({
-                    "metric_type": HealingThresholdType.EXECUTION_TIME,
-                    "severity": "critical",
-                    "current_value": time_ratio,
-                    "threshold_value": time_threshold.critical_threshold,
-                })
+                violations.append(
+                    {
+                        "metric_type": HealingThresholdType.EXECUTION_TIME,
+                        "severity": "critical",
+                        "current_value": time_ratio,
+                        "threshold_value": time_threshold.critical_threshold,
+                    }
+                )
             elif time_threshold.is_warning(time_ratio):
-                violations.append({
-                    "metric_type": HealingThresholdType.EXECUTION_TIME,
-                    "severity": "warning",
-                    "current_value": time_ratio,
-                    "threshold_value": time_threshold.warning_threshold,
-                })
+                violations.append(
+                    {
+                        "metric_type": HealingThresholdType.EXECUTION_TIME,
+                        "severity": "warning",
+                        "current_value": time_ratio,
+                        "threshold_value": time_threshold.warning_threshold,
+                    }
+                )
 
         return violations
 
-    def generate_recommendations(
-        self, violations: list[dict]
-    ) -> list[str]:
+    def generate_recommendations(self, violations: list[dict]) -> list[str]:
         """Generate healing recommendations based on violations.
 
         Args:
@@ -364,7 +360,9 @@ class WorkflowHealthMonitor:
             # Handle degradation signals
             if "description" in violation and "degradation_rate" in violation:
                 # This is a degradation signal
-                recommendations.append(f"Degradation detected: {violation['description']}")
+                recommendations.append(
+                    f"Degradation detected: {violation['description']}"
+                )
                 continue
 
             if metric_type == HealingThresholdType.TASK_FAILURE_RATE:
@@ -379,7 +377,10 @@ class WorkflowHealthMonitor:
                         "Review error patterns and task configurations."
                     )
 
-            elif metric_type == HealingThresholdType.EXECUTION_TIME or metric_type == "execution_time":
+            elif (
+                metric_type == HealingThresholdType.EXECUTION_TIME
+                or metric_type == "execution_time"
+            ):
                 if severity == "critical":
                     recommendations.append(
                         "Severe execution time degradation. "
@@ -408,7 +409,10 @@ class WorkflowHealthMonitor:
 
         # Add proactive recommendation if degradation detected but no critical violations
         degradation_summary = self.get_degradation_summary()
-        if degradation_summary["degradation_detected"] and degradation_summary["critical_signals"] == 0:
+        if (
+            degradation_summary["degradation_detected"]
+            and degradation_summary["critical_signals"] == 0
+        ):
             recommendations.append(
                 "Early degradation detected. Consider proactive investigation "
                 "before performance further degrades."
@@ -429,32 +433,36 @@ class WorkflowHealthMonitor:
         # Combine violations and degradation signals for recommendations
         all_issues = violations.copy()
         for signal in degradation_signals:
-            all_issues.append({
-                "metric_type": signal.metric_name,
-                "severity": signal.severity,
-                "current_value": signal.current_value,
-                "threshold_value": signal.baseline_value,
-                "degradation_rate": signal.degradation_rate,
-                "description": signal.description,
-            })
+            all_issues.append(
+                {
+                    "metric_type": signal.metric_name,
+                    "severity": signal.severity,
+                    "current_value": signal.current_value,
+                    "threshold_value": signal.baseline_value,
+                    "degradation_rate": signal.degradation_rate,
+                    "description": signal.description,
+                }
+            )
 
         recommendations = self.generate_recommendations(all_issues)
 
         # Determine overall status (degradation can lower status even without threshold violations)
         has_critical = any(
-            v.get("severity") == "critical" or
-            (isinstance(v, dict) and v.get("severity") == "critical")
+            v.get("severity") == "critical"
+            or (isinstance(v, dict) and v.get("severity") == "critical")
             for v in all_issues
         )
         has_warning = any(
-            v.get("severity") == "warning" or
-            (isinstance(v, dict) and v.get("severity") == "warning")
+            v.get("severity") == "warning"
+            or (isinstance(v, dict) and v.get("severity") == "warning")
             for v in all_issues
         )
 
         if has_critical:
             status = WorkflowHealthStatus.CRITICAL
-        elif has_warning or any(s.severity in ["warning", "info"] for s in degradation_signals):
+        elif has_warning or any(
+            s.severity in ["warning", "info"] for s in degradation_signals
+        ):
             status = WorkflowHealthStatus.DEGRADED
         else:
             status = WorkflowHealthStatus.HEALTHY
@@ -580,9 +588,7 @@ class WorkflowHealthMonitor:
 
         # Get recent successful execution times
         recent_times = [
-            e.duration
-            for e in list(self._task_executions)[-20:]
-            if e.success
+            e.duration for e in list(self._task_executions)[-20:] if e.success
         ]
 
         if len(recent_times) < 5:
@@ -717,9 +723,7 @@ class WorkflowHealthMonitor:
 
         # Get recent successful executions
         recent_times = [
-            e.duration
-            for e in list(self._task_executions)[-10:]
-            if e.success
+            e.duration for e in list(self._task_executions)[-10:] if e.success
         ]
 
         if len(recent_times) < 5:
@@ -764,12 +768,8 @@ class WorkflowHealthMonitor:
         # Split into two halves
         mid = len(executions) // 2
 
-        older_times = [
-            e.duration for e in executions[:mid] if e.success
-        ]
-        recent_times = [
-            e.duration for e in executions[mid:] if e.success
-        ]
+        older_times = [e.duration for e in executions[:mid] if e.success]
+        recent_times = [e.duration for e in executions[mid:] if e.success]
 
         if len(older_times) < 3 or len(recent_times) < 3:
             return None
@@ -800,7 +800,9 @@ class WorkflowHealthMonitor:
                 metric_name="execution_time_volatility",
                 current_value=recent_cv,
                 baseline_value=older_cv,
-                degradation_rate=(recent_cv - older_cv) / older_cv if older_cv > 0 else 1.0,
+                degradation_rate=(
+                    (recent_cv - older_cv) / older_cv if older_cv > 0 else 1.0
+                ),
                 confidence=confidence,
                 description=(
                     f"Execution time volatility increased. "
@@ -842,7 +844,3 @@ class WorkflowHealthMonitor:
         self._metric_history.clear()
         self._baseline_duration = None
         self._baseline_samples = 0
-
-
-# Import for type checking
-from autoflow.healing.config import HealthMetricType as HealingThresholdType

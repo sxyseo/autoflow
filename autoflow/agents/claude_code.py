@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import Optional, Union
 
 from autoflow.agents.base import (
     AgentAdapter,
@@ -55,9 +54,9 @@ class ClaudeCodeAdapter(AgentAdapter):
 
     def __init__(
         self,
-        command: Optional[str] = None,
-        default_args: Optional[list[str]] = None,
-        default_timeout: Optional[int] = None,
+        command: str | None = None,
+        default_args: list[str] | None = None,
+        default_timeout: int | None = None,
     ) -> None:
         """
         Initialize the Claude Code adapter.
@@ -87,7 +86,7 @@ class ClaudeCodeAdapter(AgentAdapter):
         self,
         prompt: str,
         config: AgentConfig,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
     ) -> list[str]:
         """
         Build the full command to execute.
@@ -118,7 +117,7 @@ class ClaudeCodeAdapter(AgentAdapter):
     async def execute(
         self,
         prompt: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         config: AgentConfig,
     ) -> ExecutionResult:
         """
@@ -200,7 +199,7 @@ class ClaudeCodeAdapter(AgentAdapter):
                 # For now, we'll store the workdir as a session identifier
                 result.session_id = str(workdir_path.resolve())
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 process.kill()
                 await process.wait()
@@ -230,7 +229,7 @@ class ClaudeCodeAdapter(AgentAdapter):
         self,
         session_id: str,
         new_prompt: str,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> ExecutionResult:
         """
         Resume an existing session with a new prompt.
@@ -310,7 +309,7 @@ class ClaudeCodeAdapter(AgentAdapter):
                 )
                 result.session_id = session_id
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 result.mark_complete(

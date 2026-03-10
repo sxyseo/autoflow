@@ -21,7 +21,7 @@ import asyncio
 import json
 import shutil
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.agents.base import (
     AgentAdapter,
@@ -62,11 +62,11 @@ class CodexAdapter(AgentAdapter):
 
     def __init__(
         self,
-        command: Optional[str] = None,
-        default_args: Optional[list[str]] = None,
-        default_timeout: Optional[int] = None,
-        approval_policy: Optional[str] = None,
-        sandbox_mode: Optional[str] = None,
+        command: str | None = None,
+        default_args: list[str] | None = None,
+        default_timeout: int | None = None,
+        approval_policy: str | None = None,
+        sandbox_mode: str | None = None,
     ) -> None:
         """
         Initialize the Codex adapter.
@@ -119,16 +119,12 @@ class CodexAdapter(AgentAdapter):
         cmd.extend(args)
 
         # Add approval policy
-        approval = config.metadata.get(
-            "approval_policy", self._approval_policy
-        )
+        approval = config.metadata.get("approval_policy", self._approval_policy)
         if approval:
             cmd.extend(["--approval-policy", approval])
 
         # Add sandbox mode
-        sandbox = config.metadata.get(
-            "sandbox_mode", self._sandbox_mode
-        )
+        sandbox = config.metadata.get("sandbox_mode", self._sandbox_mode)
         if sandbox:
             cmd.extend(["--sandbox", sandbox])
 
@@ -137,7 +133,7 @@ class CodexAdapter(AgentAdapter):
 
         return cmd
 
-    def _parse_json_output(self, output: Optional[str]) -> dict[str, Any]:
+    def _parse_json_output(self, output: str | None) -> dict[str, Any]:
         """
         Parse JSON output from Codex CLI.
 
@@ -159,7 +155,7 @@ class CodexAdapter(AgentAdapter):
     async def execute(
         self,
         prompt: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         config: AgentConfig,
     ) -> ExecutionResult:
         """
@@ -252,7 +248,7 @@ class CodexAdapter(AgentAdapter):
                 if parsed:
                     result.metadata["parsed_output"] = parsed
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Kill the process on timeout
                 process.kill()
                 await process.wait()
@@ -282,7 +278,7 @@ class CodexAdapter(AgentAdapter):
         self,
         session_id: str,
         new_prompt: str,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> ExecutionResult:
         """
         Resume an existing session with a new prompt.
@@ -391,7 +387,7 @@ class CodexAdapter(AgentAdapter):
                 if parsed:
                     result.metadata["parsed_output"] = parsed
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 result.mark_complete(
@@ -425,7 +421,7 @@ class CodexAdapter(AgentAdapter):
         """
         return shutil.which(self._command) is not None
 
-    async def cleanup(self, session_id: Optional[str] = None) -> None:
+    async def cleanup(self, session_id: str | None = None) -> None:
         """
         Clean up resources after execution.
 

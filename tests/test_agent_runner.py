@@ -43,14 +43,24 @@ class TestAgentRunner(unittest.TestCase):
             {
                 "command": "codex",
                 "args": ["--full-auto"],
-                "resume": {"mode": "subcommand", "subcommand": "resume", "args": ["--last"]},
+                "resume": {
+                    "mode": "subcommand",
+                    "subcommand": "resume",
+                    "args": ["--last"],
+                },
             },
             str(self.prompt_file),
             run_metadata={"resume_from": "run-1"},
         )
         self.assertEqual(
             command,
-            ["codex", "--full-auto", "resume", "--last", "Implement the selected task."],
+            [
+                "codex",
+                "--full-auto",
+                "resume",
+                "--last",
+                "Implement the selected task.",
+            ],
         )
 
     def test_claude_resume_uses_continue_flag(self) -> None:
@@ -64,7 +74,9 @@ class TestAgentRunner(unittest.TestCase):
             str(self.prompt_file),
             run_metadata={"resume_from": "run-2"},
         )
-        self.assertEqual(command, ["claude", "--continue", "Implement the selected task."])
+        self.assertEqual(
+            command, ["claude", "--continue", "Implement the selected task."]
+        )
 
     def test_model_and_tools_are_applied(self) -> None:
         """Test that model and tools configuration is applied to claude commands."""
@@ -106,7 +118,9 @@ class TestAgentRunner(unittest.TestCase):
             str(self.prompt_file),
             run_metadata=None,
         )
-        self.assertEqual(command, ["acp-agent", "--serve", "Implement the selected task."])
+        self.assertEqual(
+            command, ["acp-agent", "--serve", "Implement the selected task."]
+        )
 
     def test_agent_config_from_run_metadata_is_applied(self) -> None:
         """Test that agent config from run metadata is properly applied."""

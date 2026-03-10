@@ -3,29 +3,26 @@ Tests for the test runner module.
 """
 
 import json
-import pytest
-from pathlib import Path
 import sys
-from unittest.mock import patch, MagicMock
-import tempfile
-import os
+from pathlib import Path
+from unittest.mock import MagicMock
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from test_runner import (
-    load_quarantine_config,
-    save_quarantine_config,
     add_to_quarantine,
-    remove_from_quarantine,
-    get_quarantined_tests,
-    cmd_discover,
-    cmd_run,
     cmd_coverage,
     cmd_detect_flaky,
+    cmd_discover,
+    cmd_quarantine_clear,
     cmd_quarantine_list,
     cmd_quarantine_remove,
-    cmd_quarantine_clear,
+    cmd_run,
+    get_quarantined_tests,
+    load_quarantine_config,
+    remove_from_quarantine,
+    save_quarantine_config,
 )
 
 
@@ -49,10 +46,8 @@ class TestLoadQuarantineConfig:
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         test_config = {
-            "quarantined_tests": {
-                "test_example": {"pass_rate": 0.5}
-            },
-            "metadata": {"created_at": "2024-01-01"}
+            "quarantined_tests": {"test_example": {"pass_rate": 0.5}},
+            "metadata": {"created_at": "2024-01-01"},
         }
         with open(config_path, "w") as f:
             json.dump(test_config, f)
@@ -74,7 +69,7 @@ class TestSaveQuarantineConfig:
 
         config = {
             "quarantined_tests": {},
-            "metadata": {"created_at": None, "last_updated": None}
+            "metadata": {"created_at": None, "last_updated": None},
         }
 
         save_quarantine_config(config)
@@ -89,7 +84,7 @@ class TestSaveQuarantineConfig:
 
         config = {
             "quarantined_tests": {},
-            "metadata": {"created_at": None, "last_updated": None}
+            "metadata": {"created_at": None, "last_updated": None},
         }
 
         save_quarantine_config(config)
@@ -111,14 +106,25 @@ class TestAddToQuarantine:
             test_name="tests/test_example.py::test_flaky",
             pass_rate=0.6,
             runs=10,
-            passed=6
+            passed=6,
         )
 
         config = load_quarantine_config()
         assert "tests/test_example.py::test_flaky" in config["quarantined_tests"]
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["pass_rate"] == 0.6
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["runs"] == 10
-        assert config["quarantined_tests"]["tests/test_example.py::test_flaky"]["failed"] == 4
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"][
+                "pass_rate"
+            ]
+            == 0.6
+        )
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"]["runs"]
+            == 10
+        )
+        assert (
+            config["quarantined_tests"]["tests/test_example.py::test_flaky"]["failed"]
+            == 4
+        )
 
 
 class TestRemoveFromQuarantine:

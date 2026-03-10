@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,7 +34,6 @@ from autoflow.scheduler import (
     monitor_agents,
     set_orchestrator,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -660,6 +658,7 @@ class TestSchedulerDaemonErrorHandling:
     @pytest.mark.asyncio
     async def test_add_job_without_scheduler(self, daemon: SchedulerDaemon) -> None:
         """Test adding job without initialized scheduler."""
+
         # Don't start the daemon
         async def handler():
             pass
@@ -731,9 +730,13 @@ class TestMonitorAgentsJob:
         mock_state_manager: MagicMock,
     ) -> None:
         """Test monitor_agents with no active runs."""
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await monitor_agents()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await monitor_agents()
 
         assert result.success is True
         assert result.metrics["agents_checked"] == 0
@@ -754,9 +757,13 @@ class TestMonitorAgentsJob:
             }
         ]
 
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await monitor_agents()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await monitor_agents()
 
         assert result.success is True
         assert result.metrics["agents_checked"] == 1
@@ -782,9 +789,13 @@ class TestMonitorAgentsJob:
 
         set_orchestrator(mock_orchestrator)
 
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await monitor_agents()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await monitor_agents()
 
         assert result.success is True
         assert result.metrics["unhealthy_agents"] == 1
@@ -802,9 +813,13 @@ class TestDistributeTasksJob:
         mock_state_manager: MagicMock,
     ) -> None:
         """Test distribute_tasks with no pending tasks."""
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await distribute_tasks()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await distribute_tasks()
 
         assert result.success is True
         assert result.metrics["tasks_distributed"] == 0
@@ -827,9 +842,13 @@ class TestDistributeTasksJob:
             }
         ]
 
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await distribute_tasks()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await distribute_tasks()
 
         assert result.success is True
         assert result.metrics["tasks_pending"] == 1
@@ -845,9 +864,13 @@ class TestCleanupSessionsJob:
         mock_state_manager: MagicMock,
     ) -> None:
         """Test cleanup_sessions job."""
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                result = await cleanup_sessions()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            result = await cleanup_sessions()
 
         assert result.success is True
         assert "sessions_cleaned" in result.metrics
@@ -866,10 +889,17 @@ class TestHealthCheckJob:
         """Test health_check job."""
         mock_state_manager.state_dir.exists.return_value = True
 
-        with patch("autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager):
-            with patch("autoflow.scheduler.jobs.load_config", return_value=mock_config):
-                with patch("autoflow.tmux.manager.TmuxManager.check_tmux_available", return_value=False):
-                    result = await health_check()
+        with (
+            patch(
+                "autoflow.scheduler.jobs.StateManager", return_value=mock_state_manager
+            ),
+            patch("autoflow.scheduler.jobs.load_config", return_value=mock_config),
+        ):
+            with patch(
+                "autoflow.tmux.manager.TmuxManager.check_tmux_available",
+                return_value=False,
+            ):
+                result = await health_check()
 
         assert "state_accessible" in result.metrics
         assert "tmux_available" in result.metrics
@@ -892,7 +922,7 @@ class TestJobRegistry:
 
     def test_registry_entries_have_handlers(self) -> None:
         """Test registry entries have callable handlers."""
-        for job_name, job_config in JOB_REGISTRY.items():
+        for _job_name, job_config in JOB_REGISTRY.items():
             assert "handler" in job_config
             assert callable(job_config["handler"])
             assert "default_cron" in job_config
@@ -918,12 +948,12 @@ class TestSchedulerIntegration:
             async def handler2():
                 return "result2"
 
-            job1 = await daemon.add_job(
+            await daemon.add_job(
                 handler=handler1,
                 cron="*/5 * * * *",
                 job_id="job-1",
             )
-            job2 = await daemon.add_job(
+            await daemon.add_job(
                 handler=handler2,
                 cron="*/10 * * * *",
                 job_id="job-2",

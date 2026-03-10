@@ -29,7 +29,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
 
@@ -96,7 +96,9 @@ def load_config_from_path(root: Path, config_path: str) -> dict[str, Any]:
     Returns:
         Parsed JSON configuration
     """
-    path = root / config_path if not Path(config_path).is_absolute() else Path(config_path)
+    path = (
+        root / config_path if not Path(config_path).is_absolute() else Path(config_path)
+    )
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -167,7 +169,12 @@ def tmux_sessions() -> list[dict[str, Any]]:
         return []
 
     result = subprocess.run(
-        ["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"],
+        [
+            "tmux",
+            "list-sessions",
+            "-F",
+            "#{session_name}:#{session_windows}:#{session_attached}",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -236,7 +243,11 @@ def health_report(
         text=True,
     )
 
-    payload = json.loads(result.stdout) if result.stdout.strip() else {"binaries": [], "tmux_sessions": []}
+    payload = (
+        json.loads(result.stdout)
+        if result.stdout.strip()
+        else {"binaries": [], "tmux_sessions": []}
+    )
     payload["status"] = "ok" if result.returncode == 0 else "degraded"
     payload["returncode"] = result.returncode
 
@@ -289,9 +300,15 @@ def taskmaster_sync(
     # Import taskmaster state
     import_file = tm_cfg.get("import_file", "")
     if import_file:
-        input_path = root / import_file if not Path(import_file).is_absolute() else Path(import_file)
+        input_path = (
+            root / import_file
+            if not Path(import_file).is_absolute()
+            else Path(import_file)
+        )
         if input_path.exists():
-            result = autoflow_json(root, "import-taskmaster", "--spec", spec, "--input", str(input_path))
+            result = autoflow_json(
+                root, "import-taskmaster", "--spec", spec, "--input", str(input_path)
+            )
             payload["import"] = result
         else:
             payload["import"] = {"missing": str(input_path)}
@@ -299,9 +316,21 @@ def taskmaster_sync(
     # Export taskmaster state
     export_file = tm_cfg.get("export_file", "")
     if export_file:
-        output_path = root / export_file if not Path(export_file).is_absolute() else Path(export_file)
+        output_path = (
+            root / export_file
+            if not Path(export_file).is_absolute()
+            else Path(export_file)
+        )
         subprocess.run(
-            ["python3", "scripts/autoflow.py", "export-taskmaster", "--spec", spec, "--output", str(output_path)],
+            [
+                "python3",
+                "scripts/autoflow.py",
+                "export-taskmaster",
+                "--spec",
+                spec,
+                "--output",
+                str(output_path),
+            ],
             cwd=root,
             check=True,
             capture_output=True,
@@ -336,7 +365,9 @@ def coordination_brief(
     ci_config = load_config_from_path(root, continuous_config)
     workflow = autoflow_json(root, "workflow-state", "--spec", spec)
     strategy = autoflow_json(root, "show-strategy", "--spec", spec)
-    health = health_report(root, config.get("monitoring", {}).get("required_binaries", []))
+    health = health_report(
+        root, config.get("monitoring", {}).get("required_binaries", [])
+    )
 
     agents_file = state_dir / "agents.json"
     discovered_file = state_dir / "discovered_agents.json"
@@ -397,13 +428,17 @@ def run_tick(
         Tick execution result with taskmaster, coordination brief, and iteration info
     """
     config = load_config_from_path(root, autonomy_config)
-    continuous_config = config.get("continuous_iteration_config", "config/continuous-iteration.example.json")
+    continuous_config = config.get(
+        "continuous_iteration_config", "config/continuous-iteration.example.json"
+    )
 
     taskmaster = taskmaster_sync(root, spec, config)
     brief = coordination_brief(root, state_dir, spec, continuous_config, config)
 
     monitoring_cfg = config.get("monitoring", {})
-    if brief["health"].get("returncode", 0) != 0 and monitoring_cfg.get("block_on_missing_binaries", True):
+    if brief["health"].get("returncode", 0) != 0 and monitoring_cfg.get(
+        "block_on_missing_binaries", True
+    ):
         return {
             "spec": spec,
             "taskmaster": taskmaster,
@@ -467,8 +502,8 @@ class AutonomyOrchestrator:
     def __init__(
         self,
         config: Config,
-        root: Optional[Union[str, Path]] = None,
-        state_dir: Optional[Union[str, Path]] = None,
+        root: str | Path | None = None,
+        state_dir: str | Path | None = None,
     ):
         """
         Initialize the AutonomyOrchestrator.
@@ -537,7 +572,9 @@ class AutonomyOrchestrator:
         """
         return run_cmd(args, self.root, check)
 
-    def load_json(self, path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
+    def load_json(
+        self, path: Path, default: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Load JSON from a file, returning default if not found.
 
@@ -652,7 +689,9 @@ class AutonomyOrchestrator:
         Returns:
             Coordination brief with workflow state, strategy, health, and proposed dispatch
         """
-        return coordination_brief(self.root, self.state_dir, spec, continuous_config, config)
+        return coordination_brief(
+            self.root, self.state_dir, spec, continuous_config, config
+        )
 
     # === Orchestration Methods ===
 
@@ -677,4 +716,12 @@ class AutonomyOrchestrator:
         Returns:
             Tick execution result with taskmaster, coordination brief, and iteration info
         """
-        return run_tick(self.root, self.state_dir, spec, autonomy_config, dispatch, commit_if_dirty, push)
+        return run_tick(
+            self.root,
+            self.state_dir,
+            spec,
+            autonomy_config,
+            dispatch,
+            commit_if_dirty,
+            push,
+        )
