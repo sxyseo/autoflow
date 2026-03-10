@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autoflow Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #1a202c;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-group label {
+            color: #4a5568;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .control-group select,
+        .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .refresh-btn {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            color: #1a202c;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-warning {
+            background: #fefcbf;
+            color: #744210;
+        }
+
+        .badge-info {
+            background: #bee3f8;
+            color: #2a4365;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .metric {
+            padding: 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .metric-label {
+            color: #718096;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            color: #1a202c;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .metric-unit {
+            color: #718096;
+            font-size: 14px;
+            font-weight: 400;
+            margin-left: 4px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Autoflow Analytics Dashboard</h1>
+            <p>Performance metrics and insights for autonomous development</p>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="period-select">Time Period:</label>
+                    <select id="period-select">
+                        <option value="7">Last 7 days</option>
+                        <option value="14">Last 14 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="hourly-rate">Hourly Rate ($):</label>
+                    <input type="number" id="hourly-rate" value="100" min="0" step="10">
+                </div>
+                <button class="refresh-btn" onclick="refreshDashboard()">🔄 Refresh</button>
+            </div>
+        </div>
+
+        <div id="error-container"></div>
+
+        <div class="grid">
+            <!-- Velocity Metrics -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">⚡ Velocity Metrics</h2>
+                    <span class="card-badge badge-info">Speed</span>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-label">Tasks Completed</div>
+                        <div class="metric-value" id="velocity-completed">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Completion Rate</div>
+                        <div class="metric-value" id="velocity-rate">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Avg Cycle Time</div>
+                        <div class="metric-value" id="velocity-cycle">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Throughput</div>
+                        <div class="metric-value" id="velocity-throughput">-</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="velocity-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Quality Metrics -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">✨ Quality Trends</h2>
+                    <span class="card-badge badge-success">Quality</span>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-label">Test Pass Rate</div>
+                        <div class="metric-value" id="quality-pass-rate">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Review Approval</div>
+                        <div class="metric-value" id="quality-approval">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">First Try Rate</div>
+                        <div class="metric-value" id="quality-first-try">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Quality Score</div>
+                        <div class="metric-value" id="quality-score">-</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="quality-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- ROI Metrics -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">💰 ROI Analysis</h2>
+                    <span class="card-badge badge-warning">Financial</span>
+                </div>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-label">Time Saved</div>
+                        <div class="metric-value" id="roi-time-saved">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Cost Savings</div>
+                        <div class="metric-value" id="roi-cost-savings">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">ROI</div>
+                        <div class="metric-value" id="roi-percentage">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Tasks Automated</div>
+                        <div class="metric-value" id="roi-tasks">-</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="roi-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Agent Performance -->
+            <div class="card full-width">
+                <div class="card-header">
+                    <h2 class="card-title">🤖 Agent Performance</h2>
+                    <span class="card-badge badge-info">Agents</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="agent-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

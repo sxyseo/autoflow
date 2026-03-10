@@ -1,0 +1,21 @@
+{
+  "records": {
+    "test_agent": [
+      {
+        "agent_name": "test_agent",
+        "status": "success",
+        "duration_seconds": 30.5,
+        "timestamp": "2026-03-08T12:37:50.441973+00:00",
+        "task_type": null,
+        "metadata": {},
+        "exit_code": null,
+        "error_message": null
+      }
+    ]
+  },
+  "metadata": {
+    "total_agents": 1,
+    "total_executions": 1,
+    "last_updated": "2026-03-08T12:37:50.443618+00:00"
+  }
+}
