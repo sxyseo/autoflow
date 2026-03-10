@@ -385,13 +385,19 @@ class TestAutoCommit:
         """Test that commit is blocked when verification fails."""
         state = {"active_runs": []}
 
+        # Add verify_commands to config for this test
+        config_with_verify = {
+            **sample_config,
+            "verify_commands": ["pytest"],
+        }
+
         # Mock run_verify_commands to return a failure
         verify_results = [
-            {"command": "test", "returncode": 1, "stdout": "", "stderr": "error"}
+            {"command": "pytest", "returncode": 1, "stdout": "", "stderr": "error"}
         ]
 
         with patch("continuous_iteration.run_verify_commands", return_value=verify_results):
-            result = auto_commit(sample_config, "test-spec", False, state)
+            result = auto_commit(config_with_verify, "test-spec", False, state)
 
         assert result["committed"] is False
         assert result["reason"] == "verification_failed"
@@ -737,6 +743,7 @@ class TestDispatchNext:
     def test_dispatch_no_agent_for_role(self, sample_config: dict) -> None:
         """Test dispatch when no agent is available for the role."""
         state = {
+            "spec": "test-spec",
             "active_runs": [],
             "blocking_reason": None,
             "recommended_next_action": {
@@ -756,6 +763,7 @@ class TestDispatchNext:
     def test_dispatch_dry_run(self, sample_config: dict) -> None:
         """Test dispatch in dry run mode (dispatch=False)."""
         state = {
+            "spec": "test-spec",
             "active_runs": [],
             "blocking_reason": None,
             "recommended_next_action": {
@@ -784,6 +792,7 @@ class TestDispatchNext:
         }
 
         state = {
+            "spec": "test-spec",
             "active_runs": [],
             "blocking_reason": None,
             "recommended_next_action": {
