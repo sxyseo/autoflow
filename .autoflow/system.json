@@ -1,0 +1,27 @@
+{
+  "memory": {
+    "enabled": true,
+    "auto_capture_run_results": true,
+    "global_file": "/Users/abel/dev/autoflow/.autoflow/memory/global.md",
+    "spec_dir": "/Users/abel/dev/autoflow/.autoflow/memory/specs"
+  },
+  "models": {
+    "profiles": {
+      "spec": "gpt-5",
+      "implementation": "gpt-5-codex",
+      "review": "claude-sonnet-4-6"
+    }
+  },
+  "tools": {
+    "profiles": {
+      "codex-default": [],
+      "claude-review": [
+        "Read",
+        "Bash(git:*)"
+      ]
+    }
+  },
+  "registry": {
+    "acp_agents": []
+  }
+}
