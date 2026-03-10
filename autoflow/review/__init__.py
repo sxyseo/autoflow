@@ -88,6 +88,7 @@ __all__ = [
     "ReviewerResult",
     "ReviewFinding",
     "CodeChange",
+    "ReviewRequest",
     "ReviewerConfig",
     "ReviewRequest",
     "ReviewStatus",

@@ -44,6 +44,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from autoflow.core.sanitization import sanitize_dict, sanitize_value
+
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -169,6 +171,7 @@ def write_json(path: Path, data: Any) -> None:
     """
     Write data to a JSON file.
 
+    Sanitizes sensitive data before writing to prevent information disclosure.
     Creates parent directories if they don't exist. Writes with indentation
     and ensures ASCII encoding.
 
@@ -176,8 +179,31 @@ def write_json(path: Path, data: Any) -> None:
         path: Path to the JSON file to write
         data: Data to serialize as JSON
     """
+    resolved_path = path.resolve()
+    preserve_runtime_config = resolved_path in {
+        SYSTEM_CONFIG_FILE.resolve(),
+        AGENTS_FILE.resolve(),
+    }
+    sanitized_data = data if preserve_runtime_config else (
+        sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(sanitized_data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+
+
+def print_json(data: Any) -> None:
+    """
+    Print JSON data to stdout with sanitization.
+
+    Sanitizes sensitive data before printing to prevent information disclosure.
+
+    Args:
+        data: JSON-serializable data to print
+    """
+    # Sanitize data to remove sensitive information
+    # Use sanitize_value to handle both dicts and lists containing sensitive data
+    sanitized_data = sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
+    print(json.dumps(sanitized_data, indent=2, ensure_ascii=True))
 
 
 def read_json(path: Path) -> Any:
@@ -2769,7 +2795,7 @@ def list_tasks(args: argparse.Namespace) -> None:
         Prints JSON task list to stdout
     """
     tasks = load_tasks(args.spec)
-    print(json.dumps(tasks, indent=2, ensure_ascii=True))
+    print_json(tasks)
 
 
 def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | None:
@@ -2832,7 +2858,7 @@ def next_task(args: argparse.Namespace) -> None:
     if not task:
         print("{}")
         return
-    print(json.dumps(task, indent=2, ensure_ascii=True))
+    print_json(task)
 
 
 def set_task_status(args: argparse.Namespace) -> None:
@@ -2864,7 +2890,7 @@ def set_task_status(args: argparse.Namespace) -> None:
     )
     save_tasks(args.spec, data, reason="task_status_updated")
     record_event(args.spec, "task.status_updated", {"task": args.task, "status": args.status})
-    print(json.dumps(task, indent=2, ensure_ascii=True))
+    print_json(task)
 
 
 def write_handoff(
@@ -2970,7 +2996,7 @@ def approve_spec(args: argparse.Namespace) -> None:
     state["invalidated_reason"] = ""
     save_review_state(args.spec, state)
     record_event(args.spec, "review.approved", {"approved_by": args.approved_by})
-    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+    print_json(review_status_summary(args.spec))
 
 
 def invalidate_review(args: argparse.Namespace) -> None:
@@ -3002,7 +3028,7 @@ def invalidate_review(args: argparse.Namespace) -> None:
     state["spec_hash"] = ""
     save_review_state(args.spec, state)
     record_event(args.spec, "review.invalidated", {"reason": args.reason})
-    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+    print_json(review_status_summary(args.spec))
 
 
 def show_review_status(args: argparse.Namespace) -> None:
@@ -3036,7 +3062,7 @@ def show_review_status(args: argparse.Namespace) -> None:
             - invalidated_at: Timestamp when approval was invalidated (if applicable)
             - invalidated_reason: Reason for invalidation (if applicable)
     """
-    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
+    print_json(review_status_summary(args.spec))
 
 
 def build_prompt(
@@ -3097,18 +3123,20 @@ def build_prompt(
             "",
             "## Backend configuration",
             json.dumps(
-                {
-                    "agent": agent.name,
-                    "protocol": agent.protocol,
-                    "command": agent.command,
-                    "model": agent.model,
-                    "model_profile": agent.model_profile,
-                    "tools": agent.tools or [],
-                    "tool_profile": agent.tool_profile,
-                    "memory_scopes": agent.memory_scopes or [],
-                    "native_resume_supported": bool(agent.resume),
-                    "transport": agent.transport or {},
-                },
+                sanitize_dict(
+                    {
+                        "agent": agent.name,
+                        "protocol": agent.protocol,
+                        "command": agent.command,
+                        "model": agent.model,
+                        "model_profile": agent.model_profile,
+                        "tools": agent.tools or [],
+                        "tool_profile": agent.tool_profile,
+                        "memory_scopes": agent.memory_scopes or [],
+                        "native_resume_supported": bool(agent.resume),
+                        "transport": agent.transport or {},
+                    }
+                ),
                 indent=2,
                 ensure_ascii=True,
             ),
@@ -3503,7 +3531,7 @@ def show_task_history(args: argparse.Namespace) -> None:
             - spec: Slug identifier of the spec
             - task: ID of the task to get history for
     """
-    print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
+    print_json(task_run_history(args.spec, args.task))
 
 
 def show_events(args: argparse.Namespace) -> None:
@@ -3519,7 +3547,7 @@ def show_events(args: argparse.Namespace) -> None:
             - spec: Slug identifier of the spec
             - limit: Maximum number of events to return (default: 20)
     """
-    print(json.dumps(load_events(args.spec, args.limit), indent=2, ensure_ascii=True))
+    print_json(load_events(args.spec, args.limit))
 
 
 def show_fix_request(args: argparse.Namespace) -> None:
@@ -3537,7 +3565,7 @@ def show_fix_request(args: argparse.Namespace) -> None:
     Notes:
         Returns a default empty structure if the fix request file doesn't exist.
     """
-    print(json.dumps(load_fix_request_data(args.spec), indent=2, ensure_ascii=True))
+    print_json(load_fix_request_data(args.spec))
 
 
 def create_fix_request_cmd(args: argparse.Namespace) -> None:
@@ -3580,7 +3608,7 @@ def show_system_config(_: argparse.Namespace) -> None:
     - tools: Tool profile configurations
     - registry: Registry settings
     """
-    print(json.dumps(load_system_config(), indent=2, ensure_ascii=True))
+    print_json(load_system_config())
 
 
 def init_system_config(_: argparse.Namespace) -> None:
@@ -3624,7 +3652,7 @@ def discover_agents_cmd(_: argparse.Namespace) -> None:
     The discovery results are also cached to .autoflow/discovered_agents.json
     for persistence and use by other commands.
     """
-    print(json.dumps(discover_agents_registry(), indent=2, ensure_ascii=True))
+    print_json(discover_agents_registry())
 
 
 def sync_agents_cmd(args: argparse.Namespace) -> None:
@@ -3647,7 +3675,7 @@ def sync_agents_cmd(args: argparse.Namespace) -> None:
             replaces existing agent configurations with discovered ones.
             If False, preserves existing configurations and only adds new agents.
     """
-    print(json.dumps(sync_discovered_agents(overwrite=args.overwrite), indent=2, ensure_ascii=True))
+    print_json(sync_discovered_agents(overwrite=args.overwrite))
 
 
 def write_memory_cmd(args: argparse.Namespace) -> None:
@@ -3715,7 +3743,7 @@ def show_strategy_cmd(args: argparse.Namespace) -> None:
             - recent_reflections: Last 5 reflection entries
             - stats: Strategy statistics and metrics
     """
-    print(json.dumps(strategy_summary(args.spec), indent=2, ensure_ascii=True))
+    print_json(strategy_summary(args.spec))
 
 
 def add_planner_note_cmd(args: argparse.Namespace) -> None:
@@ -3797,7 +3825,7 @@ def export_taskmaster_cmd(args: argparse.Namespace) -> None:
         write_json(output, payload)
         print(str(output))
         return
-    print(json.dumps(payload, indent=2, ensure_ascii=True))
+    print_json(payload)
 
 
 def normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
@@ -3875,7 +3903,7 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
     write_json(task_file(args.spec), data)
     sync_review_state(args.spec, reason="taskmaster_import")
     record_event(args.spec, "taskmaster.imported", {"task_count": len(normalized), "source": args.input})
-    print(json.dumps({"spec": args.spec, "task_count": len(normalized)}, indent=2, ensure_ascii=True))
+    print_json({"spec": args.spec, "task_count": len(normalized)})
 
 
 def create_worktree(args: argparse.Namespace) -> None:
@@ -3924,7 +3952,7 @@ def create_worktree(args: argparse.Namespace) -> None:
             "base_branch": base_branch,
         }
         write_json(spec_files(args.spec)["metadata"], metadata)
-        print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+        print_json(metadata["worktree"])
         return
 
     branch_exists = run_cmd(
@@ -3943,7 +3971,7 @@ def create_worktree(args: argparse.Namespace) -> None:
     }
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.created", metadata["worktree"])
-    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+    print_json(metadata["worktree"])
 
 
 def remove_worktree(args: argparse.Namespace) -> None:
@@ -3980,7 +4008,7 @@ def remove_worktree(args: argparse.Namespace) -> None:
     metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
     write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
-    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
+    print_json(metadata["worktree"])
 
 
 def list_specs(_: argparse.Namespace) -> None:
@@ -4053,7 +4081,7 @@ def list_worktrees(_: argparse.Namespace) -> None:
                 "worktree": metadata.get("worktree", {}),
             }
         )
-    print(json.dumps(items, indent=2, ensure_ascii=True))
+    print_json(items)
 
 
 def workflow_state(args: argparse.Namespace) -> None:
@@ -4127,7 +4155,7 @@ def workflow_state(args: argparse.Namespace) -> None:
         "blocking_reason": blocking_reason,
         "recommended_next_action": None if active_runs else next_entry,
     }
-    print(json.dumps(payload, indent=2, ensure_ascii=True))
+    print_json(payload)
 
 
 def show_status(_: argparse.Namespace) -> None:
@@ -4152,7 +4180,7 @@ def show_status(_: argparse.Namespace) -> None:
     specs = sorted(p.name for p in SPECS_DIR.iterdir() if p.is_dir())
     runs = sorted(p.name for p in RUNS_DIR.iterdir() if p.is_dir())
     status = {"specs": specs, "runs": runs}
-    print(json.dumps(status, indent=2, ensure_ascii=True))
+    print_json(status)
 
 
 def list_runs(args: argparse.Namespace) -> None:
