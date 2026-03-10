@@ -5,20 +5,38 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import run_cmd
+
+# Import now_stamp from time_helpers for timestamp generation
+from autoflow.utils.time_helpers import now_stamp
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
-
-def now_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-
-
-def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=False, capture_output=True, text=True)
+# Old duplicate functions - replaced by autoflow.utils imports
+# def now_stamp() -> str:
+#     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+#
+# def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+#     return subprocess.run(cmd, cwd=ROOT, check=False, capture_output=True, text=True)
 
 
 def probe_binary(name: str) -> dict[str, Any]:
@@ -36,8 +54,8 @@ def probe_binary(name: str) -> dict[str, Any]:
     version_cmd = [name, "--version"]
     if name == "tmux":
         version_cmd = [name, "-V"]
-    version_result = run(version_cmd)
-    help_result = run([name, "--help"])
+    version_result = run_cmd(version_cmd, cwd=ROOT, check=False)
+    help_result = run_cmd([name, "--help"], cwd=ROOT, check=False)
     version_text = (version_result.stdout or version_result.stderr).strip()
     help_text = (help_result.stdout or "") + (help_result.stderr or "")
     capabilities = {
@@ -57,7 +75,7 @@ def probe_binary(name: str) -> dict[str, Any]:
 def tmux_sessions() -> list[dict[str, Any]]:
     if not shutil.which("tmux"):
         return []
-    result = run(["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"])
+    result = run_cmd(["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"], cwd=ROOT, check=False)
     if result.returncode != 0:
         return []
     sessions = []
