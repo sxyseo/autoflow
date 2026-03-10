@@ -63,8 +63,14 @@ REPOSITORIES_DIR = STATE_DIR / "repositories"
 DEPENDENCIES_DIR = STATE_DIR / "dependencies"
 DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
 SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
+# NOTE: Cache invalidation must be called after writing to SYSTEM_CONFIG_FILE
+# Locations where SYSTEM_CONFIG_FILE is written via write_json():
+# - Line ~3993: init_system_config() - Initialize system config with defaults
 SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
 AGENTS_FILE = STATE_DIR / "agents.json"
+# NOTE: Cache invalidation must be called after writing to AGENTS_FILE
+# Locations where AGENTS_FILE is written via write_json():
+# - Line ~2342: sync_discovered_agents() - Sync agents from discovery registry
 BMAD_DIR = ROOT / "templates" / "bmad"
 REVIEW_STATE_FILE = "review_state.json"
 EVENTS_FILE = "events.jsonl"
@@ -2305,6 +2311,28 @@ def discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ============================================================================
+# CONFIG FILE WRITE LOCATIONS - For Cache Invalidation
+# ============================================================================
+#
+# This section documents all locations where config files are written.
+# Cache invalidation (invalidate_config_cache) must be called after each write.
+#
+# SYSTEM_CONFIG_FILE (system.json) write locations:
+#   - Line 4025: init_system_config() function
+#     Command: python3 scripts/autoflow.py init-system-config
+#     Purpose: Initialize system configuration with defaults
+#
+# AGENTS_FILE (agents.json) write locations:
+#   - Line 2372: sync_discovered_agents() function
+#     Command: python3 scripts/autoflow.py sync-agents [--overwrite]
+#     Purpose: Sync agents from discovery registry into agents.json
+#
+# No other write operations to SYSTEM_CONFIG_FILE or AGENTS_FILE found.
+#
+# ============================================================================
+
+
 def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     """
     Sync discovered agents from the registry into the agents configuration file.
@@ -2339,6 +2367,8 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
         merged[name] = discovered_agent_to_config(agent)
         added.append(name)
     payload = {"defaults": existing["defaults"], "agents": merged}
+    # NOTE: This writes to AGENTS_FILE (agents.json)
+    # Cache invalidation required: call invalidate_config_cache() after this write
     write_json(AGENTS_FILE, payload)
     return {
         "agents_file": str(AGENTS_FILE),
@@ -3990,6 +4020,8 @@ def init_system_config(_: argparse.Namespace) -> None:
     """
     ensure_state()
     if not SYSTEM_CONFIG_FILE.exists():
+        # NOTE: This writes to SYSTEM_CONFIG_FILE (system.json)
+        # Cache invalidation required: call invalidate_config_cache() after this write
         write_json(SYSTEM_CONFIG_FILE, system_config_default())
     print(str(SYSTEM_CONFIG_FILE))
 
