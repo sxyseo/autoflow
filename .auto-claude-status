@@ -3,23 +3,23 @@
   "spec": "034-split-monolithic-autoflow-py-cli-into-modular-subc",
   "state": "building",
   "subtasks": {
-    "completed": 13,
+    "completed": 14,
     "total": 29,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate Memory Commands",
+    "current": "Integration and Entry Point Update",
     "id": null,
-    "total": 1
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 15,
+    "number": 16,
     "started_at": "2026-03-10T07:59:09.329226"
   },
-  "last_update": "2026-03-10T08:16:41.694133"
+  "last_update": "2026-03-10T08:18:18.169756"
 }
