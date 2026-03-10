@@ -676,16 +676,56 @@ def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
 
 def load_fix_request(spec_slug: str) -> str:
     path = spec_files(spec_slug)["qa_fix_request"]
+    cache_key = _get_cache_key("fix_request", spec_slug)
+
+    # Check cache
+    if cache_key in _prompt_context_cache:
+        cached_entry = _prompt_context_cache[cache_key]
+        is_stale = _is_cache_stale(cached_entry, path)
+        if not is_stale:
+            return cached_entry["data"]
+
+    # Load fresh data
     if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+        result = ""
+    else:
+        result = path.read_text(encoding="utf-8")
+
+    # Cache the result with the current mtime
+    if path.exists():
+        current_mtime = path.stat().st_mtime
+        _prompt_context_cache[cache_key] = {
+            "data": result,
+            "mtime": current_mtime,
+        }
+
+    return result
 
 
 def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
-    return read_json_or_default(
-        spec_files(spec_slug)["qa_fix_request_json"],
-        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
-    )
+    path = spec_files(spec_slug)["qa_fix_request_json"]
+    cache_key = _get_cache_key("fix_request_data", spec_slug)
+    default_data = {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []}
+
+    # Check cache
+    if cache_key in _prompt_context_cache:
+        cached_entry = _prompt_context_cache[cache_key]
+        is_stale = _is_cache_stale(cached_entry, path)
+        if not is_stale:
+            return cached_entry["data"]
+
+    # Load fresh data
+    result = read_json_or_default(path, default_data)
+
+    # Cache the result with the current mtime
+    if path.exists():
+        current_mtime = path.stat().st_mtime
+        _prompt_context_cache[cache_key] = {
+            "data": result,
+            "mtime": current_mtime,
+        }
+
+    return result
 
 
 def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
