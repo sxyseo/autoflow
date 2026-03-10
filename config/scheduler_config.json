@@ -29,6 +29,12 @@
       "cron": "0 4 1 * *",
       "max_instances": 1,
       "description": "Check for dependency updates on the 1st of each month at 4 AM"
+    },
+    "refresh_prs": {
+      "enabled": true,
+      "cron": "*/10 * * * *",
+      "max_instances": 1,
+      "description": "Refresh pull request data every 10 minutes"
     }
   },
   "job_defaults": {

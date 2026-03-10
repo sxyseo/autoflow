@@ -1,25 +1,43 @@
 {
   "active": true,
-  "spec": "010-taskmaster-ai-integration",
+<<<<<<< HEAD
+  "spec": "016-performance-analytics-dashboard",
   "state": "building",
   "subtasks": {
-    "completed": 18,
-    "total": 21,
+    "completed": 19,
+    "total": 22,
+=======
+  "spec": "040-optimize-run-metadata-iter-to-avoid-o-n-filesystem",
+  "state": "building",
+  "subtasks": {
+    "completed": 17,
+    "total": 19,
+>>>>>>> origin/main
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration and Registration",
+<<<<<<< HEAD
+    "current": "Testing & Integration",
+=======
+    "current": "Cleanup and Verify",
+>>>>>>> origin/main
     "id": null,
-    "total": 3
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 20,
-    "started_at": "2026-03-08T10:13:55.454349"
+    "number": 17,
+<<<<<<< HEAD
+    "started_at": "2026-03-08T21:43:58.163245"
   },
-  "last_update": "2026-03-08T10:46:10.094949"
+  "last_update": "2026-03-08T22:23:05.180997"
+=======
+    "started_at": "2026-03-07T22:09:26.347246"
+  },
+  "last_update": "2026-03-07T22:33:39.401879"
+>>>>>>> origin/main
 }

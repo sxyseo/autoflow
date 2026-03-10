@@ -1,0 +1,13 @@
+{
+  "slug": "openclaw-autonomy",
+  "title": "OpenClaw autonomous development system",
+  "summary": "Build an autonomous software delivery harness with skills, task graph, review gates, and swappable coding agents.",
+  "created_at": "20260306T172237Z",
+  "updated_at": "20260306T172237Z",
+  "status": "draft",
+  "worktree": {
+    "path": "/Users/abel/dev/autoflow/.autoflow/worktrees/tasks/openclaw-autonomy",
+    "branch": "codex/openclaw-autonomy",
+    "base_branch": "main"
+  }
+}

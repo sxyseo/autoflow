@@ -64,7 +64,7 @@ class JobResult(BaseModel):
     """Result from a scheduled job execution."""
 
     job_name: str
-    success: bool
+    success: bool = False
     started_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
     output: Optional[str] = None
