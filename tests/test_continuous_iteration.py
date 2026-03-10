@@ -1672,3 +1672,314 @@ class TestEdgeCases:
                 rendered_command = result.results[0].command
                 assert spec in rendered_command, \
                     f"Edge case not preserved for: {description}"
+
+
+# ============================================================================
+# Integration Tests (Actual Command Execution)
+# ============================================================================
+
+
+class TestIntegrationActualCommandExecution:
+    """
+    Integration tests that execute actual commands without mocking.
+
+    These tests verify that the security fix works correctly with real
+    command execution, not just mocked subprocess calls.
+
+    These tests use commands that are guaranteed to exist on most systems:
+    - echo (shell built-in, always available)
+    - python3 (widely available)
+    - ls (Unix-like systems)
+    - cat (Unix-like systems)
+    - git (version control, widely available)
+
+    Tests are marked with pytest.mark.integration to allow selective running.
+    """
+
+    @pytest.mark.integration
+    def test_integration_echo_command(self) -> None:
+        """
+        Integration test: Execute echo command with special characters.
+
+        This test actually executes echo commands with special characters
+        to verify they are handled safely without using shell=True.
+        """
+        test_specs = [
+            "test-spec",
+            "test_spec",
+            "test.spec",
+            "test spec",
+        ]
+
+        for spec in test_specs:
+            result = run_verify_commands(["echo {spec}"], spec)
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, f"Command not executed for spec: {spec}"
+            assert result.results[0].exit_code == 0, f"Command failed for spec: {spec}"
+            assert result.results[0].success, f"Command did not succeed for spec: {spec}"
+
+            # Verify shell=True was NOT used
+            rendered_command = result.results[0].command
+            # The rendered command should contain the spec
+            assert spec in rendered_command, f"Spec not in command for: {spec}"
+
+    @pytest.mark.integration
+    def test_integration_python3_print(self) -> None:
+        """
+        Integration test: Execute python3 with print statement.
+
+        This test actually executes python3 commands to verify they
+        work correctly without shell=True.
+        """
+        test_specs = [
+            "test",
+            "test_123",
+            "test-spec",
+        ]
+
+        for spec in test_specs:
+            # Use python3 -c to execute a print statement
+            result = run_verify_commands(
+                [f"python3 -c \"import sys; print('{spec}'); sys.exit(0)\""],
+                spec,
+            )
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, f"Command not executed for spec: {spec}"
+            assert result.results[0].exit_code == 0, f"Command failed for spec: {spec}"
+            assert result.results[0].success, f"Command did not succeed for spec: {spec}"
+
+            # Verify the spec is in the command
+            rendered_command = result.results[0].command
+            assert spec in rendered_command, f"Spec not in command for: {spec}"
+
+    @pytest.mark.integration
+    def test_integration_ls_command(self) -> None:
+        """
+        Integration test: Execute ls command with special characters.
+
+        This test actually executes ls commands to verify they work
+        correctly without shell=True.
+
+        Note: This test uses ls on the current directory, which should
+        always exist and be readable.
+        """
+        test_specs = [
+            ".",
+            "..",
+            "tests",
+            "scripts",
+        ]
+
+        for spec in test_specs:
+            result = run_verify_commands([f"ls {spec}"], spec)
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, f"Command not executed for spec: {spec}"
+            assert result.results[0].exit_code == 0, f"Command failed for spec: {spec}"
+            assert result.results[0].success, f"Command did not succeed for spec: {spec}"
+
+            # Verify the spec is in the command
+            rendered_command = result.results[0].command
+            assert spec in rendered_command, f"Spec not in command for: {spec}"
+
+    @pytest.mark.integration
+    def test_integration_cat_command(self) -> None:
+        """
+        Integration test: Execute cat command to read files.
+
+        This test actually executes cat commands to verify they work
+        correctly without shell=True.
+
+        Note: This test uses cat on test files that should exist.
+        """
+        # Read the current test file itself (always exists in test context)
+        test_file = Path(__file__).resolve()
+
+        result = run_verify_commands([f"cat {test_file}"], "dummy-spec")
+
+        # Verify command executed successfully
+        assert result.commands_run == 1, "Command not executed"
+        assert result.results[0].exit_code == 0, "Command failed"
+        assert result.results[0].success, "Command did not succeed"
+
+    @pytest.mark.integration
+    def test_integration_python3_version(self) -> None:
+        """
+        Integration test: Execute python3 --version.
+
+        This test verifies that simple commands without spec placeholders
+        work correctly.
+        """
+        result = run_verify_commands(["python3 --version"], "dummy-spec")
+
+        # Verify command executed successfully
+        assert result.commands_run == 1, "Command not executed"
+        assert result.results[0].exit_code == 0, "Command failed"
+        assert result.results[0].success, "Command did not succeed"
+
+    @pytest.mark.integration
+    def test_integration_multiple_commands(self) -> None:
+        """
+        Integration test: Execute multiple commands in sequence.
+
+        This test verifies that multiple commands can be executed safely
+        without using shell=True.
+        """
+        commands = [
+            "echo test1",
+            "echo test2",
+            "echo test3",
+        ]
+
+        result = run_verify_commands(commands, "dummy-spec")
+
+        # Verify all commands executed
+        assert result.commands_run == 3, f"Expected 3 commands, got {result.commands_run}"
+
+        # Verify all commands passed
+        for cmd_result in result.results:
+            assert cmd_result.exit_code == 0, f"Command failed: {cmd_result.command}"
+            assert cmd_result.success, f"Command did not pass: {cmd_result.command}"
+
+    @pytest.mark.integration
+    def test_integration_command_failure(self) -> None:
+        """
+        Integration test: Execute a command that fails.
+
+        This test verifies that command failures are handled correctly
+        without using shell=True.
+        """
+        # Use a non-existent directory to simulate failure
+        result = run_verify_commands(["ls /nonexistent_directory_12345"], "dummy-spec")
+
+        # Verify command executed but failed
+        assert result.commands_run == 1, "Command not executed"
+        assert result.results[0].exit_code != 0, "Command should have failed"
+        assert not result.results[0].success, "Command should be marked as failed"
+
+    @pytest.mark.integration
+    def test_integration_special_characters_in_spec(self) -> None:
+        """
+        Integration test: Execute commands with special characters in spec.
+
+        This test verifies that special characters in the spec are handled
+        safely without using shell=True.
+
+        This is a CRITICAL security test - it verifies that special characters
+        that could be used for command injection are safely handled.
+        """
+        # Test special characters that could be used for injection
+        special_specs = [
+            ("test-spec", "Hyphen"),
+            ("test_spec", "Underscore"),
+            ("test.spec", "Dot"),
+            ("test spec", "Space"),
+            ("test;spec", "Semicolon"),
+            ("test&spec", "Ampersand"),
+            ("test|spec", "Pipe"),
+            ("test$spec", "Dollar sign"),
+            ("test(spec)", "Parentheses"),
+            ("test[spec]", "Brackets"),
+            ("test{spec}", "Braces"),
+            ("test*spec", "Asterisk"),
+            ("test?spec", "Question mark"),
+        ]
+
+        for spec, description in special_specs:
+            # Use echo to test special characters
+            result = run_verify_commands([f"echo {spec}"], spec)
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, \
+                f"Command not executed for {description}: {spec}"
+            assert result.results[0].exit_code == 0, \
+                f"Command failed for {description}: {spec}"
+            assert result.results[0].success, \
+                f"Command did not pass for {description}: {spec}"
+
+            # Verify the spec is in the command
+            rendered_command = result.results[0].command
+            assert spec in rendered_command, \
+                f"Spec not in command for {description}: {spec}"
+
+    @pytest.mark.integration
+    def test_integration_unicode_characters(self) -> None:
+        """
+        Integration test: Execute commands with Unicode characters in spec.
+
+        This test verifies that Unicode characters are handled correctly
+        without using shell=True.
+        """
+        unicode_specs = [
+            ("spéc-chäräçtërs", "Latin extended"),
+            ("スペック", "Japanese"),
+            ("规格", "Chinese"),
+            ("spec-😀-test", "Emoji"),
+        ]
+
+        for spec, description in unicode_specs:
+            result = run_verify_commands([f"echo {spec}"], spec)
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, \
+                f"Command not executed for {description}: {spec}"
+            assert result.results[0].exit_code == 0, \
+                f"Command failed for {description}: {spec}"
+            assert result.results[0].success, \
+                f"Command did not pass for {description}: {spec}"
+
+            # Verify the spec is in the command
+            rendered_command = result.results[0].command
+            assert spec in rendered_command, \
+                f"Spec not in command for {description}: {spec}"
+
+    @pytest.mark.integration
+    def test_integration_placeholder_replacement(self) -> None:
+        """
+        Integration test: Verify {spec} placeholder is correctly replaced.
+
+        This test verifies that the {spec} placeholder in command templates
+        is correctly replaced with the actual spec value.
+        """
+        test_specs = [
+            ("my-spec", "my-spec"),
+            ("test_123", "test_123"),
+            ("spec with spaces", "spec with spaces"),
+        ]
+
+        for spec, expected in test_specs:
+            result = run_verify_commands(['echo "output: {spec}"'], spec)
+
+            # Verify command executed successfully
+            assert result.commands_run == 1, f"Command not executed for: {spec}"
+            assert result.results[0].exit_code == 0, f"Command failed for: {spec}"
+
+            # Verify the spec was replaced in the command
+            rendered_command = result.results[0].command
+            assert expected in rendered_command, \
+                f"Expected '{expected}' in command, got: {rendered_command}"
+
+    @pytest.mark.integration
+    def test_integration_git_command(self) -> None:
+        """
+        Integration test: Execute git command.
+
+        This test verifies that git commands work correctly without
+        using shell=True.
+
+        Note: This test uses git --version which should work in any
+        git repository.
+        """
+        result = run_verify_commands(["git --version"], "dummy-spec")
+
+        # Verify command executed successfully
+        assert result.commands_run == 1, "Command not executed"
+        assert result.results[0].exit_code == 0, "Command failed"
+        assert result.results[0].success, "Command did not pass"
+
+        # Verify git version is in output
+        assert "git" in result.results[0].stdout.lower() or \
+               "git" in result.results[0].command.lower(), \
+               "Git version not found in stdout or command"
