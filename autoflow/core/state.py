@@ -41,6 +41,32 @@ T = TypeVar("T")
 # These provide type hints for dictionary representations of the models
 
 
+class MetadataDict(TypedDict, total=False):
+    """
+    Generic TypedDict for metadata fields used across multiple models.
+
+    Provides a common type structure for metadata dictionaries used in
+    Task, Run, Spec, Memory, and ParallelTaskGroup models. All fields
+    are optional to support flexible metadata.
+
+    Common metadata fields include:
+    - created_by: Agent or user who created the entity
+    - updated_by: Agent or user who last updated the entity
+    - source: Source system or process
+    - tags: List of tags for categorization
+    - archived: Whether the entity is archived
+    - priority: Custom priority values
+    - Any additional string-keyed values
+    """
+
+    created_by: str
+    updated_by: str
+    source: str
+    tags: list[str]
+    archived: bool
+    priority: int
+
+
 class TaskData(TypedDict, total=False):
     """
     TypedDict for task data structure.
@@ -59,7 +85,7 @@ class TaskData(TypedDict, total=False):
     assigned_agent: str | None
     labels: list[str]
     dependencies: list[str]
-    metadata: dict[str, Any]
+    metadata: MetadataDict
 
 
 class RunData(TypedDict, total=False):
@@ -82,7 +108,7 @@ class RunData(TypedDict, total=False):
     exit_code: int | None
     output: str | None
     error: str | None
-    metadata: dict[str, Any]
+    metadata: MetadataDict
 
 
 class SpecData(TypedDict, total=False):
@@ -101,7 +127,7 @@ class SpecData(TypedDict, total=False):
     updated_at: str  # ISO format datetime
     author: str | None
     tags: list[str]
-    metadata: dict[str, Any]
+    metadata: MetadataDict
 
 
 class TaskStatus(str, Enum):
@@ -148,7 +174,7 @@ class Task(BaseModel):
     assigned_agent: Optional[str] = None
     labels: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)
 
     def touch(self) -> None:
         """Update the updated_at timestamp."""
@@ -170,7 +196,7 @@ class Run(BaseModel):
     exit_code: Optional[int] = None
     output: Optional[str] = None
     error: Optional[str] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)
 
     def complete(
         self,
@@ -201,7 +227,7 @@ class Spec(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     author: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)
 
 
 class Memory(BaseModel):
@@ -213,7 +239,7 @@ class Memory(BaseModel):
     category: str = "general"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: Optional[datetime] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)
 
     def is_expired(self) -> bool:
         """Check if this memory entry has expired."""
@@ -233,7 +259,7 @@ class ParallelTaskGroup(BaseModel):
     max_parallel: int = 3  # Maximum number of parallel tasks
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)
 
     def touch(self) -> None:
         """Update the updated_at timestamp."""
