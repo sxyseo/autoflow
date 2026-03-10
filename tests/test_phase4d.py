@@ -1,3 +1,13 @@
+"""
+Unit Tests for Phase 4D CLI Functionality
+
+Tests the autoflow CLI tool for spec management, reviewer workflows,
+fix requests, task orchestration, and agent discovery.
+
+These tests use temporary directories and mock git repositories to
+avoid requiring actual project setups or external services.
+"""
+
 from __future__ import annotations
 
 import importlib.util
