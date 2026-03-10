@@ -332,16 +332,48 @@ def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
     if not memory_cfg.get("enabled", True):
         return "Memory is disabled."
     allowed_scopes = scopes or list(memory_cfg.get("default_scopes", ["spec"]))
-    parts = []
+
+    # Generate cache key based on spec_slug and scopes
+    cache_key = _get_cache_key("memory_context", spec_slug, tuple(allowed_scopes))
+
+    # Get file paths for mtime checking
     global_path = memory_file("global")
     spec_path = memory_file("spec", spec_slug)
+
+    # Determine which files will be accessed for mtime tracking
+    files_to_check = []
+    if "global" in allowed_scopes and global_path.exists():
+        files_to_check.append(global_path)
+    if "spec" in allowed_scopes and spec_path.exists():
+        files_to_check.append(spec_path)
+
+    # Check cache if we have files to validate against
+    if cache_key in _prompt_context_cache:
+        cached_entry = _prompt_context_cache[cache_key]
+        # Check if any of the files have been modified
+        is_stale = any(_is_cache_stale(cached_entry, f) for f in files_to_check)
+        if not is_stale:
+            return cached_entry["data"]
+
+    # Load fresh data
+    parts = []
     if "global" in allowed_scopes and global_path.exists():
         parts.append("### Global memory\n")
         parts.append(global_path.read_text(encoding="utf-8").strip())
     if "spec" in allowed_scopes and spec_path.exists():
         parts.append("### Spec memory\n")
         parts.append(spec_path.read_text(encoding="utf-8").strip())
-    return "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
+    result = "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
+
+    # Cache the result with the most recent mtime
+    if files_to_check:
+        most_recent_mtime = max(f.stat().st_mtime for f in files_to_check)
+        _prompt_context_cache[cache_key] = {
+            "data": result,
+            "mtime": most_recent_mtime,
+        }
+
+    return result
 
 
 def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
