@@ -2327,6 +2327,8 @@ _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
 _system_config_cache: dict[str, Any] | None = None
 _agents_config_cache: dict[str, AgentSpec] | None = None
+_tasks_metadata_cache: dict[str, dict[str, Any]] = {}
+_cache_loaded_task_specs: set[str] = set()
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2528,6 +2530,62 @@ def invalidate_agents_cache() -> None:
     """
     global _agents_config_cache
     _agents_config_cache = None
+
+
+def _populate_tasks_cache(spec_slug: str) -> None:
+    """Load task metadata for a specific spec_slug into the cache.
+
+    This implements lazy-loading: tasks are only loaded from disk when needed.
+    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
+
+    Opportunistic Caching:
+        Since we must scan all task files to find tasks for the requested spec,
+        we opportunistically cache tasks for ALL specs encountered during the scan.
+        This means the first call for any spec effectively caches tasks for all specs,
+        making subsequent calls for other specs essentially free (O(1) lookup).
+
+    Cache Invalidation:
+        If the spec is already in _cache_loaded_task_specs, we skip the filesystem scan
+        entirely and return immediately. This ensures that after the first load,
+        all subsequent calls are pure memory lookups.
+
+    Args:
+        spec_slug: The spec identifier to load tasks for.
+    """
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+
+    # Skip if this spec has already been loaded (cache hit)
+    if spec_slug in _cache_loaded_task_specs:
+        return
+
+    # Ensure the spec has an entry in the cache
+    if spec_slug not in _tasks_metadata_cache:
+        _tasks_metadata_cache[spec_slug] = {}
+
+    # Load tasks from filesystem for this spec
+    # Note: We must scan all task files to find tasks matching this spec
+    if not TASKS_DIR.exists():
+        _cache_loaded_task_specs.add(spec_slug)
+        return
+
+    # First pass: discover all specs and collect their task data
+    # This enables opportunistic caching of all specs in one scan
+    spec_tasks = {}
+    for task_file_path in sorted(TASKS_DIR.iterdir()):
+        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
+            continue
+        # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
+        file_spec = task_file_path.stem
+        if file_spec:
+            task_data = read_json(task_file_path)
+            if task_data:
+                spec_tasks[file_spec] = task_data
+
+    # Second pass: add all discovered tasks to cache
+    # This implements opportunistic caching for all specs encountered
+    for discovered_spec, tasks in spec_tasks.items():
+        _tasks_metadata_cache[discovered_spec] = tasks
+        _cache_loaded_task_specs.add(discovered_spec)
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
