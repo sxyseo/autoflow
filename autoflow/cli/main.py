@@ -21,6 +21,7 @@ from autoflow import __version__
 from autoflow.cli.agent import agent
 from autoflow.cli.init import init
 from autoflow.cli.run import run
+from autoflow.cli.scheduler import scheduler
 from autoflow.cli.skill import skill
 from autoflow.cli.status import status
 from autoflow.cli.task import task
@@ -139,3 +140,4 @@ main.add_command(status)
 main.add_command(agent)
 main.add_command(skill)
 main.add_command(task)
+main.add_command(scheduler)

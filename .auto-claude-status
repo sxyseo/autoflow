@@ -3,13 +3,13 @@
   "spec": "034-split-monolithic-autoflow-py-cli-into-modular-subc",
   "state": "building",
   "subtasks": {
-    "completed": 6,
+    "completed": 9,
     "total": 29,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate Agent Commands",
+    "current": "Migrate Scheduler Commands",
     "id": null,
     "total": 1
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 8,
+    "number": 11,
     "started_at": "2026-03-10T07:59:09.329226"
   },
-  "last_update": "2026-03-10T08:07:46.571510"
+  "last_update": "2026-03-10T08:11:37.227407"
 }
