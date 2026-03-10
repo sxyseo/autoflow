@@ -9,12 +9,9 @@ ensures that only code passing all quality gates can be committed.
 
 import hashlib
 import json
-import os
-import sys
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -33,12 +30,12 @@ class ApprovalToken:
     """
     hash: str
     timestamp: str
-    test_results: Dict[str, int]
-    coverage_data: Dict[str, Optional[float]]
-    qa_findings_count: Dict[str, int]
+    test_results: dict[str, int]
+    coverage_data: dict[str, float | None]
+    qa_findings_count: dict[str, int]
     approver: str = "verification-orchestrator"
-    git_commit: Optional[str] = None
-    metadata: Dict = field(default_factory=dict)
+    git_commit: str | None = None
+    metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert token to dictionary for JSON serialization."""
@@ -62,10 +59,7 @@ class ApprovalToken:
         if not self.timestamp:
             return False
 
-        if not self.test_results:
-            return False
-
-        return True
+        return self.test_results
 
 
 @dataclass
@@ -84,7 +78,7 @@ class ApprovalGateConfig:
     require_tests: bool = True
     require_coverage: bool = True
     require_qa_check: bool = True
-    blocking_severities: List[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
+    blocking_severities: list[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
     token_expiry_hours: int = 24
     token_path: str = ".autoflow/approval_token.json"
 
@@ -108,7 +102,7 @@ class ApprovalGate:
 
     def __init__(
         self,
-        config: Optional[ApprovalGateConfig] = None,
+        config: ApprovalGateConfig | None = None,
         work_dir: str = "."
     ):
         """
@@ -138,7 +132,7 @@ class ApprovalGate:
 
         if config_file.exists():
             try:
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     config = json.load(f)
                     approval_config = config.get("approval", {})
 
@@ -156,17 +150,17 @@ class ApprovalGate:
                             ".autoflow/approval_token.json"
                         )
                     )
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
 
         return self.config
 
     def generate_hash(
         self,
-        test_results: Dict[str, int],
-        coverage_data: Dict[str, Optional[float]],
-        qa_findings_count: Dict[str, int],
-        metadata: Optional[Dict] = None
+        test_results: dict[str, int],
+        coverage_data: dict[str, float | None],
+        qa_findings_count: dict[str, int],
+        metadata: dict | None = None
     ) -> str:
         """
         Generate cryptographic hash from verification results.
@@ -198,11 +192,11 @@ class ApprovalGate:
 
     def create_token(
         self,
-        test_results: Dict[str, int],
-        coverage_data: Dict[str, Optional[float]],
-        qa_findings_count: Dict[str, int],
-        git_commit: Optional[str] = None,
-        metadata: Optional[Dict] = None
+        test_results: dict[str, int],
+        coverage_data: dict[str, float | None],
+        qa_findings_count: dict[str, int],
+        git_commit: str | None = None,
+        metadata: dict | None = None
     ) -> ApprovalToken:
         """
         Create approval token from verification results.
@@ -246,7 +240,7 @@ class ApprovalGate:
         with open(token_path, "w") as f:
             json.dump(token.to_dict(), f, indent=2)
 
-    def load_token(self) -> Optional[ApprovalToken]:
+    def load_token(self) -> ApprovalToken | None:
         """
         Load approval token from file.
 
@@ -259,10 +253,10 @@ class ApprovalGate:
             return None
 
         try:
-            with open(token_path, "r") as f:
+            with open(token_path) as f:
                 data = json.load(f)
                 return ApprovalToken.from_dict(data)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return None
 
     def delete_token(self) -> None:
@@ -274,8 +268,8 @@ class ApprovalGate:
 
     def verify_token(
         self,
-        token: Optional[ApprovalToken] = None
-    ) -> Tuple[bool, List[str]]:
+        token: ApprovalToken | None = None
+    ) -> tuple[bool, list[str]]:
         """
         Verify approval token is valid and not expired.
 
@@ -312,10 +306,10 @@ class ApprovalGate:
 
     def check_approval(
         self,
-        test_results: Optional[Dict[str, int]] = None,
-        coverage_data: Optional[Dict[str, Optional[float]]] = None,
-        qa_findings: Optional[List[Dict]] = None
-    ) -> Tuple[bool, List[str]]:
+        test_results: dict[str, int] | None = None,
+        coverage_data: dict[str, float | None] | None = None,
+        qa_findings: list[dict] | None = None
+    ) -> tuple[bool, list[str]]:
         """
         Check if current state meets approval requirements.
 
@@ -364,8 +358,8 @@ class ApprovalGate:
 
     def verify_commit_allowed(
         self,
-        expected_results: Optional[Dict] = None
-    ) -> Tuple[bool, List[str]]:
+        expected_results: dict | None = None
+    ) -> tuple[bool, list[str]]:
         """
         Verify that commit is allowed based on approval token.
 
@@ -401,11 +395,11 @@ class ApprovalGate:
 
     def grant_approval(
         self,
-        test_results: Dict[str, int],
-        coverage_data: Dict[str, Optional[float]],
-        qa_findings_count: Dict[str, int],
-        git_commit: Optional[str] = None
-    ) -> Tuple[bool, List[str]]:
+        test_results: dict[str, int],
+        coverage_data: dict[str, float | None],
+        qa_findings_count: dict[str, int],
+        git_commit: str | None = None
+    ) -> tuple[bool, list[str]]:
         """
         Grant approval by creating and saving approval token.
 
@@ -444,7 +438,7 @@ class ApprovalGate:
         """Revoke approval by deleting token."""
         self.delete_token()
 
-    def get_token_status(self) -> Dict:
+    def get_token_status(self) -> dict:
         """
         Get current token status for display.
 
@@ -521,7 +515,7 @@ def create_git_commit_message_with_approval(
     return f"{original_message}\n\n{hash_line}"
 
 
-def extract_approval_hash_from_commit(commit_message: str) -> Optional[str]:
+def extract_approval_hash_from_commit(commit_message: str) -> str | None:
     """
     Extract approval hash from git commit message.
 

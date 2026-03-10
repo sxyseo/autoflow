@@ -10,13 +10,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from autoflow.prediction.predictor import QualityPredictor
 from autoflow.prediction.model import PredictionResult
+from autoflow.prediction.predictor import QualityPredictor
 
 
 def parse_args() -> argparse.Namespace:
@@ -144,7 +143,7 @@ def print_prediction_text(
 
     # Print rationale if available
     if prediction.rationale:
-        print(f"\nRationale:")
+        print("\nRationale:")
         print(f"  {prediction.rationale}")
 
     # Print feature importances if explain mode
@@ -189,7 +188,7 @@ def print_prediction_json(
 
 def predict_for_spec(
     spec_path: Path,
-    model_path: Optional[Path],
+    model_path: Path | None,
     work_dir: Path,
     allow_untrained: bool,
     explain: bool,

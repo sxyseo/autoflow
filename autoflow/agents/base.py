@@ -18,14 +18,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ResumeMode(str, Enum):
+class ResumeMode(StrEnum):
     """
     How an agent handles session resumption.
 
@@ -39,7 +39,7 @@ class ResumeMode(str, Enum):
     STATELESS = "stateless"
 
 
-class ExecutionStatus(str, Enum):
+class ExecutionStatus(StrEnum):
     """Status of an agent execution."""
 
     SUCCESS = "success"
@@ -75,10 +75,10 @@ class AgentConfig(BaseModel):
     resume_mode: ResumeMode = ResumeMode.REPROMPT
     approval_policy: str = "suggest"
     env: dict[str, str] = Field(default_factory=dict)
-    session_id: Optional[str] = None
+    session_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def to_cmd_args(self, prompt: Optional[str] = None) -> list[str]:
+    def to_cmd_args(self, prompt: str | None = None) -> list[str]:
         """
         Build the full command-line arguments list.
 
@@ -114,13 +114,13 @@ class ExecutionResult(BaseModel):
     """
 
     status: ExecutionStatus
-    output: Optional[str] = None
-    error: Optional[str] = None
-    exit_code: Optional[int] = None
-    session_id: Optional[str] = None
+    output: str | None = None
+    error: str | None = None
+    exit_code: int | None = None
+    session_id: str | None = None
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -131,9 +131,9 @@ class ExecutionResult(BaseModel):
     def mark_complete(
         self,
         status: ExecutionStatus,
-        exit_code: Optional[int] = None,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
+        exit_code: int | None = None,
+        output: str | None = None,
+        error: str | None = None,
     ) -> None:
         """
         Mark the execution as complete and calculate duration.
@@ -190,7 +190,7 @@ class AgentAdapter(ABC):
     async def execute(
         self,
         prompt: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         config: AgentConfig,
     ) -> ExecutionResult:
         """
@@ -224,7 +224,7 @@ class AgentAdapter(ABC):
         self,
         session_id: str,
         new_prompt: str,
-        config: Optional[AgentConfig] = None,
+        config: AgentConfig | None = None,
     ) -> ExecutionResult:
         """
         Resume an existing session with a new prompt.
@@ -307,7 +307,7 @@ class AgentAdapter(ABC):
         # Subclasses should set a default config or override this method
         return shutil.which("claude") is not None
 
-    async def cleanup(self, session_id: Optional[str] = None) -> None:
+    async def cleanup(self, session_id: str | None = None) -> None:
         """
         Clean up resources after execution.
 

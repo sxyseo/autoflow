@@ -7,24 +7,19 @@ coverage analysis, and QA findings management into a single workflow.
 Generates comprehensive verification reports and coordinates with approval gates.
 """
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
 import unittest
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from .coverage import CoverageTracker, CoverageReport, CoverageThreshold
-from .qa_findings import (
-    QAFindingsManager,
-    QAFindingReport,
-    QAFinding,
-    SeverityLevel
-)
-from .approval import ApprovalGate, ApprovalToken, ApprovalGateConfig
+from .approval import ApprovalGate, ApprovalToken
+from .coverage import CoverageReport, CoverageTracker
+from .qa_findings import QAFinding, QAFindingReport, QAFindingsManager, SeverityLevel
 
 
 @dataclass
@@ -45,13 +40,13 @@ class VerificationResult:
         duration_seconds: Time taken for verification
     """
     success: bool
-    test_results: Dict[str, int]
-    coverage_report: Optional[CoverageReport]
+    test_results: dict[str, int]
+    coverage_report: CoverageReport | None
     qa_findings: QAFindingReport
-    approval_token: Optional[ApprovalToken]
+    approval_token: ApprovalToken | None
     fix_tasks_generated: int = 0
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     timestamp: str = ""
     duration_seconds: float = 0.0
 
@@ -70,7 +65,7 @@ class VerificationResult:
             "duration_seconds": self.duration_seconds
         }
 
-    def get_summary(self) -> Dict:
+    def get_summary(self) -> dict:
         """Get summary of verification results."""
         summary = {
             "status": "PASS" if self.success else "FAIL",
@@ -123,11 +118,11 @@ class VerificationConfig:
     fix_tasks_output_dir: str = ".autoflow/tasks"
     test_dir: str = "tests"
     test_pattern: str = "test*.py"
-    source_dirs: List[str] = field(default_factory=lambda: ["autoflow"])
+    source_dirs: list[str] = field(default_factory=lambda: ["autoflow"])
     test_command: str = "python -m unittest discover tests/"
-    blocking_severities: List[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
+    blocking_severities: list[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
     work_dir: str = "."
-    config_path: Optional[str] = None
+    config_path: str | None = None
 
     def to_dict(self) -> dict:
         """Convert config to dictionary."""
@@ -144,7 +139,7 @@ class VerificationOrchestrator:
 
     def __init__(
         self,
-        config: Optional[VerificationConfig] = None
+        config: VerificationConfig | None = None
     ):
         """
         Initialize verification orchestrator.
@@ -163,7 +158,7 @@ class VerificationOrchestrator:
         self.qa_manager = QAFindingsManager(work_dir=self.config.work_dir)
         self.approval_gate = ApprovalGate(work_dir=self.config.work_dir)
 
-    def run_tests(self) -> Tuple[Dict[str, int], List[str]]:
+    def run_tests(self) -> tuple[dict[str, int], list[str]]:
         """
         Run test suite.
 
@@ -224,7 +219,7 @@ class VerificationOrchestrator:
                 "skipped": True
             }, [f"Error running tests: {e}"]
 
-    def run_coverage_analysis(self) -> Tuple[Optional[CoverageReport], List[str]]:
+    def run_coverage_analysis(self) -> tuple[CoverageReport | None, list[str]]:
         """
         Run coverage analysis.
 
@@ -260,8 +255,8 @@ class VerificationOrchestrator:
 
     def generate_qa_findings(
         self,
-        test_results: Dict[str, int],
-        coverage_report: Optional[CoverageReport]
+        test_results: dict[str, int],
+        coverage_report: CoverageReport | None
     ) -> QAFindingReport:
         """
         Generate QA findings from test and coverage results.
@@ -329,7 +324,7 @@ class VerificationOrchestrator:
     def generate_fix_tasks_from_findings(
         self,
         qa_findings: QAFindingReport
-    ) -> Tuple[int, List[str]]:
+    ) -> tuple[int, list[str]]:
         """
         Generate fix tasks from QA findings.
 
@@ -376,10 +371,8 @@ class VerificationOrchestrator:
             )
 
             # Clean up temp file
-            try:
+            with contextlib.suppress(Exception):
                 temp_findings_file.unlink()
-            except Exception:
-                pass
 
             if result.returncode != 0:
                 return 0, [f"Fix task generation failed: {result.stderr}"]
@@ -440,16 +433,6 @@ class VerificationOrchestrator:
                 f"({', '.join(self.config.blocking_severities)} severity)"
             )
 
-        # Generate fix tasks if verification failed
-        fix_tasks_generated = 0
-        if not success and qa_findings.findings:
-            fix_tasks_count, fix_task_errors = self.generate_fix_tasks_from_findings(qa_findings)
-            if fix_task_errors:
-                warnings.extend(fix_task_errors)
-            elif fix_tasks_count > 0:
-                fix_tasks_generated = fix_tasks_count
-                warnings.append(f"Generated {fix_tasks_count} fix task(s) in {self.config.fix_tasks_output_dir}")
-
         # Determine overall success
         # Verification passes if:
         # - No test failures or errors
@@ -461,6 +444,16 @@ class VerificationOrchestrator:
             len(coverage_errors) == 0 and
             len(blocking_findings) == 0
         )
+
+        # Generate fix tasks if verification failed
+        fix_tasks_generated = 0
+        if not success and qa_findings.findings:
+            fix_tasks_count, fix_task_errors = self.generate_fix_tasks_from_findings(qa_findings)
+            if fix_task_errors:
+                warnings.extend(fix_task_errors)
+            elif fix_tasks_count > 0:
+                fix_tasks_generated = fix_tasks_count
+                warnings.append(f"Generated {fix_tasks_count} fix task(s) in {self.config.fix_tasks_output_dir}")
 
         # Grant approval if successful and configured
         approval_token = None
@@ -538,7 +531,7 @@ class VerificationOrchestrator:
         """
         input_file = self.work_dir / input_path
 
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             data = json.load(f)
 
         # Reconstruct objects
@@ -573,7 +566,7 @@ class VerificationOrchestrator:
             duration_seconds=data["duration_seconds"]
         )
 
-    def check_commit_allowed(self) -> Tuple[bool, List[str]]:
+    def check_commit_allowed(self) -> tuple[bool, list[str]]:
         """
         Check if commit is allowed based on current verification state.
 
@@ -582,7 +575,7 @@ class VerificationOrchestrator:
         """
         return self.approval_gate.verify_commit_allowed()
 
-    def get_verification_status(self) -> Dict:
+    def get_verification_status(self) -> dict:
         """
         Get current verification status.
 
@@ -691,7 +684,7 @@ def create_verification_report(
         lines.append("\n" + "-" * 70)
         lines.append("APPROVAL")
         lines.append("-" * 70)
-        lines.append(f"  Status: APPROVED ✓")
+        lines.append("  Status: APPROVED ✓")
         lines.append(f"  Hash:   {result.approval_token.hash[:16]}...")
         lines.append(f"  Time:   {result.approval_token.timestamp}")
 
@@ -701,9 +694,8 @@ def create_verification_report(
         lines.append("FIX TASKS")
         lines.append("-" * 70)
         lines.append(f"  Generated: {result.fix_tasks_generated} task(s)")
-        from .verification import VerificationConfig  # Import to access config
-        lines.append(f"  Location: .autoflow/tasks/")
-        lines.append(f"  Agent: implementation-runner")
+        lines.append("  Location: .autoflow/tasks/")
+        lines.append("  Agent: implementation-runner")
 
     # Errors and Warnings
     if result.errors:
@@ -726,4 +718,3 @@ def create_verification_report(
 
 
 # Import os for devnull
-import os

@@ -11,7 +11,6 @@ requiring actual skill files in the test environment.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -24,7 +23,6 @@ from autoflow.skills import (
     SkillStatus,
     create_registry,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -388,7 +386,7 @@ class TestSkillRegistryInit:
         """Test that missing directories are created."""
         missing_dir = tmp_path / "new_skills"
 
-        registry = SkillRegistry(skills_dirs=[missing_dir])
+        SkillRegistry(skills_dirs=[missing_dir])
 
         assert missing_dir.exists()
 

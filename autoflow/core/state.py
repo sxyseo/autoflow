@@ -25,9 +25,9 @@ import os
 import shutil
 import tempfile
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,7 @@ JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Status of a task in the system."""
 
     PENDING = "pending"
@@ -46,7 +46,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """Status of an agent run."""
 
     STARTED = "started"
@@ -67,7 +67,7 @@ class Task(BaseModel):
     priority: int = 5  # 1-10, higher is more urgent
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    assigned_agent: Optional[str] = None
+    assigned_agent: str | None = None
     labels: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -81,25 +81,25 @@ class Run(BaseModel):
     """Represents an agent execution run."""
 
     id: str
-    task_id: Optional[str] = None
+    task_id: str | None = None
     agent: str
     status: RunStatus = RunStatus.STARTED
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
     workdir: str = "."
-    command: Optional[str] = None
-    exit_code: Optional[int] = None
-    output: Optional[str] = None
-    error: Optional[str] = None
+    command: str | None = None
+    exit_code: int | None = None
+    output: str | None = None
+    error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def complete(
         self,
         status: RunStatus = RunStatus.COMPLETED,
-        exit_code: Optional[int] = None,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
+        exit_code: int | None = None,
+        output: str | None = None,
+        error: str | None = None,
     ) -> None:
         """Mark the run as completed."""
         self.status = status
@@ -121,7 +121,7 @@ class Spec(BaseModel):
     version: str = "1.0"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    author: Optional[str] = None
+    author: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -134,7 +134,7 @@ class Memory(BaseModel):
     value: Any
     category: str = "general"
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def is_expired(self) -> bool:
@@ -176,7 +176,7 @@ class StateManager:
     MEMORY_DIR = "memory"
     BACKUP_DIR = "backups"
 
-    def __init__(self, state_dir: Union[str, Path]):
+    def __init__(self, state_dir: str | Path):
         """
         Initialize the StateManager.
 
@@ -240,7 +240,7 @@ class StateManager:
         relative = file_path.relative_to(self.state_dir)
         return self.backup_dir / f"{relative}.bak"
 
-    def _create_backup(self, file_path: Path) -> Optional[Path]:
+    def _create_backup(self, file_path: Path) -> Path | None:
         """
         Create a backup of an existing file.
 
@@ -278,9 +278,9 @@ class StateManager:
 
     def read_json(
         self,
-        file_path: Union[str, Path],
-        default: Optional[T] = None,
-    ) -> Union[JSONData, T]:
+        file_path: str | Path,
+        default: T | None = None,
+    ) -> JSONData | T:
         """
         Read JSON data from a file.
 
@@ -317,7 +317,7 @@ class StateManager:
 
     def write_json(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         data: JSONData,
         indent: int = 2,
     ) -> Path:
@@ -397,7 +397,7 @@ class StateManager:
         file_path = self.tasks_dir / f"{task_id}.json"
         return self.write_json(file_path, task_data)
 
-    def load_task(self, task_id: str) -> Optional[dict[str, Any]]:
+    def load_task(self, task_id: str) -> dict[str, Any] | None:
         """
         Load a task from the state.
 
@@ -420,8 +420,8 @@ class StateManager:
 
     def list_tasks(
         self,
-        status: Optional[TaskStatus] = None,
-        agent: Optional[str] = None,
+        status: TaskStatus | None = None,
+        agent: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         List tasks, optionally filtered.
@@ -494,7 +494,7 @@ class StateManager:
         file_path = self.runs_dir / f"{run_id}.json"
         return self.write_json(file_path, run_data)
 
-    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+    def load_run(self, run_id: str) -> dict[str, Any] | None:
         """
         Load a run from the state.
 
@@ -512,8 +512,8 @@ class StateManager:
 
     def list_runs(
         self,
-        status: Optional[RunStatus] = None,
-        agent: Optional[str] = None,
+        status: RunStatus | None = None,
+        agent: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """
@@ -567,7 +567,7 @@ class StateManager:
         file_path = self.specs_dir / f"{spec_id}.json"
         return self.write_json(file_path, spec_data)
 
-    def load_spec(self, spec_id: str) -> Optional[dict[str, Any]]:
+    def load_spec(self, spec_id: str) -> dict[str, Any] | None:
         """
         Load a specification from the state.
 
@@ -583,7 +583,7 @@ class StateManager:
         except FileNotFoundError:
             return None
 
-    def list_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_specs(self, tags: list[str] | None = None) -> list[dict[str, Any]]:
         """
         List specifications, optionally filtered by tags.
 
@@ -619,7 +619,7 @@ class StateManager:
         key: str,
         value: Any,
         category: str = "general",
-        expires_in_seconds: Optional[int] = None,
+        expires_in_seconds: int | None = None,
     ) -> Path:
         """
         Save a memory entry.
@@ -654,7 +654,7 @@ class StateManager:
         file_path = self.memory_dir / f"{memory_id}.json"
         return self.write_json(file_path, memory_data)
 
-    def load_memory(self, key: str) -> Optional[Any]:
+    def load_memory(self, key: str) -> Any | None:
         """
         Load a memory entry by key.
 
@@ -682,7 +682,7 @@ class StateManager:
 
     def list_memory(
         self,
-        category: Optional[str] = None,
+        category: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         List memory entries, optionally filtered by category.
@@ -842,9 +842,9 @@ class StateManager:
 # === Module-level convenience functions ===
 
 def read_json(
-    file_path: Union[str, Path],
-    default: Optional[T] = None,
-) -> Union[JSONData, T]:
+    file_path: str | Path,
+    default: T | None = None,
+) -> JSONData | T:
     """
     Read JSON data from a file.
 
@@ -865,7 +865,7 @@ def read_json(
 
 
 def write_json(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     data: JSONData,
     indent: int = 2,
 ) -> Path:

@@ -8,12 +8,10 @@ It follows the severity-based categorization pattern from the rollback/recovery 
 from __future__ import annotations
 
 import statistics
-import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -131,7 +129,7 @@ class WorkflowHealthMonitor:
 
     def __init__(
         self,
-        config: "HealingConfig | None" = None,
+        config: HealingConfig | None = None,
         window_size: int = 100,
     ) -> None:
         """Initialize the workflow health monitor.

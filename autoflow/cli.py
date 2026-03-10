@@ -21,17 +21,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import click
 
 from autoflow import __version__
-from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
-from autoflow.core.state import StateManager, TaskStatus, RunStatus
-
+from autoflow.core.config import Config, get_state_dir, load_config
+from autoflow.core.state import StateManager, TaskStatus
 
 # Click context settings
 CONTEXT_SETTINGS = {
@@ -41,7 +39,7 @@ CONTEXT_SETTINGS = {
 }
 
 
-def _get_state_manager(config: Optional[Config] = None) -> StateManager:
+def _get_state_manager(config: Config | None = None) -> StateManager:
     """Get a StateManager instance."""
     state_dir = get_state_dir(config)
     return StateManager(state_dir)
@@ -66,7 +64,7 @@ def _run_async(coro: Any) -> Any:
         return asyncio.run(coro)
 
 
-def _format_datetime(dt: Optional[datetime]) -> str:
+def _format_datetime(dt: datetime | None) -> str:
     """Format a datetime for display."""
     if dt is None:
         return "N/A"
@@ -116,8 +114,8 @@ def _format_datetime(dt: Optional[datetime]) -> str:
 def main(
     ctx: click.Context,
     version: bool,
-    config_path: Optional[Path],
-    state_dir: Optional[Path],
+    config_path: Path | None,
+    state_dir: Path | None,
     output_json: bool,
     verbose: int,
 ) -> None:
@@ -218,11 +216,11 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo("")
             click.echo("Directory structure:")
             click.echo(f"  {state_manager.state_dir}/")
-            click.echo(f"    specs/    - Specification files")
-            click.echo(f"    tasks/    - Task definitions")
-            click.echo(f"    runs/     - Execution runs")
-            click.echo(f"    memory/   - Persistent memory")
-            click.echo(f"    backups/  - Backup files")
+            click.echo("    specs/    - Specification files")
+            click.echo("    tasks/    - Task definitions")
+            click.echo("    runs/     - Execution runs")
+            click.echo("    memory/   - Persistent memory")
+            click.echo("    backups/  - Backup files")
         else:
             _print_json({
                 "status": "initialized",
@@ -355,10 +353,10 @@ def status(ctx: click.Context, detailed: bool) -> None:
 @click.pass_context
 def run(
     ctx: click.Context,
-    task: Optional[str],
+    task: str | None,
     agent: str,
-    skill: Optional[str],
-    workdir: Optional[Path],
+    skill: str | None,
+    workdir: Path | None,
     timeout: int,
     resume: bool,
 ) -> None:
@@ -550,7 +548,7 @@ def skill() -> None:
     help="Directory containing skill definitions.",
 )
 @click.pass_context
-def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
+def skill_list(ctx: click.Context, skills_dir: Path | None) -> None:
     """
     List available skills.
 
@@ -607,7 +605,7 @@ def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
     help="Directory containing skill definitions.",
 )
 @click.pass_context
-def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> None:
+def skill_show(ctx: click.Context, name: str, skills_dir: Path | None) -> None:
     """
     Show details of a specific skill.
 
@@ -677,8 +675,8 @@ def task() -> None:
 @click.pass_context
 def task_list(
     ctx: click.Context,
-    status_filter: Optional[str],
-    agent: Optional[str],
+    status_filter: str | None,
+    agent: str | None,
     limit: int,
 ) -> None:
     """
@@ -1014,7 +1012,7 @@ def memory() -> None:
     help="Filter by category.",
 )
 @click.pass_context
-def memory_list(ctx: click.Context, category: Optional[str]) -> None:
+def memory_list(ctx: click.Context, category: str | None) -> None:
     """List memory entries."""
     config: Config = ctx.obj["config"]
     state_manager = _get_state_manager(config)

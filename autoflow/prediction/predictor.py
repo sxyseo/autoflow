@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from autoflow.prediction.feature_extractor import FeatureExtractor, FeatureVector
 from autoflow.prediction.model import PredictionResult, QualityModel
@@ -46,8 +46,8 @@ class QualityPredictor:
 
     def __init__(
         self,
-        model_path: Optional[Path] = None,
-        root_dir: Optional[Path] = None,
+        model_path: Path | None = None,
+        root_dir: Path | None = None,
         allow_untrained: bool = False,
     ) -> None:
         """
@@ -211,13 +211,7 @@ class QualityPredictor:
         # Check prediction outcome
         from autoflow.prediction.data_collector import QualityOutcome
 
-        if prediction.prediction in (
-            QualityOutcome.NEEDS_CHANGES,
-            QualityOutcome.FAILED,
-        ):
-            return True
-
-        return False
+        return prediction.prediction in (QualityOutcome.NEEDS_CHANGES, QualityOutcome.FAILED)
 
     def get_prediction_summary(self, prediction: PredictionResult) -> str:
         """
@@ -229,7 +223,6 @@ class QualityPredictor:
         Returns:
             Human-readable summary string
         """
-        from autoflow.prediction.data_collector import QualityOutcome
 
         # Determine risk level
         if self.is_high_risk(prediction):
@@ -350,12 +343,11 @@ class QualityPredictor:
         # Find or create a review phase
         phases = plan_data.get("phases", [])
         review_phase = None
-        review_phase_index = len(phases)  # Default to end
+        len(phases)  # Default to end
 
-        for i, phase in enumerate(phases):
+        for _i, phase in enumerate(phases):
             if "review" in phase.get("name", "").lower():
                 review_phase = phase
-                review_phase_index = i
                 break
 
         # Add review subtask to the phase

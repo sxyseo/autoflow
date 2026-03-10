@@ -25,10 +25,10 @@ import asyncio
 import logging
 import signal
 import sys
+from collections.abc import Callable
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from enum import StrEnum
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -36,11 +36,10 @@ from pydantic import BaseModel, Field
 
 from autoflow.core.config import Config, SchedulerJobConfig, load_config
 
-
 logger = logging.getLogger(__name__)
 
 
-class DaemonStatus(str, Enum):
+class DaemonStatus(StrEnum):
     """Status of the scheduler daemon."""
 
     STOPPED = "stopped"
@@ -51,7 +50,7 @@ class DaemonStatus(str, Enum):
     ERROR = "error"
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Status of a scheduled job."""
 
     ENABLED = "enabled"
@@ -67,16 +66,16 @@ class JobExecutionResult(BaseModel):
     job_id: str
     success: bool
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    output: Optional[str] = None
-    error: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    completed_at: datetime | None = None
+    output: str | None = None
+    error: str | None = None
+    duration_seconds: float | None = None
 
     def mark_complete(
         self,
         success: bool,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
+        output: str | None = None,
+        error: str | None = None,
     ) -> None:
         """Mark the execution as complete."""
         self.success = success
@@ -95,9 +94,9 @@ class JobInfo(BaseModel):
     handler: str
     cron: str
     status: JobStatus = JobStatus.ENABLED
-    next_run: Optional[datetime] = None
-    last_run: Optional[datetime] = None
-    last_result: Optional[JobExecutionResult] = None
+    next_run: datetime | None = None
+    last_run: datetime | None = None
+    last_result: JobExecutionResult | None = None
     total_runs: int = 0
     successful_runs: int = 0
     failed_runs: int = 0
@@ -113,19 +112,19 @@ class JobInfo(BaseModel):
 class DaemonStats(BaseModel):
     """Statistics about the scheduler daemon."""
 
-    started_at: Optional[datetime] = None
+    started_at: datetime | None = None
     total_jobs: int = 0
     active_jobs: int = 0
     total_executions: int = 0
     successful_executions: int = 0
     failed_executions: int = 0
-    last_execution_at: Optional[datetime] = None
+    last_execution_at: datetime | None = None
 
 
 class SchedulerDaemonError(Exception):
     """Exception raised for scheduler daemon errors."""
 
-    def __init__(self, message: str, job_id: Optional[str] = None):
+    def __init__(self, message: str, job_id: str | None = None):
         self.job_id = job_id
         super().__init__(message)
 
@@ -172,7 +171,7 @@ class SchedulerDaemon:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
+        config: Config | None = None,
         auto_start: bool = False,
         graceful_timeout: int = DEFAULT_GRACEFUL_TIMEOUT,
     ) -> None:
@@ -189,7 +188,7 @@ class SchedulerDaemon:
 
         # Status tracking
         self._status = DaemonStatus.STOPPED
-        self._scheduler: Optional[AsyncIOScheduler] = None
+        self._scheduler: AsyncIOScheduler | None = None
 
         # Job tracking
         self._jobs: dict[str, JobInfo] = {}
@@ -199,7 +198,7 @@ class SchedulerDaemon:
         self._stats = DaemonStats()
 
         # Orchestrator reference (set externally)
-        self._orchestrator: Optional[Any] = None
+        self._orchestrator: Any | None = None
 
         # Shutdown handling
         self._shutdown_event = asyncio.Event()
@@ -324,7 +323,7 @@ class SchedulerDaemon:
                             self._wait_for_running_jobs(),
                             timeout=self._graceful_timeout,
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning(
                             "Graceful shutdown timed out, forcing stop"
                         )
@@ -458,9 +457,9 @@ class SchedulerDaemon:
         self,
         handler: Callable,
         cron: str,
-        job_id: Optional[str] = None,
-        name: Optional[str] = None,
-        kwargs: Optional[dict[str, Any]] = None,
+        job_id: str | None = None,
+        name: str | None = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> str:
         """
         Add a new scheduled job.
@@ -530,7 +529,7 @@ class SchedulerDaemon:
         self,
         job_id: str,
         handler: Callable,
-        kwargs: Optional[dict[str, Any]] = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> Callable:
         """
         Create a wrapped handler that tracks execution.
@@ -687,7 +686,7 @@ class SchedulerDaemon:
         except Exception:
             return False
 
-    async def run_job_now(self, job_id: str) -> Optional[JobExecutionResult]:
+    async def run_job_now(self, job_id: str) -> JobExecutionResult | None:
         """
         Trigger a job to run immediately.
 
@@ -718,7 +717,7 @@ class SchedulerDaemon:
                 error=str(e),
             )
 
-    def get_job_info(self, job_id: str) -> Optional[JobInfo]:
+    def get_job_info(self, job_id: str) -> JobInfo | None:
         """
         Get information about a job.
 
@@ -783,7 +782,7 @@ class SchedulerDaemon:
         """
         await self._shutdown_event.wait()
 
-    async def __aenter__(self) -> "SchedulerDaemon":
+    async def __aenter__(self) -> SchedulerDaemon:
         """Async context manager entry."""
         await self.start()
         return self
@@ -803,7 +802,7 @@ class SchedulerDaemon:
 
 
 async def run_daemon(
-    config_path: Optional[str] = None,
+    config_path: str | None = None,
     foreground: bool = True,
 ) -> None:
     """

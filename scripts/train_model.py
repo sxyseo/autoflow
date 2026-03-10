@@ -10,7 +10,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,8 +18,8 @@ from autoflow.prediction.data_collector import DataCollector
 from autoflow.prediction.model import QualityModel
 
 try:
-    from sklearn.model_selection import train_test_split
     from sklearn.metrics import classification_report, confusion_matrix
+    from sklearn.model_selection import train_test_split
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -201,7 +200,7 @@ def print_training_results_json(
     num_samples: int,
     num_features: int,
     model_path: Path,
-    evaluation_results: Optional[dict] = None
+    evaluation_results: dict | None = None
 ) -> None:
     """
     Print training results in JSON format.
@@ -227,12 +226,12 @@ def print_training_results_json(
 
 def train_model(
     data_dir: Path,
-    specs_dir: Optional[Path],
-    model_path: Optional[Path],
+    specs_dir: Path | None,
+    model_path: Path | None,
     work_dir: Path,
     test_split: float,
     n_estimators: int,
-    max_depth: Optional[int],
+    max_depth: int | None,
     evaluate: bool,
     force: bool,
     output_format: str
@@ -372,7 +371,7 @@ def train_model(
 def evaluate_model_only(
     model_path: Path,
     data_dir: Path,
-    specs_dir: Optional[Path],
+    specs_dir: Path | None,
     work_dir: Path,
     test_split: float,
     output_format: str

@@ -8,7 +8,6 @@ escalation paths for unhealable conditions.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -27,13 +26,10 @@ if TYPE_CHECKING:
     from autoflow.healing.config import HealingConfig
     from autoflow.healing.diagnostic import (
         DiagnosticResult,
-        HealingPlan,
-        RootCause,
         RootCauseAnalyzer,
         StrategySelector,
     )
     from autoflow.healing.monitor import (
-        DegradationSignal,
         HealthAssessment,
         WorkflowHealthMonitor,
         WorkflowHealthStatus,
@@ -277,10 +273,7 @@ class EscalationManager:
             return True
 
         # Escalate if diagnostic suggests escalation
-        if diagnostic_result and diagnostic_result.requires_escalation:
-            return True
-
-        return False
+        return bool(diagnostic_result and diagnostic_result.requires_escalation)
 
     def create_escalation(
         self,
@@ -755,7 +748,11 @@ class HealingOrchestrator:
 
         # Create default diagnostic result if not provided
         if not diagnostic_result:
-            from autoflow.healing.diagnostic import RootCause, FailureCategory, ConfidenceLevel
+            from autoflow.healing.diagnostic import (
+                ConfidenceLevel,
+                FailureCategory,
+                RootCause,
+            )
             default_cause = RootCause(
                 category=FailureCategory.UNKNOWN,
                 description="Unable to diagnose - escalating for manual investigation",

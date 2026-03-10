@@ -24,21 +24,20 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from autoflow.agents.base import (
     AgentAdapter,
-    AgentConfig,
     ExecutionResult,
     ExecutionStatus,
-    ResumeMode,
 )
 from autoflow.agents.claude_code import ClaudeCodeAdapter
 from autoflow.agents.codex import CodexAdapter
@@ -52,16 +51,14 @@ from autoflow.core.state import (
     TaskStatus,
 )
 from autoflow.skills.executor import (
-    SkillExecutionContext,
     SkillExecutionResult,
     SkillExecutor,
 )
 from autoflow.skills.registry import SkillRegistry
 from autoflow.tmux.manager import TmuxManager
-from autoflow.tmux.session import SessionStatus, TmuxSession
 
 
-class OrchestratorStatus(str, Enum):
+class OrchestratorStatus(StrEnum):
     """Status of the orchestrator."""
 
     IDLE = "idle"
@@ -73,7 +70,7 @@ class OrchestratorStatus(str, Enum):
     ERROR = "error"
 
 
-class CyclePhase(str, Enum):
+class CyclePhase(StrEnum):
     """Phases in the closed-loop development cycle."""
 
     DISCOVER = "discover"
@@ -88,7 +85,7 @@ class CyclePhase(str, Enum):
 class OrchestratorError(Exception):
     """Exception raised for orchestrator errors."""
 
-    def __init__(self, message: str, phase: Optional[CyclePhase] = None):
+    def __init__(self, message: str, phase: CyclePhase | None = None):
         self.phase = phase
         super().__init__(message)
 
@@ -115,19 +112,19 @@ class CycleResult:
     cycle_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     phase: CyclePhase = CyclePhase.DISCOVER
     success: bool = False
-    task_result: Optional[SkillExecutionResult] = None
-    test_result: Optional[ExecutionResult] = None
-    commit_result: Optional[ExecutionResult] = None
+    task_result: SkillExecutionResult | None = None
+    test_result: ExecutionResult | None = None
+    commit_result: ExecutionResult | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def mark_complete(
         self,
         success: bool,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         """Mark the cycle as complete."""
         self.success = success
@@ -149,7 +146,7 @@ class OrchestratorStats(BaseModel):
     failed_tasks: int = 0
     total_commits: int = 0
     average_cycle_duration: float = 0.0
-    last_cycle_at: Optional[datetime] = None
+    last_cycle_at: datetime | None = None
     started_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -199,9 +196,9 @@ class AutoflowOrchestrator:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
-        state_dir: Optional[Union[str, Path]] = None,
-        skills_dir: Optional[Union[str, Path]] = None,
+        config: Config | None = None,
+        state_dir: str | Path | None = None,
+        skills_dir: str | Path | None = None,
         auto_initialize: bool = False,
     ) -> None:
         """
@@ -219,22 +216,22 @@ class AutoflowOrchestrator:
 
         # Status tracking
         self._status = OrchestratorStatus.IDLE
-        self._current_task: Optional[Task] = None
-        self._current_cycle: Optional[CycleResult] = None
+        self._current_task: Task | None = None
+        self._current_cycle: CycleResult | None = None
 
         # Components (initialized lazily)
-        self._state: Optional[StateManager] = None
-        self._skill_registry: Optional[SkillRegistry] = None
-        self._skill_executor: Optional[SkillExecutor] = None
-        self._tmux_manager: Optional[TmuxManager] = None
-        self._openclaw_adapter: Optional[OpenClawAdapter] = None
+        self._state: StateManager | None = None
+        self._skill_registry: SkillRegistry | None = None
+        self._skill_executor: SkillExecutor | None = None
+        self._tmux_manager: TmuxManager | None = None
+        self._openclaw_adapter: OpenClawAdapter | None = None
         self._adapters: dict[str, AgentAdapter] = {}
 
         # Statistics
         self._stats = OrchestratorStats()
 
         # Background task tracking
-        self._continuous_task: Optional[asyncio.Task] = None
+        self._continuous_task: asyncio.Task | None = None
         self._running = False
 
         if auto_initialize:
@@ -319,26 +316,20 @@ class AutoflowOrchestrator:
         """
         if not self._adapters:
             # Claude Code adapter
-            try:
+            with contextlib.suppress(Exception):
                 self._adapters["claude-code"] = ClaudeCodeAdapter(
                     default_timeout=self.config.agents.claude_code.timeout_seconds,
                 )
-            except Exception:
-                pass
 
             # Codex adapter
-            try:
+            with contextlib.suppress(Exception):
                 self._adapters["codex"] = CodexAdapter(
                     default_timeout=self.config.agents.codex.timeout_seconds,
                 )
-            except Exception:
-                pass
 
             # OpenClaw adapter
-            try:
+            with contextlib.suppress(Exception):
                 self._adapters["openclaw"] = self.openclaw_adapter
-            except Exception:
-                pass
 
         return self._adapters
 
@@ -387,13 +378,13 @@ class AutoflowOrchestrator:
         self,
         task: str,
         skill_name: str = "IMPLEMENTER",
-        workdir: Optional[Union[str, Path]] = None,
-        agent_type: Optional[str] = None,
-        context_files: Optional[list[Path]] = None,
-        context_text: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
+        workdir: str | Path | None = None,
+        agent_type: str | None = None,
+        context_files: list[Path] | None = None,
+        context_text: str | None = None,
+        timeout_seconds: int | None = None,
         use_tmux: bool = False,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> SkillExecutionResult:
         """
         Run a single task with skill-based execution.
@@ -509,10 +500,10 @@ class AutoflowOrchestrator:
         self,
         task: str,
         label: str,
-        agent_id: Optional[str] = None,
-        model: Optional[str] = None,
+        agent_id: str | None = None,
+        model: str | None = None,
         timeout_seconds: int = 300,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
     ) -> SpawnResult:
         """
         Spawn a sub-agent via OpenClaw sessions_spawn.
@@ -590,7 +581,7 @@ class AutoflowOrchestrator:
     async def run_cycle(
         self,
         task: str,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
         auto_commit: bool = True,
         run_tests: bool = True,
     ) -> CycleResult:
@@ -670,7 +661,7 @@ class AutoflowOrchestrator:
 
             # Phase 4: Document
             cycle.phase = CyclePhase.DOCUMENT
-            doc_result = await self.run_task(
+            await self.run_task(
                 task=f"Document changes made for: {task}",
                 skill_name="IMPLEMENTER",
                 workdir=workdir,
@@ -707,7 +698,7 @@ class AutoflowOrchestrator:
 
         return cycle
 
-    async def _run_tests(self, workdir: Optional[Union[str, Path]]) -> ExecutionResult:
+    async def _run_tests(self, workdir: str | Path | None) -> ExecutionResult:
         """
         Run tests in the project.
 
@@ -754,7 +745,7 @@ class AutoflowOrchestrator:
                 error=stderr.decode("utf-8") if stderr else None,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             result.mark_complete(
                 status=ExecutionStatus.TIMEOUT,
                 error="Test execution timed out",
@@ -769,7 +760,7 @@ class AutoflowOrchestrator:
 
     async def _commit_changes(
         self,
-        workdir: Optional[Union[str, Path]],
+        workdir: str | Path | None,
         message: str,
     ) -> ExecutionResult:
         """
@@ -855,10 +846,10 @@ class AutoflowOrchestrator:
 
     async def start_continuous_iteration(
         self,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
         interval_seconds: float = 60.0,
-        max_cycles: Optional[int] = None,
-        task_source: Optional[str] = None,
+        max_cycles: int | None = None,
+        task_source: str | None = None,
     ) -> None:
         """
         Start continuous iteration mode.
@@ -902,7 +893,7 @@ class AutoflowOrchestrator:
 
                 try:
                     # Run cycle
-                    result = await self.run_cycle(
+                    await self.run_cycle(
                         task=task,
                         workdir=workdir,
                     )
@@ -930,16 +921,14 @@ class AutoflowOrchestrator:
 
         if self._continuous_task:
             self._continuous_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._continuous_task
-            except asyncio.CancelledError:
-                pass
             self._continuous_task = None
 
     async def _get_next_task(
         self,
-        task_source: Optional[str] = None,
-    ) -> Optional[str]:
+        task_source: str | None = None,
+    ) -> str | None:
         """
         Get the next task to execute.
 
@@ -973,8 +962,8 @@ class AutoflowOrchestrator:
         title: str,
         description: str = "",
         priority: int = 5,
-        labels: Optional[list[str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        labels: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Task:
         """
         Add a new task to the queue.
@@ -1053,7 +1042,7 @@ class AutoflowOrchestrator:
         for adapter in self._adapters.values():
             await adapter.cleanup()
 
-    async def __aenter__(self) -> "AutoflowOrchestrator":
+    async def __aenter__(self) -> AutoflowOrchestrator:
         """Async context manager entry."""
         await self.initialize()
         return self
@@ -1073,8 +1062,8 @@ class AutoflowOrchestrator:
 
 
 def create_orchestrator(
-    config_path: Optional[str] = None,
-    state_dir: Optional[str] = None,
+    config_path: str | None = None,
+    state_dir: str | None = None,
     auto_initialize: bool = True,
 ) -> AutoflowOrchestrator:
     """

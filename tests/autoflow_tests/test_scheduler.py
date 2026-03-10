@@ -3,24 +3,24 @@ Tests for the scheduler module.
 """
 
 import json
-import pytest
-from pathlib import Path
 import sys
-from unittest.mock import patch, MagicMock, AsyncMock
-import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from scheduler import (
-    SchedulerConfig,
+    APSCHEDULER_AVAILABLE,
     JobRegistry,
-    cmd_status,
+    SchedulerConfig,
     cmd_add_job,
     cmd_list_jobs,
     cmd_remove_job,
     cmd_run_once,
-    APSCHEDULER_AVAILABLE,
+    cmd_status,
 )
 
 

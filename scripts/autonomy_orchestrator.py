@@ -9,7 +9,6 @@ from typing import Any
 
 import continuous_iteration
 
-
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"

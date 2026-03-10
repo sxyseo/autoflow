@@ -7,19 +7,13 @@ Integrates with the verification system to check coverage thresholds.
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from autoflow.review.coverage import (
-    CoverageTracker,
-    CoverageThreshold,
-    CoverageReport
-)
+from autoflow.review.coverage import CoverageReport, CoverageThreshold, CoverageTracker
 
 
 def parse_args() -> argparse.Namespace:
@@ -200,10 +194,10 @@ def check_thresholds(
     passes, failing = tracker.check_thresholds(report)
 
     if passes:
-        print(f"\n✓ Coverage meets all thresholds")
+        print("\n✓ Coverage meets all thresholds")
         return 0
     else:
-        print(f"\n✗ Coverage thresholds not met:")
+        print("\n✗ Coverage thresholds not met:")
         for metric in failing:
             print(f"  - {metric}")
         return 1
@@ -230,7 +224,7 @@ def main() -> int:
 
     # Run coverage
     if args.verbose:
-        print(f"Running coverage analysis...")
+        print("Running coverage analysis...")
         print(f"  Source: {args.source}")
         print(f"  Test command: {args.test_command}")
 
@@ -241,13 +235,13 @@ def main() -> int:
     )
 
     if exit_code != 0:
-        print(f"Error running tests:", file=sys.stderr)
+        print("Error running tests:", file=sys.stderr)
         print(output, file=sys.stderr)
         return 1
 
     if args.verbose:
-        print(f"Tests completed successfully")
-        print(f"Generating coverage report...\n")
+        print("Tests completed successfully")
+        print("Generating coverage report...\n")
 
     # Generate report
     try:

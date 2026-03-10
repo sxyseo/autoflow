@@ -3,29 +3,26 @@ Tests for the test runner module.
 """
 
 import json
-import pytest
-from pathlib import Path
 import sys
-from unittest.mock import patch, MagicMock
-import tempfile
-import os
+from pathlib import Path
+from unittest.mock import MagicMock
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from test_runner import (
-    load_quarantine_config,
-    save_quarantine_config,
     add_to_quarantine,
-    remove_from_quarantine,
-    get_quarantined_tests,
-    cmd_discover,
-    cmd_run,
     cmd_coverage,
     cmd_detect_flaky,
+    cmd_discover,
+    cmd_quarantine_clear,
     cmd_quarantine_list,
     cmd_quarantine_remove,
-    cmd_quarantine_clear,
+    cmd_run,
+    get_quarantined_tests,
+    load_quarantine_config,
+    remove_from_quarantine,
+    save_quarantine_config,
 )
 
 

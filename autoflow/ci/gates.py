@@ -31,9 +31,9 @@ import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.ci.verifier import (
     CheckDefinition,
@@ -41,11 +41,10 @@ from autoflow.ci.verifier import (
     CheckStatus,
     CheckType,
     CIVerifier,
-    VerificationResult,
 )
 
 
-class GateStatus(str, Enum):
+class GateStatus(StrEnum):
     """Status of a CI gate."""
 
     PENDING = "pending"
@@ -57,7 +56,7 @@ class GateStatus(str, Enum):
     WARNING = "warning"  # Passed but with warnings
 
 
-class GateSeverity(str, Enum):
+class GateSeverity(StrEnum):
     """Severity level for gate configuration."""
 
     REQUIRED = "required"  # Must pass for overall success
@@ -113,11 +112,11 @@ class GateResult:
     checks: list[CheckResult] = field(default_factory=list)
     passed: bool = False
     required: bool = True
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
     summary: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -150,7 +149,7 @@ class GateResult:
         status: GateStatus,
         passed: bool = False,
         summary: str = "",
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         """
         Mark the gate as complete.
@@ -212,9 +211,9 @@ class BaseGate(ABC):
 
     def __init__(
         self,
-        config: Optional[GateConfig] = None,
-        checks: Optional[list[CheckDefinition]] = None,
-        workdir: Optional[Union[str, Path]] = None,
+        config: GateConfig | None = None,
+        checks: list[CheckDefinition] | None = None,
+        workdir: str | Path | None = None,
     ):
         """
         Initialize the gate.
@@ -266,8 +265,8 @@ class BaseGate(ABC):
     def add_check(
         self,
         name: str,
-        command: Union[str, list[str]],
-        timeout_seconds: Optional[int] = None,
+        command: str | list[str],
+        timeout_seconds: int | None = None,
         required: bool = True,
         enabled: bool = True,
     ) -> None:
@@ -328,8 +327,8 @@ class BaseGate(ABC):
 
     async def run(
         self,
-        workdir: Optional[Union[str, Path]] = None,
-        timeout_override: Optional[int] = None,
+        workdir: str | Path | None = None,
+        timeout_override: int | None = None,
     ) -> GateResult:
         """
         Run all checks in this gate.
@@ -383,7 +382,7 @@ class BaseGate(ABC):
             summary = self._generate_summary(result)
             result.mark_complete(status=status, passed=passed, summary=summary)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             result.mark_complete(
                 status=GateStatus.ERROR,
                 error=f"Gate timed out after {timeout} seconds",
@@ -398,7 +397,7 @@ class BaseGate(ABC):
 
     def run_sync(
         self,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
         **kwargs: Any,
     ) -> GateResult:
         """
@@ -529,7 +528,7 @@ class LintGate(BaseGate):
         total = result.total_checks
         passed = len(result.passed_checks)
         failed = len(result.failed_checks)
-        skipped = len(result.skipped_checks)
+        len(result.skipped_checks)
 
         if result.passed:
             if failed > 0:
@@ -579,7 +578,7 @@ class SecurityGate(BaseGate):
         total = result.total_checks
         passed = len(result.passed_checks)
         failed = len(result.failed_checks)
-        skipped = len(result.skipped_checks)
+        len(result.skipped_checks)
 
         if result.passed:
             return f"Security scan passed: {passed}/{total} checks passed"
@@ -642,9 +641,9 @@ class GateRunnerResult:
     gates: list[GateResult] = field(default_factory=list)
     status: GateStatus = GateStatus.PENDING
     passed: bool = False
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
 
     @property
     def total_gates(self) -> int:
@@ -750,7 +749,7 @@ class GateRunner:
             return True
         return False
 
-    def get_gate(self, name: str) -> Optional[BaseGate]:
+    def get_gate(self, name: str) -> BaseGate | None:
         """
         Get a gate by name.
 
@@ -765,7 +764,7 @@ class GateRunner:
     async def run_gate(
         self,
         name: str,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
     ) -> GateResult:
         """
         Run a single gate.
@@ -788,8 +787,8 @@ class GateRunner:
 
     async def run_all(
         self,
-        workdir: Optional[Union[str, Path]] = None,
-        parallel: Optional[bool] = None,
+        workdir: str | Path | None = None,
+        parallel: bool | None = None,
     ) -> GateRunnerResult:
         """
         Run all registered gates.
@@ -861,7 +860,7 @@ class GateRunner:
 
     def run_all_sync(
         self,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
         **kwargs: Any,
     ) -> GateRunnerResult:
         """
@@ -894,7 +893,7 @@ def create_default_gates(
     lint: bool = True,
     security: bool = True,
     type_check: bool = False,
-    workdir: Optional[Union[str, Path]] = None,
+    workdir: str | Path | None = None,
 ) -> list[BaseGate]:
     """
     Create a list of default gates.
@@ -929,7 +928,7 @@ def create_default_runner(
     security: bool = True,
     type_check: bool = False,
     parallel: bool = True,
-    workdir: Optional[Union[str, Path]] = None,
+    workdir: str | Path | None = None,
 ) -> GateRunner:
     """
     Create a gate runner with default gates.

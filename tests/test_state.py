@@ -13,7 +13,6 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -28,7 +27,6 @@ from autoflow.core.state import (
     read_json,
     write_json,
 )
-
 
 # ============================================================================
 # Fixtures

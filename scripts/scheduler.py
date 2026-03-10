@@ -20,13 +20,15 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import signal
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -52,7 +54,7 @@ SCHEDULER_CONFIG_PATH = Path(__file__).parent.parent / "config" / "scheduler_con
 class SchedulerConfig:
     """Configuration for the scheduler."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize scheduler configuration.
 
         Args:
@@ -69,7 +71,7 @@ class SchedulerConfig:
         if not self.config_path.exists():
             return self._default_config()
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             return json.load(f)
 
     def _default_config(self) -> dict:
@@ -134,7 +136,7 @@ class SchedulerConfig:
         """Get default job settings."""
         return self._config.get("job_defaults", {})
 
-    def get_job_config(self, job_type: str) -> Optional[dict]:
+    def get_job_config(self, job_type: str) -> dict | None:
         """Get configuration for a specific job type.
 
         Args:
@@ -177,7 +179,7 @@ class JobRegistry:
         self._jobs[job_type] = func
         logger.debug(f"Registered job: {job_type}")
 
-    def get(self, job_type: str) -> Optional[Callable]:
+    def get(self, job_type: str) -> Callable | None:
         """Get a registered job function.
 
         Args:
@@ -205,7 +207,7 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running continuous iteration job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Import and run continuous iteration
@@ -225,7 +227,7 @@ class JobRegistry:
                 output = "Continuous iteration script not found - simulating"
                 success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "continuous_iteration",
@@ -250,7 +252,7 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running nightly maintenance job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Import and run maintenance if available
@@ -272,7 +274,7 @@ class JobRegistry:
                 output = "Maintenance script not found - simulating cleanup"
                 success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "nightly_maintenance",
@@ -297,14 +299,14 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running weekly consolidation job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # This would integrate with the learning system
             output = "Weekly memory consolidation completed"
             success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "weekly_consolidation",
@@ -329,14 +331,14 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running monthly dependency update check")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # This would check for dependency updates
             output = "Monthly dependency check completed"
             success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "monthly_dependency_update",
@@ -358,7 +360,7 @@ class JobRegistry:
 class Scheduler:
     """APScheduler-based task scheduler."""
 
-    def __init__(self, config: Optional[SchedulerConfig] = None):
+    def __init__(self, config: SchedulerConfig | None = None):
         """Initialize scheduler.
 
         Args:
@@ -371,7 +373,7 @@ class Scheduler:
 
         self.config = config or SchedulerConfig()
         self.job_registry = JobRegistry()
-        self._scheduler: Optional[AsyncScheduler] = None
+        self._scheduler: AsyncScheduler | None = None
         self._running = False
         self._scheduled_jobs: dict[str, str] = {}  # job_id -> job_type
 
@@ -431,8 +433,8 @@ class Scheduler:
         self,
         job_type: str,
         cron: str,
-        job_id: Optional[str] = None,
-        max_instances: Optional[int] = None
+        job_id: str | None = None,
+        max_instances: int | None = None
     ) -> str:
         """Add a scheduled job.
 
@@ -550,10 +552,8 @@ def cmd_start(args: argparse.Namespace) -> int:
     config = SchedulerConfig()
     scheduler = Scheduler(config)
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(scheduler.start())
-    except KeyboardInterrupt:
-        pass
 
     return 0
 
@@ -744,13 +744,13 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Start command
-    start_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "start",
         help="Start the scheduler"
     )
 
     # Status command
-    status_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "status",
         help="Show scheduler status"
     )
@@ -786,7 +786,7 @@ Examples:
     )
 
     # List jobs command
-    list_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "list-jobs",
         help="List all scheduled jobs"
     )

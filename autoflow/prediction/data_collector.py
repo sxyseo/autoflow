@@ -15,21 +15,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from autoflow.prediction.feature_extractor import (
-    AgentFeatures,
     FeatureExtractor,
     FeatureVector,
-    FileFeatures,
-    SpecFeatures,
-    TemporalFeatures,
 )
 
 
-class QualityOutcome(str, Enum):
+class QualityOutcome(StrEnum):
     """
     Quality outcome labels for training data.
 
@@ -59,7 +55,7 @@ class TrainingSample:
     spec_id: str
     features: FeatureVector
     outcome: QualityOutcome
-    run_id: Optional[str] = None
+    run_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for ML model consumption."""
@@ -82,7 +78,7 @@ class DataCollector:
     4. Returning training data as feature-label pairs
     """
 
-    def __init__(self, root_dir: Optional[Path] = None) -> None:
+    def __init__(self, root_dir: Path | None = None) -> None:
         """
         Initialize the data collector.
 
@@ -94,8 +90,8 @@ class DataCollector:
 
     def collect_training_data(
         self,
-        runs_dir: Optional[Path] = None,
-        specs_dir: Optional[Path] = None,
+        runs_dir: Path | None = None,
+        specs_dir: Path | None = None,
     ) -> list[TrainingSample]:
         """
         Collect training data from historical runs.
@@ -177,7 +173,7 @@ class DataCollector:
 
         return training_samples
 
-    def _determine_outcome(self, runs: list[dict[str, Any]]) -> Optional[QualityOutcome]:
+    def _determine_outcome(self, runs: list[dict[str, Any]]) -> QualityOutcome | None:
         """
         Determine the final quality outcome from a list of runs.
 
@@ -210,7 +206,7 @@ class DataCollector:
             # Unknown status - default to needs_changes for safety
             return QualityOutcome.NEEDS_CHANGES
 
-    def _extract_all_features(self, spec_path: Path) -> Optional[FeatureVector]:
+    def _extract_all_features(self, spec_path: Path) -> FeatureVector | None:
         """
         Extract all feature types for a spec.
 
@@ -257,8 +253,8 @@ class DataCollector:
 
     def collect_training_data_for_model(
         self,
-        runs_dir: Optional[Path] = None,
-        specs_dir: Optional[Path] = None,
+        runs_dir: Path | None = None,
+        specs_dir: Path | None = None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
         """
         Collect training data formatted for ML model training.

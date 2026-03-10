@@ -27,14 +27,13 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Any, Optional, Union
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ReviewStatus(str, Enum):
+class ReviewStatus(StrEnum):
     """Status of a code review."""
 
     PENDING = "pending"
@@ -45,7 +44,7 @@ class ReviewStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
-class ReviewSeverity(str, Enum):
+class ReviewSeverity(StrEnum):
     """Severity levels for review findings."""
 
     INFO = "info"
@@ -54,7 +53,7 @@ class ReviewSeverity(str, Enum):
     CRITICAL = "critical"
 
 
-class ReviewStrategy(str, Enum):
+class ReviewStrategy(StrEnum):
     """
     Strategy for cross-review execution.
 
@@ -88,12 +87,12 @@ class ReviewFinding:
     """
 
     file_path: str
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
+    line_start: int | None = None
+    line_end: int | None = None
     severity: ReviewSeverity = ReviewSeverity.INFO
     category: str = "general"
     message: str = ""
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
     reviewer: str = ""
     confidence: float = 0.8
 
@@ -135,9 +134,9 @@ class ReviewerResult:
     findings: list[ReviewFinding] = field(default_factory=list)
     approved: bool = False
     confidence: float = 0.8
-    comments: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
+    comments: str | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
 
     @property
     def blocking_issues(self) -> list[ReviewFinding]:
@@ -177,8 +176,8 @@ class CodeChange(BaseModel):
 
     file_path: str
     diff: str = ""
-    old_content: Optional[str] = None
-    new_content: Optional[str] = None
+    old_content: str | None = None
+    new_content: str | None = None
     change_type: str = "modify"
 
 
@@ -231,9 +230,9 @@ class CrossReviewResult:
     consensus_score: float = 0.0
     strategy_used: ReviewStrategy = ReviewStrategy.MAJORITY
     started_at: datetime = field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -266,7 +265,7 @@ class CrossReviewResult:
         self,
         status: ReviewStatus,
         approved: bool = False,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         """
         Mark the review as complete.
@@ -314,8 +313,8 @@ class CrossReviewerError(Exception):
     def __init__(
         self,
         message: str,
-        review_id: Optional[str] = None,
-        reviewer: Optional[str] = None,
+        review_id: str | None = None,
+        reviewer: str | None = None,
     ):
         self.review_id = review_id
         self.reviewer = reviewer
@@ -354,7 +353,7 @@ class CrossReviewerStats(BaseModel):
     blocking_findings: int = 0
     average_review_duration: float = 0.0
     average_reviewers_per_review: float = 0.0
-    last_review_at: Optional[datetime] = None
+    last_review_at: datetime | None = None
     started_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -407,10 +406,10 @@ class CrossReviewer:
 
     def __init__(
         self,
-        default_strategy: Optional[ReviewStrategy] = None,
-        default_timeout: Optional[int] = None,
-        min_reviewers: Optional[int] = None,
-        reviewer_configs: Optional[dict[str, ReviewerConfig]] = None,
+        default_strategy: ReviewStrategy | None = None,
+        default_timeout: int | None = None,
+        min_reviewers: int | None = None,
+        reviewer_configs: dict[str, ReviewerConfig] | None = None,
     ):
         """
         Initialize the cross-reviewer.
@@ -448,7 +447,7 @@ class CrossReviewer:
         self,
         agent_type: str,
         adapter: Any,
-        config: Optional[ReviewerConfig] = None,
+        config: ReviewerConfig | None = None,
     ) -> None:
         """
         Register a reviewer agent.
@@ -504,7 +503,7 @@ class CrossReviewer:
 
     def get_available_reviewers(
         self,
-        exclude_agents: Optional[list[str]] = None,
+        exclude_agents: list[str] | None = None,
     ) -> list[str]:
         """
         Get available reviewers, optionally excluding some.
@@ -518,19 +517,19 @@ class CrossReviewer:
         exclude = set(exclude_agents or [])
         return [
             agent_type
-            for agent_type in self._reviewers.keys()
+            for agent_type in self._reviewers
             if agent_type not in exclude
             and self.get_reviewer_config(agent_type).enabled
         ]
 
     async def review_code(
         self,
-        changes: list[Union[CodeChange, dict[str, Any]]],
+        changes: list[CodeChange | dict[str, Any]],
         author_agent: str = "unknown",
         target_branch: str = "main",
-        strategy: Optional[ReviewStrategy] = None,
-        timeout_seconds: Optional[int] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        strategy: ReviewStrategy | None = None,
+        timeout_seconds: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> CrossReviewResult:
         """
         Review code changes with multiple agents.
@@ -609,7 +608,7 @@ class CrossReviewer:
                     asyncio.gather(*review_tasks, return_exceptions=True),
                     timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 result.mark_complete(
                     status=ReviewStatus.TIMEOUT,
                     error=f"Review timed out after {timeout}s",
@@ -693,7 +692,7 @@ class CrossReviewer:
 
         try:
             # Build review prompt
-            prompt = self._build_review_prompt(changes, config)
+            self._build_review_prompt(changes, config)
 
             # Get the adapter
             adapter = self._reviewers.get(reviewer_type)
@@ -1152,7 +1151,7 @@ class CrossReviewer:
         """
         return list(self._active_reviews.values())
 
-    def get_review(self, review_id: str) -> Optional[CrossReviewResult]:
+    def get_review(self, review_id: str) -> CrossReviewResult | None:
         """
         Get a review by ID.
 
@@ -1196,9 +1195,9 @@ class CrossReviewer:
 
 
 def create_cross_reviewer(
-    reviewers: Optional[dict[str, Any]] = None,
-    strategy: Optional[ReviewStrategy] = None,
-    min_reviewers: Optional[int] = None,
+    reviewers: dict[str, Any] | None = None,
+    strategy: ReviewStrategy | None = None,
+    min_reviewers: int | None = None,
 ) -> CrossReviewer:
     """
     Factory function to create a configured cross-reviewer.

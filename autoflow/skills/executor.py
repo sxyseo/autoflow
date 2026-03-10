@@ -29,21 +29,20 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from autoflow.agents.base import (
     AgentAdapter,
     AgentConfig,
     ExecutionResult,
     ExecutionStatus,
-    ResumeMode,
 )
 from autoflow.skills.registry import SkillDefinition, SkillRegistry
 
 
-class SkillExecutionStatus(str, Enum):
+class SkillExecutionStatus(StrEnum):
     """Status of a skill execution."""
 
     PENDING = "pending"
@@ -76,13 +75,13 @@ class SkillExecutionContext:
     """
 
     task: str
-    workdir: Union[str, Path]
+    workdir: str | Path
     agent_type: str = "claude-code"
-    agent_config: Optional[AgentConfig] = None
+    agent_config: AgentConfig | None = None
     context_files: list[Path] = field(default_factory=list)
-    context_text: Optional[str] = None
-    session_id: Optional[str] = None
-    timeout_seconds: Optional[int] = None
+    context_text: str | None = None
+    session_id: str | None = None
+    timeout_seconds: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -109,11 +108,11 @@ class SkillExecutionResult:
     execution_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     skill_name: str = ""
     status: SkillExecutionStatus = SkillExecutionStatus.PENDING
-    agent_result: Optional[ExecutionResult] = None
+    agent_result: ExecutionResult | None = None
     started_at: datetime = field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -122,20 +121,20 @@ class SkillExecutionResult:
         return self.status == SkillExecutionStatus.SUCCESS
 
     @property
-    def output(self) -> Optional[str]:
+    def output(self) -> str | None:
         """Get output from agent result."""
         return self.agent_result.output if self.agent_result else None
 
     @property
-    def session_id(self) -> Optional[str]:
+    def session_id(self) -> str | None:
         """Get session ID from agent result."""
         return self.agent_result.session_id if self.agent_result else None
 
     def mark_complete(
         self,
         status: SkillExecutionStatus,
-        agent_result: Optional[ExecutionResult] = None,
-        error: Optional[str] = None,
+        agent_result: ExecutionResult | None = None,
+        error: str | None = None,
     ) -> None:
         """
         Mark the execution as complete.
@@ -210,10 +209,10 @@ class SkillExecutor:
 
     def __init__(
         self,
-        registry: Optional[SkillRegistry] = None,
-        adapters: Optional[dict[str, AgentAdapter]] = None,
-        default_agent_type: Optional[str] = None,
-        default_timeout: Optional[int] = None,
+        registry: SkillRegistry | None = None,
+        adapters: dict[str, AgentAdapter] | None = None,
+        default_agent_type: str | None = None,
+        default_timeout: int | None = None,
     ):
         """
         Initialize the skill executor.
@@ -265,7 +264,7 @@ class SkillExecutor:
         """
         self._adapters[agent_type] = adapter
 
-    def get_adapter(self, agent_type: str) -> Optional[AgentAdapter]:
+    def get_adapter(self, agent_type: str) -> AgentAdapter | None:
         """
         Get the adapter for an agent type.
 
@@ -345,7 +344,7 @@ class SkillExecutor:
     def _select_agent_type(
         self,
         skill: SkillDefinition,
-        preferred_type: Optional[str],
+        preferred_type: str | None,
     ) -> str:
         """
         Select the appropriate agent type for a skill.
@@ -397,14 +396,14 @@ class SkillExecutor:
         self,
         skill_name: str,
         task: str,
-        workdir: Union[str, Path],
-        agent_type: Optional[str] = None,
-        agent_config: Optional[AgentConfig] = None,
-        context_files: Optional[list[Path]] = None,
-        context_text: Optional[str] = None,
-        session_id: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        workdir: str | Path,
+        agent_type: str | None = None,
+        agent_config: AgentConfig | None = None,
+        context_files: list[Path] | None = None,
+        context_text: str | None = None,
+        session_id: str | None = None,
+        timeout_seconds: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> SkillExecutionResult:
         """
         Execute a skill with an agent.
@@ -551,7 +550,7 @@ class SkillExecutor:
         self,
         skill_name: str,
         task: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         **kwargs: Any,
     ) -> SkillExecutionResult:
         """
@@ -586,7 +585,7 @@ class SkillExecutor:
         self,
         skill_name: str,
         task: str,
-        workdir: Union[str, Path],
+        workdir: str | Path,
         **kwargs: Any,
     ) -> SkillExecutionResult:
         """
@@ -627,8 +626,8 @@ class SkillExecutor:
         session_id: str,
         skill_name: str,
         new_task: str,
-        workdir: Union[str, Path],
-        agent_type: Optional[str] = None,
+        workdir: str | Path,
+        agent_type: str | None = None,
         **kwargs: Any,
     ) -> SkillExecutionResult:
         """
@@ -669,7 +668,7 @@ class SkillExecutor:
         """
         return list(self._active_executions.values())
 
-    def get_execution(self, execution_id: str) -> Optional[SkillExecutionResult]:
+    def get_execution(self, execution_id: str) -> SkillExecutionResult | None:
         """
         Get an execution by ID.
 
@@ -711,9 +710,9 @@ class SkillExecutor:
 
 
 def create_executor(
-    registry: Optional[SkillRegistry] = None,
+    registry: SkillRegistry | None = None,
     load_skills: bool = True,
-    adapters: Optional[dict[str, AgentAdapter]] = None,
+    adapters: dict[str, AgentAdapter] | None = None,
 ) -> SkillExecutor:
     """
     Factory function to create a configured skill executor.

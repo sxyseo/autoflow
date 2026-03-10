@@ -11,6 +11,14 @@ Skills are OpenClaw-compatible definitions that specify:
 - Agent assignments
 """
 
+from autoflow.skills.executor import (
+    SkillExecutionContext,
+    SkillExecutionResult,
+    SkillExecutionStatus,
+    SkillExecutor,
+    SkillExecutorError,
+    create_executor,
+)
 from autoflow.skills.registry import (
     SkillDefinition,
     SkillMetadata,
@@ -18,14 +26,6 @@ from autoflow.skills.registry import (
     SkillRegistryError,
     SkillStatus,
     create_registry,
-)
-from autoflow.skills.executor import (
-    SkillExecutor,
-    SkillExecutorError,
-    SkillExecutionContext,
-    SkillExecutionResult,
-    SkillExecutionStatus,
-    create_executor,
 )
 
 __all__ = [

@@ -7,10 +7,8 @@ Integrates with the verification system to create structured fix tasks.
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,7 +17,7 @@ from autoflow.review.qa_findings import (
     QAFinding,
     QAFindingReport,
     QAFindingsManager,
-    SeverityLevel
+    SeverityLevel,
 )
 
 
@@ -286,7 +284,7 @@ def add_finding_interactive(args: argparse.Namespace) -> QAFinding:
     return finding
 
 
-def merge_reports(input_files: List[str], manager: QAFindingsManager) -> QAFindingReport:
+def merge_reports(input_files: list[str], manager: QAFindingsManager) -> QAFindingReport:
     """
     Merge multiple report files.
 

@@ -8,21 +8,14 @@ Integrates with the verification system to create structured tasks from failures
 
 import argparse
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from autoflow.review.qa_findings import (
-    QAFinding,
-    QAFindingReport,
-    QAFindingsManager,
-    SeverityLevel
-)
+from autoflow.review.qa_findings import QAFinding, QAFindingReport, QAFindingsManager
 
 
 def parse_args() -> argparse.Namespace:
@@ -213,7 +206,7 @@ def save_task(task: dict, output_dir: Path, task_id: str) -> None:
         json.dump(task, f, indent=2)
 
 
-def load_tasks(output_dir: Path) -> List[dict]:
+def load_tasks(output_dir: Path) -> list[dict]:
     """
     Load all fix tasks from output directory.
 
@@ -230,10 +223,10 @@ def load_tasks(output_dir: Path) -> List[dict]:
 
     for task_file in output_dir.glob("*.json"):
         try:
-            with open(task_file, "r") as f:
+            with open(task_file) as f:
                 task = json.load(f)
                 tasks.append(task)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Could not load {task_file}: {e}", file=sys.stderr)
 
     # Sort by created_at
@@ -281,7 +274,7 @@ def print_task_summary(task: dict, show_index: bool = False, index: int = 0) -> 
     print()
 
 
-def print_tasks_summary(tasks: List[dict]) -> None:
+def print_tasks_summary(tasks: list[dict]) -> None:
     """
     Print summary of fix tasks.
 
@@ -308,11 +301,11 @@ def print_tasks_summary(tasks: List[dict]) -> None:
         priority_counts[priority] = priority_counts.get(priority, 0) + 1
 
     print(f"\nTotal Tasks: {len(tasks)}")
-    print(f"\nBy Status:")
+    print("\nBy Status:")
     for status, count in sorted(status_counts.items()):
         print(f"  {status}: {count}")
 
-    print(f"\nBy Priority:")
+    print("\nBy Priority:")
     for priority, count in sorted(priority_counts.items()):
         symbol = {
             "critical": "🔴",
@@ -326,11 +319,11 @@ def print_tasks_summary(tasks: List[dict]) -> None:
 
 
 def filter_findings(
-    findings: List[QAFinding],
+    findings: list[QAFinding],
     blocking_only: bool = False,
-    severity_filter: Optional[str] = None,
-    category_filter: Optional[str] = None
-) -> List[QAFinding]:
+    severity_filter: str | None = None,
+    category_filter: str | None = None
+) -> list[QAFinding]:
     """
     Filter findings based on criteria.
 
@@ -362,8 +355,8 @@ def generate_tasks_from_findings(
     output_dir: Path,
     agent: str,
     blocking_only: bool = False,
-    severity_filter: Optional[str] = None,
-    category_filter: Optional[str] = None,
+    severity_filter: str | None = None,
+    category_filter: str | None = None,
     dry_run: bool = False,
     verbose: bool = False
 ) -> int:
@@ -476,7 +469,7 @@ def main() -> int:
 
     # Show report summary
     summary = report.get_summary()
-    print(f"\nQA Findings Summary:")
+    print("\nQA Findings Summary:")
     print(f"  Total: {summary['total']}")
     print(f"  🔴 Critical: {summary['critical']}")
     print(f"  🟠 High:     {summary['high']}")

@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,7 +34,6 @@ from autoflow.scheduler import (
     monitor_agents,
     set_orchestrator,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -892,7 +890,7 @@ class TestJobRegistry:
 
     def test_registry_entries_have_handlers(self) -> None:
         """Test registry entries have callable handlers."""
-        for job_name, job_config in JOB_REGISTRY.items():
+        for _job_name, job_config in JOB_REGISTRY.items():
             assert "handler" in job_config
             assert callable(job_config["handler"])
             assert "default_cron" in job_config
@@ -918,12 +916,12 @@ class TestSchedulerIntegration:
             async def handler2():
                 return "result2"
 
-            job1 = await daemon.add_job(
+            await daemon.add_job(
                 handler=handler1,
                 cron="*/5 * * * *",
                 job_id="job-1",
             )
-            job2 = await daemon.add_job(
+            await daemon.add_job(
                 handler=handler2,
                 cron="*/10 * * * *",
                 job_id="job-2",

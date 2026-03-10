@@ -29,14 +29,14 @@ import re
 import shutil
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """Status of a tmux session."""
 
     CREATED = "created"  # Session object created but not started
@@ -53,7 +53,7 @@ class SessionInfo(BaseModel):
     workdir: str
     status: SessionStatus
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    pid: Optional[int] = None
+    pid: int | None = None
     windows: int = 1
     attached: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -62,7 +62,7 @@ class SessionInfo(BaseModel):
 class TmuxSessionError(Exception):
     """Exception raised for tmux session errors."""
 
-    def __init__(self, message: str, session_id: Optional[str] = None):
+    def __init__(self, message: str, session_id: str | None = None):
         self.session_id = session_id
         super().__init__(message)
 
@@ -105,10 +105,10 @@ class TmuxSession:
     def __init__(
         self,
         name: str,
-        workdir: Union[str, Path],
-        session_id: Optional[str] = None,
+        workdir: str | Path,
+        session_id: str | None = None,
         shell: str = "/bin/bash",
-        env: Optional[dict[str, str]] = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         """
         Initialize a tmux session wrapper.
@@ -138,7 +138,7 @@ class TmuxSession:
             self.session_id = f"{self.SESSION_PREFIX}-{safe_name}-{unique_suffix}"
 
         self._status = SessionStatus.CREATED
-        self._info: Optional[SessionInfo] = None
+        self._info: SessionInfo | None = None
         self._created_at = datetime.utcnow()
 
     @property
@@ -208,7 +208,7 @@ class TmuxSession:
 
             return process.returncode or 0, stdout_str, stderr_str
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.wait()
             raise
@@ -224,7 +224,7 @@ class TmuxSession:
         return shutil.which("tmux") is not None
 
     @classmethod
-    async def list_sessions(cls, prefix: Optional[str] = None) -> list[str]:
+    async def list_sessions(cls, prefix: str | None = None) -> list[str]:
         """
         List all tmux sessions.
 
@@ -530,7 +530,7 @@ class TmuxSession:
 
             await asyncio.sleep(poll_interval)
 
-    async def get_pid(self) -> Optional[int]:
+    async def get_pid(self) -> int | None:
         """
         Get the PID of the session's main process.
 
@@ -645,7 +645,7 @@ class TmuxSession:
         """Return human-readable string representation."""
         return f"tmux session '{self.name}' ({self.session_id}) [{self._status.value}]"
 
-    async def __aenter__(self) -> "TmuxSession":
+    async def __aenter__(self) -> TmuxSession:
         """Async context manager entry - starts the session."""
         await self.start()
         return self

@@ -11,15 +11,13 @@ or external services.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+import contextlib
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from autoflow.agents.base import (
-    AgentAdapter,
     ExecutionResult,
     ExecutionStatus,
 )
@@ -33,9 +31,7 @@ from autoflow.core.orchestrator import (
     OrchestratorStatus,
     create_orchestrator,
 )
-from autoflow.core.state import RunStatus, TaskStatus
 from autoflow.skills.executor import SkillExecutionResult
-
 
 # ============================================================================
 # Fixtures
@@ -604,7 +600,7 @@ class TestAutoflowOrchestratorRunTask:
             await orchestrator.initialize()
 
         with patch.object(orchestrator, "skill_executor", mock_skill_executor):
-            result = await orchestrator.run_task(
+            await orchestrator.run_task(
                 task="Test task",
                 skill_name="IMPLEMENTER",
                 context_files=[context_file],
@@ -891,10 +887,8 @@ class TestAutoflowOrchestratorContinuousIteration:
             await orchestrator.stop_continuous_iteration()
 
             # Wait for task to complete
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.wait_for(start_task, timeout=1.0)
-            except asyncio.CancelledError:
-                pass
 
     @pytest.mark.asyncio
     async def test_continuous_iteration_max_cycles(
@@ -1163,7 +1157,7 @@ class TestCreateOrchestrator:
         ) as mock_load:
             mock_load.return_value = MagicMock()
 
-            orchestrator = create_orchestrator(
+            create_orchestrator(
                 config_path=str(config_path),
                 auto_initialize=False,
             )
@@ -1382,10 +1376,8 @@ class TestAutoflowOrchestratorEdgeCases:
             # Cleanup
             orchestrator._running = False
             task1.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task1
-            except asyncio.CancelledError:
-                pass
 
     @pytest.mark.asyncio
     async def test_stop_continuous_iteration_when_not_running(

@@ -15,14 +15,14 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
-class WorkflowType(str, Enum):
+class WorkflowType(StrEnum):
     """Type of workflow for a spec."""
 
     FEATURE = "feature"
@@ -165,10 +165,10 @@ class FeatureVector:
         temporal: Temporal features
     """
 
-    spec: Optional[SpecFeatures] = None
-    file: Optional[FileFeatures] = None
-    agent: Optional[AgentFeatures] = None
-    temporal: Optional[TemporalFeatures] = None
+    spec: SpecFeatures | None = None
+    file: FileFeatures | None = None
+    agent: AgentFeatures | None = None
+    temporal: TemporalFeatures | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -199,7 +199,7 @@ class FeatureExtractor:
     from historical data for ML-based quality prediction.
     """
 
-    def __init__(self, root_dir: Optional[Path] = None) -> None:
+    def __init__(self, root_dir: Path | None = None) -> None:
         """
         Initialize the feature extractor.
 
@@ -310,7 +310,7 @@ class FeatureExtractor:
         return min(base_score, 100.0)
 
     def extract_file_features(
-        self, file_timelines_dir: Optional[Path] = None
+        self, file_timelines_dir: Path | None = None
     ) -> FileFeatures:
         """
         Extract features from file change history.
@@ -418,7 +418,7 @@ class FeatureExtractor:
         )
 
     def extract_agent_features(
-        self, runs_dir: Optional[Path] = None
+        self, runs_dir: Path | None = None
     ) -> AgentFeatures:
         """
         Extract features from agent performance data.

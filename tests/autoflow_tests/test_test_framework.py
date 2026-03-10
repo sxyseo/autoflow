@@ -2,9 +2,8 @@
 Tests for the test framework module.
 """
 
-import pytest
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -13,9 +12,9 @@ from test_framework import (
     TestConfig,
     TestDiscovery,
     TestFile,
-    TestStatus,
     TestResult,
     TestRunResult,
+    TestStatus,
 )
 
 

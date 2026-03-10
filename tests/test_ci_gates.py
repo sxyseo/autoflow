@@ -10,9 +10,7 @@ CI tools to be installed in the test environment.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,11 +34,10 @@ from autoflow.ci import (
     TestGate,
     TypeCheckGate,
     VerificationResult,
-    create_verifier,
     create_default_gates,
     create_default_runner,
+    create_verifier,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -555,12 +552,12 @@ class TestCIVerifierRunCheck:
 
         # Create a mock process that hangs
         mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            with patch("asyncio.wait_for", side_effect=TimeoutError()):
                 result = await verifier.run_check("slow-check")
 
         assert result.status == CheckStatus.TIMEOUT

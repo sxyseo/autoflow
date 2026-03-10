@@ -17,17 +17,17 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from autoflow.prediction.data_collector import QualityOutcome
 from autoflow.prediction.model import PredictionResult
 
 
-class PredictionStatus(str, Enum):
+class PredictionStatus(StrEnum):
     """
     Status of a prediction relative to actual outcome.
 
@@ -64,7 +64,7 @@ class PredictionRecord:
     confidence: float
     rationale: str
     feature_importances: dict[str, float]
-    actual_outcome: Optional[str] = None
+    actual_outcome: str | None = None
     status: PredictionStatus = PredictionStatus.PENDING
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,7 +81,7 @@ class PredictionRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PredictionRecord":
+    def from_dict(cls, data: dict[str, Any]) -> PredictionRecord:
         """Create from dictionary for JSON deserialization."""
         return cls(
             spec_id=data["spec_id"],
@@ -147,7 +147,7 @@ class FeedbackCollector:
     # Default feedback file path
     DEFAULT_FEEDBACK_PATH = Path(".autoflow/feedback.json")
 
-    def __init__(self, feedback_path: Optional[Path] = None, root_dir: Optional[Path] = None) -> None:
+    def __init__(self, feedback_path: Path | None = None, root_dir: Path | None = None) -> None:
         """
         Initialize the feedback collector.
 
@@ -241,9 +241,7 @@ class FeedbackCollector:
         actual = outcome_str.lower()
 
         # Match prediction to outcome (success vs issues)
-        if predicted == actual:
-            record.status = PredictionStatus.CORRECT
-        elif "success" in predicted and "success" in actual:
+        if predicted == actual or "success" in predicted and "success" in actual:
             record.status = PredictionStatus.CORRECT
         elif "success" not in predicted and "success" not in actual:
             # Both are issues (needs_changes or failed)
@@ -534,9 +532,9 @@ class FeedbackCollector:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write feedback to {self.feedback_path}: {e}") from e
+            raise OSError(f"Failed to write feedback to {self.feedback_path}: {e}") from e
 
-    def save_performance_metrics(self, performance_path: Optional[Path] = None) -> None:
+    def save_performance_metrics(self, performance_path: Path | None = None) -> None:
         """
         Save current performance metrics to a JSON file.
 
@@ -593,7 +591,7 @@ class FeedbackCollector:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write performance metrics to {performance_path}: {e}") from e
+            raise OSError(f"Failed to write performance metrics to {performance_path}: {e}") from e
 
     def should_retrain(
         self,

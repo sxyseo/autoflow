@@ -14,11 +14,11 @@ Usage:
 
 from __future__ import annotations
 
-import joblib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
+import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
@@ -83,7 +83,7 @@ class QualityModel:
     def __init__(
         self,
         n_estimators: int = 100,
-        max_depth: Optional[int] = None,
+        max_depth: int | None = None,
         random_state: int = 42,
     ) -> None:
         """
@@ -247,7 +247,7 @@ class QualityModel:
         for feature_dict in features:
             all_features.update(feature_dict.keys())
 
-        self.feature_names = sorted(list(all_features))
+        self.feature_names = sorted(all_features)
 
         # Build matrix row by row
         matrix = []
@@ -430,7 +430,7 @@ class QualityModel:
         return path
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "QualityModel":
+    def load(cls, path: Path | None = None) -> QualityModel:
         """
         Load a trained model from disk.
 

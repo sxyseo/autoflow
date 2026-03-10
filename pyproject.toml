@@ -86,13 +86,19 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
     "B905",   # zip without explicit strict
+    "B027",   # empty method without abstract decorator (design choice)
+    "B904",   # raise without from inside except (handled manually)
+    "SIM102", # collapsible if (style preference)
+    "SIM105", # suppressible exception (style preference)
+    "SIM115", # open file with context handler (style preference)
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["autoflow"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ARG001", "S101"]
+"tests/*" = ["ARG001", "ARG002", "ARG005", "S101", "SIM117"]
+"scripts/*" = ["ARG001", "SIM117"]
 
 [tool.mypy]
 python_version = "3.11"

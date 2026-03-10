@@ -8,11 +8,9 @@ Supports unit tests, integration tests, and custom test patterns.
 
 import argparse
 import json
-import os
 import sys
 import unittest
 from pathlib import Path
-from typing import List, Optional
 
 
 class TestRunner:
@@ -47,17 +45,17 @@ class TestRunner:
         config_path = Path("config/qa_gates.json")
         if config_path.exists():
             try:
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = json.load(f)
                     return config.get("test_suites", {})
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
         return {}
 
     def discover_tests(
         self,
-        suite: Optional[str] = None,
-        modules: Optional[List[str]] = None
+        suite: str | None = None,
+        modules: list[str] | None = None
     ) -> unittest.TestSuite:
         """
         Discover tests based on suite or module filters.
@@ -106,8 +104,8 @@ class TestRunner:
 
     def run_tests(
         self,
-        suite: Optional[str] = None,
-        modules: Optional[List[str]] = None
+        suite: str | None = None,
+        modules: list[str] | None = None
     ) -> unittest.TestResult:
         """
         Run tests and return results.

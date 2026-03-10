@@ -146,7 +146,7 @@ def verify_cli_help() -> VerificationResult:
         return VerificationResult(
             "CLI --help",
             False,
-            f"Unexpected output",
+            "Unexpected output",
             result.stdout + result.stderr
         )
     except subprocess.TimeoutExpired:
@@ -248,7 +248,7 @@ def verify_tests() -> VerificationResult:
 def verify_agent_adapters() -> VerificationResult:
     """Verify agent adapters can be instantiated."""
     try:
-        from autoflow.agents.base import AgentAdapter, ResumeMode
+        from autoflow.agents.base import ResumeMode
         from autoflow.agents.claude_code import ClaudeCodeAdapter
         from autoflow.agents.codex import CodexAdapter
         from autoflow.agents.openclaw import OpenClawAdapter

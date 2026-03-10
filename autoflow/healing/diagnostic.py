@@ -8,11 +8,11 @@ transparency about all diagnostic decisions.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -342,7 +342,7 @@ class StrategySelector:
 
     def __init__(
         self,
-        config: "HealingConfig | None" = None,
+        config: HealingConfig | None = None,
     ) -> None:
         """Initialize the strategy selector.
 
@@ -995,7 +995,7 @@ class RootCauseAnalyzer:
 
     def __init__(
         self,
-        config: "HealingConfig | None" = None,
+        config: HealingConfig | None = None,
     ) -> None:
         """Initialize the root cause analyzer.
 
@@ -1009,8 +1009,8 @@ class RootCauseAnalyzer:
 
     def analyze_root_cause(
         self,
-        health_assessment: "HealthAssessment",
-        degradation_signals: list["DegradationSignal"] | None = None,
+        health_assessment: HealthAssessment,
+        degradation_signals: list[DegradationSignal] | None = None,
         context: dict[str, Any] | None = None,
     ) -> DiagnosticResult:
         """Perform AI-powered root cause analysis.
@@ -1098,8 +1098,8 @@ class RootCauseAnalyzer:
 
     def _generate_cache_key(
         self,
-        health_status: "WorkflowHealthStatus",
-        signals: list["DegradationSignal"],
+        health_status: WorkflowHealthStatus,
+        signals: list[DegradationSignal],
     ) -> str:
         """Generate cache key for analysis result.
 
@@ -1122,8 +1122,8 @@ class RootCauseAnalyzer:
 
     def _perform_ai_analysis(
         self,
-        health_assessment: "HealthAssessment",
-        degradation_signals: list["DegradationSignal"],
+        health_assessment: HealthAssessment,
+        degradation_signals: list[DegradationSignal],
         context: dict[str, Any],
     ) -> ExecutionResult:
         """Perform AI-powered analysis using agent adapter pattern.
@@ -1184,8 +1184,8 @@ class RootCauseAnalyzer:
 
     def _build_analysis_prompt(
         self,
-        health_assessment: "HealthAssessment",
-        degradation_signals: list["DegradationSignal"],
+        health_assessment: HealthAssessment,
+        degradation_signals: list[DegradationSignal],
         context: dict[str, Any],
     ) -> str:
         """Build analysis prompt for AI agent.
@@ -1264,8 +1264,8 @@ class RootCauseAnalyzer:
 
     def _rule_based_analysis(
         self,
-        health_assessment: "HealthAssessment",
-        degradation_signals: list["DegradationSignal"],
+        health_assessment: HealthAssessment,
+        degradation_signals: list[DegradationSignal],
         context: dict[str, Any],
     ) -> str:
         """Perform rule-based analysis when AI is not available.
@@ -1292,7 +1292,7 @@ class RootCauseAnalyzer:
                 f"### {i}. {cause['category'].upper().replace('_', ' ')}",
                 f"**Description**: {cause['description']}",
                 f"**Confidence**: {cause['confidence'].value}",
-                f"**Evidence**:",
+                "**Evidence**:",
             ])
             for evidence in cause['evidence']:
                 analysis_parts.append(f"  - {evidence}")
@@ -1309,7 +1309,7 @@ class RootCauseAnalyzer:
                 f"### 1. {cause['category'].upper().replace('_', ' ')}",
                 f"**Description**: {cause['description']}",
                 f"**Confidence**: {cause['confidence'].value}",
-                f"**Evidence**:",
+                "**Evidence**:",
             ])
             for evidence in cause['evidence']:
                 analysis_parts.append(f"  - {evidence}")
@@ -1323,7 +1323,7 @@ class RootCauseAnalyzer:
 
     def _analyze_signal(
         self,
-        signal: "DegradationSignal",
+        signal: DegradationSignal,
         context: dict[str, Any],
     ) -> dict[str, Any]:
         """Analyze a single degradation signal.
@@ -1383,7 +1383,7 @@ class RootCauseAnalyzer:
 
     def _analyze_health_status(
         self,
-        health_assessment: "HealthAssessment",
+        health_assessment: HealthAssessment,
         context: dict[str, Any],
     ) -> dict[str, Any]:
         """Analyze health status when no specific signals.
@@ -1486,8 +1486,8 @@ class RootCauseAnalyzer:
     def _extract_root_causes(
         self,
         ai_result: ExecutionResult,
-        health_assessment: "HealthAssessment",
-        degradation_signals: list["DegradationSignal"],
+        health_assessment: HealthAssessment,
+        degradation_signals: list[DegradationSignal],
     ) -> list[RootCause]:
         """Extract root causes from AI analysis result.
 
@@ -1590,10 +1590,8 @@ class RootCauseAnalyzer:
                     strat_str = line.split(":", 1)[1].strip() if ":" in line else ""
                     for s in strat_str.split(","):
                         s = s.strip().lower()
-                        try:
+                        with contextlib.suppress(ValueError):
                             strategies.append(HealingStrategy(s))
-                        except ValueError:
-                            pass
 
             if not description:
                 return None
@@ -1717,13 +1715,7 @@ class RootCauseAnalyzer:
             return True
 
         # Escalate if ESCALATE is the only suggested strategy
-        if (
-            len(primary_cause.suggested_strategies) == 1
-            and primary_cause.suggested_strategies[0] == HealingStrategy.ESCALATE
-        ):
-            return True
-
-        return False
+        return bool(len(primary_cause.suggested_strategies) == 1 and primary_cause.suggested_strategies[0] == HealingStrategy.ESCALATE)
 
     def clear_cache(self) -> None:
         """Clear the analysis cache.

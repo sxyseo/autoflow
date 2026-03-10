@@ -7,11 +7,9 @@ Integrates with the verification system to track issues and generate fix tasks.
 """
 
 import json
-import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 class SeverityLevel(Enum):
@@ -83,10 +81,10 @@ class QAFinding:
     severity: SeverityLevel
     message: str
     category: str
-    suggested_fix: Optional[str] = None
-    column: Optional[int] = None
-    context: Optional[str] = None
-    rule_id: Optional[str] = None
+    suggested_fix: str | None = None
+    column: int | None = None
+    context: str | None = None
+    rule_id: str | None = None
 
     def to_dict(self) -> dict:
         """Convert finding to dictionary for JSON serialization."""
@@ -144,7 +142,7 @@ class QAFindingReport:
         timestamp: Report generation timestamp
         source: Source of the findings (e.g., "test", "coverage", "lint")
     """
-    findings: List[QAFinding] = field(default_factory=list)
+    findings: list[QAFinding] = field(default_factory=list)
     timestamp: str = ""
     source: str = ""
 
@@ -186,7 +184,7 @@ class QAFindingReport:
     def get_findings_by_severity(
         self,
         severity: SeverityLevel
-    ) -> List[QAFinding]:
+    ) -> list[QAFinding]:
         """
         Get all findings of a specific severity level.
 
@@ -198,7 +196,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.severity == severity]
 
-    def get_blocking_findings(self) -> List[QAFinding]:
+    def get_blocking_findings(self) -> list[QAFinding]:
         """
         Get all findings that block commits.
 
@@ -207,7 +205,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.severity.blocks_commit()]
 
-    def get_findings_by_file(self, file_path: str) -> List[QAFinding]:
+    def get_findings_by_file(self, file_path: str) -> list[QAFinding]:
         """
         Get all findings for a specific file.
 
@@ -219,7 +217,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.file == file_path]
 
-    def get_summary(self) -> Dict[str, int]:
+    def get_summary(self) -> dict[str, int]:
         """
         Get summary statistics of findings.
 
@@ -248,14 +246,14 @@ class QAFindingReport:
         """
         return any(f.severity.blocks_commit() for f in self.findings)
 
-    def get_unique_files(self) -> List[str]:
+    def get_unique_files(self) -> list[str]:
         """
         Get list of unique files with findings.
 
         Returns:
             Sorted list of unique file paths
         """
-        return sorted(set(f.file for f in self.findings))
+        return sorted({f.file for f in self.findings})
 
 
 class QAFindingsManager:
@@ -316,7 +314,7 @@ class QAFindingsManager:
         """
         input_file = self.work_dir / input_path
 
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             data = json.load(f)
 
         return QAFindingReport.from_dict(data)
@@ -326,7 +324,7 @@ class QAFindingsManager:
         test_name: str,
         error_message: str,
         file_path: str,
-        line_number: Optional[int] = None
+        line_number: int | None = None
     ) -> QAFinding:
         """
         Parse test failure into QA finding.
@@ -383,7 +381,7 @@ class QAFindingsManager:
 
     def merge_reports(
         self,
-        reports: List[QAFindingReport],
+        reports: list[QAFindingReport],
         source: str = "merged"
     ) -> QAFindingReport:
         """

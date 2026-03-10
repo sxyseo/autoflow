@@ -16,21 +16,18 @@ Usage:
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
 from test_framework import (
+    FlakyTestDetector,
     TestConfig,
     TestDiscovery,
     TestExecutor,
-    FlakyTestDetector,
-    TestFile,
 )
-
 
 # Path to flaky tests configuration
 FLAKY_TESTS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "flaky_tests.json"
@@ -52,7 +49,7 @@ def load_quarantine_config() -> dict:
             }
         }
 
-    with open(FLAKY_TESTS_CONFIG_PATH, "r") as f:
+    with open(FLAKY_TESTS_CONFIG_PATH) as f:
         return json.load(f)
 
 
@@ -65,7 +62,7 @@ def save_quarantine_config(config: dict) -> None:
     FLAKY_TESTS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Update timestamp
-    config["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+    config["metadata"]["last_updated"] = datetime.now(UTC).isoformat()
     if config["metadata"]["created_at"] is None:
         config["metadata"]["created_at"] = config["metadata"]["last_updated"]
 
@@ -89,7 +86,7 @@ def add_to_quarantine(test_name: str, pass_rate: float, runs: int, passed: int) 
         "runs": runs,
         "passed": passed,
         "failed": runs - passed,
-        "quarantined_at": datetime.now(timezone.utc).isoformat()
+        "quarantined_at": datetime.now(UTC).isoformat()
     }
 
     save_quarantine_config(config)
@@ -154,7 +151,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             if len(test_file.test_functions) > 5:
                 print(f"    ... and {len(test_file.test_functions) - 5} more")
 
-    print(f"\ntest files found")
+    print("\ntest files found")
     return 0
 
 
@@ -174,7 +171,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     auto_retry = args.auto_retry
     max_attempts = args.max_attempts
 
-    print(f"Running tests...")
+    print("Running tests...")
     if auto_retry:
         print(f"  Auto-retry enabled (max attempts: {max_attempts})")
 
@@ -186,7 +183,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
 
     print(f"\n{'='*60}")
-    print(f"Test Results:")
+    print("Test Results:")
     print(f"  Total:   {result.total}")
     print(f"  Passed:  {result.passed}")
     print(f"  Failed:  {result.failed}")
@@ -224,7 +221,7 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     print(output)
 
     print(f"\n{'='*60}")
-    print(f"Coverage Report:")
+    print("Coverage Report:")
     print(f"  Coverage: {coverage:.1f}%")
     print(f"  Threshold: {threshold}%")
     print(f"  Status: {'PASSED' if success else 'FAILED'}")
@@ -278,14 +275,14 @@ def cmd_detect_flaky(args: argparse.Namespace) -> int:
                 runs=info["runs"],
                 passed=info["passed"]
             )
-            print(f"    Status: QUARANTINED")
+            print("    Status: QUARANTINED")
             quarantined_count += 1
 
         print()
 
     if quarantine and quarantined_count > 0:
         print(f"\n{quarantined_count} test(s) have been quarantined.")
-        print(f"Run 'python3 scripts/test_runner.py quarantine list' to view all quarantined tests.")
+        print("Run 'python3 scripts/test_runner.py quarantine list' to view all quarantined tests.")
 
     return 0
 
@@ -382,7 +379,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Discover command
-    discover_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "discover",
         help="Discover and list all test files"
     )
@@ -452,7 +449,7 @@ Examples:
     )
 
     # Quarantine list
-    quarantine_list_parser = quarantine_subparsers.add_parser(
+    quarantine_subparsers.add_parser(
         "list",
         help="List all quarantined tests"
     )
@@ -468,7 +465,7 @@ Examples:
     )
 
     # Quarantine clear
-    quarantine_clear_parser = quarantine_subparsers.add_parser(
+    quarantine_subparsers.add_parser(
         "clear",
         help="Clear all tests from quarantine"
     )

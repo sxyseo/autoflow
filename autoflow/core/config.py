@@ -16,12 +16,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import json5
-
 from pydantic import BaseModel, Field, field_validator
-
 
 # Default configuration paths
 DEFAULT_CONFIG_PATH = "config/settings.json5"
@@ -142,7 +140,7 @@ class SystemConfig(BaseModel):
         return os.path.expandvars(os.path.expanduser(v))
 
 
-def _resolve_config_path(path: Optional[str], env_var: str, default: str) -> Path:
+def _resolve_config_path(path: str | None, env_var: str, default: str) -> Path:
     """
     Resolve configuration file path with fallbacks.
 
@@ -195,8 +193,8 @@ def _load_json5_file(file_path: Path) -> dict[str, Any]:
 
 
 def load_config(
-    path: Optional[str] = None,
-    defaults: Optional[dict[str, Any]] = None,
+    path: str | None = None,
+    defaults: dict[str, Any] | None = None,
 ) -> Config:
     """
     Load Autoflow configuration from a JSON5 file.
@@ -241,7 +239,7 @@ def load_config(
 
 
 def load_system_config(
-    path: Optional[str] = None,
+    path: str | None = None,
 ) -> SystemConfig:
     """
     Load system-level configuration from a JSON5 file.
@@ -280,7 +278,7 @@ def load_system_config(
     return SystemConfig(**config_dict)
 
 
-def get_state_dir(config: Optional[Config] = None) -> Path:
+def get_state_dir(config: Config | None = None) -> Path:
     """
     Get the state directory path.
 
@@ -338,7 +336,7 @@ def merge_configs(
     return result
 
 
-def config_to_json5(config: Union[Config, SystemConfig], indent: int = 2) -> str:
+def config_to_json5(config: Config | SystemConfig, indent: int = 2) -> str:
     """
     Export configuration to JSON5 format string.
 

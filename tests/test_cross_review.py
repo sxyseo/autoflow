@@ -11,10 +11,8 @@ in the test environment.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -33,7 +31,6 @@ from autoflow.review import (
     ReviewStrategy,
     create_cross_reviewer,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -1059,7 +1056,6 @@ class TestCrossReviewerStatistics:
         sample_code_change: dict[str, Any],
     ) -> None:
         """Test statistics updated after review."""
-        import asyncio
 
         async def run_review() -> CrossReviewResult:
             return await configured_reviewer.review_code(
@@ -1072,7 +1068,7 @@ class TestCrossReviewerStatistics:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            result = loop.run_until_complete(run_review())
+            loop.run_until_complete(run_review())
         finally:
             loop.close()
 
@@ -1322,7 +1318,6 @@ class TestCrossReviewerEdgeCases:
         reviewer: CrossReviewer,
     ) -> None:
         """Test that excluded patterns are skipped."""
-        import asyncio
 
         config = ReviewerConfig(
             agent_type="test",

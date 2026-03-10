@@ -18,13 +18,12 @@ import argparse
 import gc
 import json
 import logging
-import os
 import shutil
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
@@ -43,7 +42,7 @@ TEMP_DIR = Path(__file__).parent.parent / ".tmp"
 class MaintenanceConfig:
     """Configuration for maintenance tasks."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize maintenance configuration.
 
         Args:
@@ -60,7 +59,7 @@ class MaintenanceConfig:
         if not self.config_path.exists():
             return self._default_config()
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             return json.load(f)
 
     def _default_config(self) -> dict:
@@ -130,7 +129,7 @@ class CleanupManager:
             Dictionary with cleanup statistics.
         """
         logger.info("Starting cleanup tasks...")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Clean logs
         self._clean_logs()
@@ -144,7 +143,7 @@ class CleanupManager:
         # Clean old run data
         self._clean_old_runs()
 
-        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        duration = (datetime.now(UTC) - start_time).total_seconds()
 
         logger.info(
             f"Cleanup completed: {self.stats['files_removed']} files removed, "
@@ -164,7 +163,7 @@ class CleanupManager:
     def _clean_logs(self) -> None:
         """Clean old log files."""
         retention_days = self.config.cleanup.get("log_retention_days", 7)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
         if not LOGS_DIR.exists():
             logger.debug(f"Logs directory {LOGS_DIR} does not exist")
@@ -175,7 +174,7 @@ class CleanupManager:
         for log_file in LOGS_DIR.glob("**/*"):
             if log_file.is_file():
                 try:
-                    mtime = datetime.fromtimestamp(log_file.stat().st_mtime, tz=timezone.utc)
+                    mtime = datetime.fromtimestamp(log_file.stat().st_mtime, tz=UTC)
                     if mtime < cutoff:
                         size = log_file.stat().st_size
                         log_file.unlink()
@@ -189,7 +188,7 @@ class CleanupManager:
     def _clean_temp_files(self) -> None:
         """Clean temporary files."""
         retention_hours = self.config.cleanup.get("temp_retention_hours", 24)
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=retention_hours)
 
         if not TEMP_DIR.exists():
             logger.debug(f"Temp directory {TEMP_DIR} does not exist")
@@ -200,7 +199,7 @@ class CleanupManager:
         for temp_file in TEMP_DIR.glob("**/*"):
             if temp_file.is_file():
                 try:
-                    mtime = datetime.fromtimestamp(temp_file.stat().st_mtime, tz=timezone.utc)
+                    mtime = datetime.fromtimestamp(temp_file.stat().st_mtime, tz=UTC)
                     if mtime < cutoff:
                         size = temp_file.stat().st_size
                         temp_file.unlink()
@@ -254,7 +253,7 @@ class CleanupManager:
         removed_size = 0
         target_reduction = total_size - (max_size_mb * 1024 * 1024)
 
-        for cache_file, mtime, size in files:
+        for cache_file, _mtime, size in files:
             if removed_size >= target_reduction:
                 break
 
@@ -273,7 +272,7 @@ class CleanupManager:
     def _clean_old_runs(self) -> None:
         """Clean old run data from .auto-claude directory."""
         retention_days = self.config.optimization.get("prune_old_runs_days", 30)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
         auto_claude_dir = Path(__file__).parent.parent / ".auto-claude"
         if not auto_claude_dir.exists():
@@ -285,7 +284,7 @@ class CleanupManager:
         for item in auto_claude_dir.glob("**/*"):
             if item.is_file():
                 try:
-                    mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+                    mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=UTC)
                     if mtime < cutoff:
                         # Skip config files
                         if item.suffix in [".json", ".yaml", ".yml"] and "config" in item.name.lower():
@@ -323,7 +322,7 @@ class OptimizationManager:
             Dictionary with optimization statistics.
         """
         logger.info("Starting optimization tasks...")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Run garbage collection
         self._run_gc()
@@ -334,7 +333,7 @@ class OptimizationManager:
         # Prune old data
         self._prune_old_data()
 
-        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        duration = (datetime.now(UTC) - start_time).total_seconds()
 
         logger.info(
             f"Optimization completed: {self.stats['databases_compacted']} databases compacted, "
@@ -393,13 +392,13 @@ class OptimizationManager:
     def _prune_old_data(self) -> None:
         """Prune old data from various sources."""
         retention_days = self.config.optimization.get("prune_old_runs_days", 30)
-        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
         # Prune old entries from knowledge graph (if exists)
         knowledge_file = Path(__file__).parent.parent / "data" / "knowledge_graph.json"
         if knowledge_file.exists():
             try:
-                with open(knowledge_file, "r") as f:
+                with open(knowledge_file) as f:
                     data = json.load(f)
 
                 # Prune old entries
@@ -415,7 +414,7 @@ class OptimizationManager:
                 with open(knowledge_file, "w") as f:
                     json.dump(data, f, indent=2)
 
-                logger.info(f"Pruned knowledge graph")
+                logger.info("Pruned knowledge graph")
             except Exception as e:
                 logger.debug(f"Could not prune knowledge graph: {e}")
 
@@ -445,7 +444,7 @@ class HealthCheckManager:
             Dictionary with health check results.
         """
         logger.info("Starting health checks...")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Check disk space
         self._check_disk_space()
@@ -459,7 +458,7 @@ class HealthCheckManager:
         # Check git status
         self._check_git_status()
 
-        duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+        duration = (datetime.now(UTC) - start_time).total_seconds()
 
         all_healthy = all(v in [True, None] for v in self.checks.values())
 
@@ -718,7 +717,7 @@ def cmd_health_check(args: argparse.Namespace) -> int:
     if result["checks"]["git_status"]:
         git = result["checks"]["git_status"]
         if git.get("skipped"):
-            print(f"  Git Status: SKIPPED")
+            print("  Git Status: SKIPPED")
         else:
             status = "CLEAN" if not git.get("has_changes") else f"DIRTY ({git.get('changed_files', 0)} changes)"
             print(f"  Git Status: {status}")
