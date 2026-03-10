@@ -2485,6 +2485,51 @@ def invalidate_system_config_cache() -> None:
     _system_config_cache = None
 
 
+def _populate_agents_cache() -> None:
+    """Load agents configuration into the cache.
+
+    This implements lazy-loading: agents config is only loaded from disk when needed.
+    Subsequent calls will use the cached data (O(1) lookup).
+
+    Cache Behavior:
+        If _agents_config_cache is not None, we've already loaded the agents,
+        so we return immediately (cache hit). Otherwise, we load the agents from
+        disk using load_agents() and store it in the cache.
+
+    Note: Unlike run metadata cache, there's only one agents config, so this
+    is a simple load-once pattern without opportunistic caching.
+
+    The cached data is a dictionary mapping agent names to AgentSpec objects.
+    """
+    global _agents_config_cache
+
+    # Skip if already loaded (cache hit)
+    if _agents_config_cache is not None:
+        return
+
+    # Load agents config from disk
+    _agents_config_cache = load_agents()
+
+
+def invalidate_agents_cache() -> None:
+    """Invalidate the agents configuration cache.
+
+    Call this function whenever the agents configuration is modified to ensure
+    the cache remains consistent with the filesystem state.
+
+    Cache Invalidation Strategy:
+        - Simple: set the cached data to None
+        - Safe: ensures cache consistency after config modification
+        - Lazy: data is reloaded on next access (not immediately)
+
+    Note: Agents config modifications are rare (e.g., sync-agents command),
+    so aggressive invalidation is acceptable. The cache will be repopulated
+    on the next access.
+    """
+    global _agents_config_cache
+    _agents_config_cache = None
+
+
 def run_metadata_iter() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
