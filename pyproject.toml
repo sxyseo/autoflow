@@ -58,7 +58,7 @@ dev = [
 ]
 
 [project.scripts]
-autoflow = "autoflow.cli:main"
+autoflow = "autoflow.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/autoflow/autoflow"
