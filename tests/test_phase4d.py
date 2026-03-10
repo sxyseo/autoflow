@@ -263,6 +263,148 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(summary["recent_reflections"][-1]["result"], "needs_changes")
         self.assertTrue(any(item["category"] == "tests" for item in summary["playbook"]))
 
+    def test_show_and_update_spec_support_readme_compat_flags(self) -> None:
+        self.create_spec("compat-spec")
+        result = self.capture_json_output(
+            self.autoflow.update_spec,
+            SimpleNamespace(
+                slug="compat-spec",
+                title="Updated Title",
+                summary="Updated summary text.",
+                status="ready",
+                append="Additional context for the spec.",
+            ),
+        )
+        self.assertEqual(result["metadata"]["title"], "Updated Title")
+        shown = self.capture_json_output(
+            self.autoflow.show_spec,
+            SimpleNamespace(slug="compat-spec"),
+        )
+        self.assertEqual(shown["metadata"]["status"], "ready")
+        self.assertIn("Updated summary text.", shown["spec_markdown"])
+        self.assertIn("Additional context for the spec.", shown["spec_markdown"])
+
+    def test_init_tasks_update_task_and_reset_task(self) -> None:
+        self.create_spec("task-compat")
+        init_result = self.capture_json_output(
+            self.autoflow.init_tasks_cmd,
+            SimpleNamespace(spec="task-compat", force=False),
+        )
+        self.assertFalse(init_result["created"])
+        updated = self.capture_json_output(
+            self.autoflow.update_task_cmd,
+            SimpleNamespace(
+                spec="task-compat",
+                task="T1",
+                status="blocked",
+                title="",
+                owner_role="",
+                append_criterion="",
+                note="manual pause",
+            ),
+        )
+        self.assertEqual(updated["status"], "blocked")
+        self.assertEqual(updated["notes"][-1]["note"], "manual pause")
+        reset = self.capture_json_output(
+            self.autoflow.reset_task_cmd,
+            SimpleNamespace(spec="task-compat", task="T1", note="retry from scratch"),
+        )
+        self.assertEqual(reset["status"], "todo")
+        self.assertEqual(reset["notes"][-1]["note"], "retry from scratch")
+
+    def test_capture_memory_validate_config_and_test_agent(self) -> None:
+        self.create_spec("memory-spec")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="memory-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=run_id, result="success", summary="Spec writer completed."),
+        )
+        captured = self.capture_json_output(
+            self.autoflow.capture_memory_cmd,
+            SimpleNamespace(run=run_id, scopes=None),
+        )
+        self.assertEqual(captured["run"], run_id)
+        memory_text = self.autoflow.memory_file("spec", "memory-spec").read_text(encoding="utf-8")
+        self.assertIn("Spec writer completed.", memory_text)
+        validation = self.capture_json_output(
+            self.autoflow.validate_config_cmd,
+            SimpleNamespace(),
+        )
+        self.assertTrue(validation["valid"])
+        agent_status = self.capture_json_output(
+            self.autoflow.test_agent_cmd,
+            SimpleNamespace(agent="dummy"),
+        )
+        self.assertTrue(agent_status["configured"])
+        self.assertTrue(agent_status["ready"])
+
+    def test_cleanup_runs_marks_created_runs_inactive(self) -> None:
+        self.create_spec("cleanup-spec")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="cleanup-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        state_before = self.capture_json_output(
+            self.autoflow.workflow_state,
+            SimpleNamespace(spec="cleanup-spec"),
+        )
+        self.assertEqual(len(state_before["active_runs"]), 1)
+        cleanup = self.capture_json_output(
+            self.autoflow.cleanup_runs_cmd,
+            SimpleNamespace(
+                spec="cleanup-spec",
+                reason="manual_cleanup",
+                target_status="abandoned",
+                task_status="",
+                include_status=["created", "running"],
+            ),
+        )
+        self.assertEqual(len(cleanup["cleaned_runs"]), 1)
+        self.assertEqual(cleanup["task_updates"][0]["status"], "todo")
+        state_after = self.capture_json_output(
+            self.autoflow.workflow_state,
+            SimpleNamespace(spec="cleanup-spec"),
+        )
+        self.assertEqual(state_after["active_runs"], [])
+        tasks = self.autoflow.load_tasks("cleanup-spec")
+        self.assertEqual(self.autoflow.task_lookup(tasks, "T1")["status"], "todo")
+
+    def test_add_planner_note_accepts_note_flag(self) -> None:
+        self.create_spec("note-spec")
+        with redirect_stdout(io.StringIO()):
+            self.autoflow.add_planner_note_cmd(
+                SimpleNamespace(
+                    spec="note-spec",
+                    title="",
+                    content="",
+                    note="Remember to validate the retry gate.",
+                    category="strategy",
+                    scope="spec",
+                )
+            )
+        summary = self.autoflow.strategy_summary("note-spec")
+        self.assertEqual(summary["planner_notes"][-1]["content"], "Remember to validate the retry gate.")
+
     def test_taskmaster_export_import_round_trip(self) -> None:
         self.create_spec("taskmaster-spec")
         export_path = self.root / "taskmaster.json"
