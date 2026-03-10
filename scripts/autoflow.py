@@ -8,30 +8,42 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Add parent directory to path to allow imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-ROOT = Path(__file__).resolve().parent.parent
-STATE_DIR = ROOT / ".autoflow"
-SPECS_DIR = STATE_DIR / "specs"
-TASKS_DIR = STATE_DIR / "tasks"
-RUNS_DIR = STATE_DIR / "runs"
-LOGS_DIR = STATE_DIR / "logs"
-WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
-MEMORY_DIR = STATE_DIR / "memory"
-STRATEGY_MEMORY_DIR = MEMORY_DIR / "strategy"
-DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
-SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
-SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
-AGENTS_FILE = STATE_DIR / "agents.json"
-BMAD_DIR = ROOT / "templates" / "bmad"
-REVIEW_STATE_FILE = "review_state.json"
-EVENTS_FILE = "events.jsonl"
-QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
-QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
+from autoflow.autoflow_cli import AutoflowCLI
+from autoflow.core.config import Config, load_config
+
+
+# Initialize CLI instance
+_config = load_config()
+cli = AutoflowCLI(_config)
+
+# Legacy constants for backward compatibility
+ROOT = cli.root
+STATE_DIR = cli.state_dir
+SPECS_DIR = cli.specs_dir
+TASKS_DIR = cli.tasks_dir
+RUNS_DIR = cli.runs_dir
+LOGS_DIR = cli.logs_dir
+WORKTREES_DIR = cli.worktrees_dir
+MEMORY_DIR = cli.memory_dir
+STRATEGY_MEMORY_DIR = cli.strategy_memory_dir
+DISCOVERY_FILE = cli.discovery_file
+SYSTEM_CONFIG_FILE = cli.system_config_file
+SYSTEM_CONFIG_TEMPLATE = cli.system_config_template
+AGENTS_FILE = cli.agents_file
+BMAD_DIR = cli.bmad_dir
+REVIEW_STATE_FILE = cli.REVIEW_STATE_FILE
+EVENTS_FILE = cli.EVENTS_FILE
+QA_FIX_REQUEST_FILE = cli.QA_FIX_REQUEST_FILE
+QA_FIX_REQUEST_JSON_FILE = cli.QA_FIX_REQUEST_JSON_FILE
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -43,39 +55,33 @@ VALID_TASK_STATUSES = {
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
 
 
+# Utility functions - delegate to CLI
 def now_utc() -> datetime:
-    return datetime.now(UTC)
+    return cli.now_utc()
 
 
 def now_stamp() -> str:
-    return now_utc().strftime("%Y%m%dT%H%M%SZ")
+    return cli.now_stamp()
 
 
 def slugify(value: str) -> str:
-    output = []
-    for ch in value.lower():
-        if ch.isalnum():
-            output.append(ch)
-        elif ch in {" ", "_", "-", "/", "."}:
-            output.append("-")
-    slug = "".join(output).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "spec"
+    return cli.slugify(value)
 
 
 def write_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    return cli.write_json(path, data)
 
 
 def read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return cli.read_json(path)
+
+
+def read_json_or_default(path: Path, default: Any) -> Any:
+    return cli.read_json_or_default(path, default)
 
 
 def ensure_state() -> None:
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
-        path.mkdir(parents=True, exist_ok=True)
+    return cli.ensure_state()
 
 
 def run_cmd(
@@ -83,15 +89,31 @@ def run_cmd(
     cwd: Path | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        cwd=cwd or ROOT,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
+    return cli.run_cmd(args, cwd=cwd, check=check)
 
 
+# Path functions - delegate to CLI
+def spec_dir(slug: str) -> Path:
+    return cli.spec_dir(slug)
+
+
+def task_file(spec_slug: str) -> Path:
+    return cli.task_file(spec_slug)
+
+
+def worktree_path(spec_slug: str) -> Path:
+    return cli.worktree_path(spec_slug)
+
+
+def worktree_branch(spec_slug: str) -> str:
+    return cli.worktree_branch(spec_slug)
+
+
+def spec_files(slug: str) -> dict[str, Path]:
+    return cli.spec_files(slug)
+
+
+# Data classes - keep for backward compatibility
 @dataclass
 class AgentSpec:
     name: str
@@ -122,6 +144,7 @@ class AgentSpec:
         }
 
 
+# Helper functions - keep CLI-specific ones
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in overlay.items():
@@ -178,174 +201,44 @@ def load_agents() -> dict[str, AgentSpec]:
     return agents
 
 
-def spec_dir(slug: str) -> Path:
-    return SPECS_DIR / slug
-
-
-def task_file(spec_slug: str) -> Path:
-    return TASKS_DIR / f"{spec_slug}.json"
-
-
-def worktree_path(spec_slug: str) -> Path:
-    return WORKTREES_DIR / spec_slug
-
-
-def worktree_branch(spec_slug: str) -> str:
-    return f"codex/{slugify(spec_slug)}"
-
-
-def spec_files(slug: str) -> dict[str, Path]:
-    directory = spec_dir(slug)
-    return {
-        "dir": directory,
-        "spec": directory / "spec.md",
-        "metadata": directory / "metadata.json",
-        "handoff": directory / "handoff.md",
-        "handoffs_dir": directory / "handoffs",
-        "review_state": directory / REVIEW_STATE_FILE,
-        "events": directory / EVENTS_FILE,
-        "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
-        "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
-    }
-
-
 def review_state_default() -> dict[str, Any]:
-    return {
-        "approved": False,
-        "approved_by": "",
-        "approved_at": "",
-        "spec_hash": "",
-        "review_count": 0,
-        "feedback": [],
-        "invalidated_at": "",
-        "invalidated_reason": "",
-    }
-
-
-def read_json_or_default(path: Path, default: Any) -> Any:
-    if not path.exists():
-        return default
-    try:
-        return read_json(path)
-    except (OSError, json.JSONDecodeError):
-        return default
+    return cli.review_state_default()
 
 
 def system_config_default() -> dict[str, Any]:
-    if SYSTEM_CONFIG_TEMPLATE.exists():
-        return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
-    return {
-        "memory": {
-            "enabled": True,
-            "auto_capture_run_results": True,
-            "global_file": str(MEMORY_DIR / "global.md"),
-            "spec_dir": str(MEMORY_DIR / "specs"),
-        },
-        "models": {
-            "profiles": {
-                "spec": "gpt-5",
-                "implementation": "gpt-5-codex",
-                "review": "claude-sonnet-4-6",
-            }
-        },
-        "tools": {
-            "profiles": {
-                "codex-default": [],
-                "claude-review": ["Read", "Bash(git:*)"],
-            }
-        },
-        "registry": {
-            "acp_agents": []
-        },
-    }
+    return cli.system_config_default()
 
 
 def load_system_config() -> dict[str, Any]:
-    config = system_config_default()
-    if SYSTEM_CONFIG_FILE.exists():
-        local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
-        config = deep_merge(config, local)
-    return deep_merge(
-        {
-            "memory": {"default_scopes": ["spec"]},
-            "models": {"profiles": {}},
-            "tools": {"profiles": {}},
-            "registry": {"acp_agents": []},
-        },
-        config,
-    )
+    return cli.load_system_config()
 
 
 def memory_file(scope: str, spec_slug: str | None = None) -> Path:
-    memory_cfg = load_system_config().get("memory", {})
-    if scope == "global":
-        return resolve_root_path(memory_cfg.get("global_file", MEMORY_DIR / "global.md"))
-    if spec_slug:
-        spec_dir = resolve_root_path(memory_cfg.get("spec_dir", MEMORY_DIR / "specs"))
-        return spec_dir / f"{spec_slug}.md"
-    raise SystemExit("spec scope requires a spec slug")
+    return cli.memory_file(scope, spec_slug)
 
 
 def append_memory(scope: str, content: str, spec_slug: str | None = None, title: str = "") -> Path:
-    path = memory_file(scope, spec_slug)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    heading = title or f"Memory @ {now_stamp()}"
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(f"## {heading}\n\n{content.strip()}\n\n")
-    return path
+    return cli.append_memory(scope, content, spec_slug, title)
 
 
 def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
-    config = load_system_config()
-    memory_cfg = config.get("memory", {})
-    if not memory_cfg.get("enabled", True):
-        return "Memory is disabled."
-    allowed_scopes = scopes or list(memory_cfg.get("default_scopes", ["spec"]))
-    parts = []
-    global_path = memory_file("global")
-    spec_path = memory_file("spec", spec_slug)
-    if "global" in allowed_scopes and global_path.exists():
-        parts.append("### Global memory\n")
-        parts.append(global_path.read_text(encoding="utf-8").strip())
-    if "spec" in allowed_scopes and spec_path.exists():
-        parts.append("### Spec memory\n")
-        parts.append(spec_path.read_text(encoding="utf-8").strip())
-    return "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
+    return cli.load_memory_context(spec_slug, scopes)
 
 
 def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
-    if scope == "global":
-        return STRATEGY_MEMORY_DIR / "global.json"
-    if spec_slug:
-        return STRATEGY_MEMORY_DIR / "specs" / f"{spec_slug}.json"
-    raise SystemExit("spec scope requires a spec slug")
+    return cli.strategy_memory_file(scope, spec_slug)
 
 
 def strategy_memory_default() -> dict[str, Any]:
-    return {
-        "updated_at": "",
-        "reflections": [],
-        "planner_notes": [],
-        "stats": {
-            "by_role": {},
-            "by_result": {},
-            "finding_categories": {},
-            "severity": {},
-            "files": {},
-        },
-        "playbook": [],
-    }
+    return cli.strategy_memory_default()
 
 
 def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
-    return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
+    return cli.load_strategy_memory(scope, spec_slug)
 
 
 def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
-    payload["updated_at"] = now_stamp()
-    path = strategy_memory_file(scope, spec_slug)
-    write_json(path, payload)
-    return path
+    return cli.save_strategy_memory(scope, payload, spec_slug)
 
 
 def increment_counter(counters: dict[str, int], key: str) -> None:
@@ -498,15 +391,7 @@ def add_planner_note(
 
 
 def strategy_summary(spec_slug: str) -> dict[str, Any]:
-    spec_memory = load_strategy_memory("spec", spec_slug)
-    recent = spec_memory.get("reflections", [])[-5:]
-    return {
-        "updated_at": spec_memory.get("updated_at", ""),
-        "playbook": spec_memory.get("playbook", []),
-        "planner_notes": spec_memory.get("planner_notes", [])[-5:],
-        "recent_reflections": recent,
-        "stats": spec_memory.get("stats", {}),
-    }
+    return cli.strategy_summary(spec_slug)
 
 
 def render_strategy_context(spec_slug: str) -> str:
@@ -545,60 +430,35 @@ def render_strategy_context(spec_slug: str) -> str:
 
 
 def load_review_state(spec_slug: str) -> dict[str, Any]:
-    return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
+    return cli.load_review_state(spec_slug)
 
 
 def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
-    write_json(spec_files(spec_slug)["review_state"], state)
+    return cli.save_review_state(spec_slug, state)
 
 
 def load_tasks(spec_slug: str) -> dict[str, Any]:
-    path = task_file(spec_slug)
-    if not path.exists():
-        raise SystemExit(f"missing task file: {path}")
-    return read_json(path)
+    return cli.load_tasks(spec_slug)
 
 
 def task_lookup(data: dict[str, Any], task_id: str) -> dict[str, Any]:
-    for task in data.get("tasks", []):
-        if task["id"] == task_id:
-            return task
-    raise SystemExit(f"unknown task: {task_id}")
+    return cli.task_lookup(data, task_id)
 
 
 def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
-    files = spec_files(spec_slug)
-    files["events"].parent.mkdir(parents=True, exist_ok=True)
-    entry = {
-        "at": now_stamp(),
-        "type": event_type,
-        "payload": payload,
-    }
-    with open(files["events"], "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+    return cli.record_event(spec_slug, event_type, payload)
 
 
 def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
-    events_path = spec_files(spec_slug)["events"]
-    if not events_path.exists():
-        return []
-    with open(events_path, encoding="utf-8") as handle:
-        lines = handle.readlines()[-limit:]
-    return [json.loads(line) for line in lines if line.strip()]
+    return cli.load_events(spec_slug, limit)
 
 
 def load_fix_request(spec_slug: str) -> str:
-    path = spec_files(spec_slug)["qa_fix_request"]
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+    return cli.load_fix_request(spec_slug)
 
 
 def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
-    return read_json_or_default(
-        spec_files(spec_slug)["qa_fix_request_json"],
-        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
-    )
+    return cli.load_fix_request_data(spec_slug)
 
 
 def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -744,10 +604,7 @@ def clear_fix_request(spec_slug: str) -> None:
 
 
 def compute_file_hash(path: Path) -> str:
-    if not path.exists():
-        return ""
-    content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return cli.compute_file_hash(path)
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
@@ -767,25 +624,11 @@ def planning_contract(spec_slug: str) -> dict[str, Any]:
 
 
 def compute_spec_hash(spec_slug: str) -> str:
-    files = spec_files(spec_slug)
-    spec_hash = compute_file_hash(files["spec"])
-    task_hash = hashlib.md5(
-        json.dumps(planning_contract(spec_slug), sort_keys=True).encode("utf-8"),
-        usedforsecurity=False,
-    ).hexdigest()
-    combined = f"{spec_hash}:{task_hash}"
-    return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return cli.compute_spec_hash(spec_slug)
 
 
 def sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
-    state = load_review_state(spec_slug)
-    if state.get("approved") and state.get("spec_hash") != compute_spec_hash(spec_slug):
-        state["approved"] = False
-        state["invalidated_at"] = now_stamp()
-        state["invalidated_reason"] = reason
-        save_review_state(spec_slug, state)
-        record_event(spec_slug, "review.invalidated", {"reason": reason})
-    return state
+    return cli.sync_review_state(spec_slug, reason)
 
 
 def review_status_summary(spec_slug: str) -> dict[str, Any]:
@@ -805,9 +648,7 @@ def review_status_summary(spec_slug: str) -> dict[str, Any]:
 
 
 def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
-    data["updated_at"] = now_stamp()
-    write_json(task_file(spec_slug), data)
-    sync_review_state(spec_slug, reason=reason)
+    return cli.save_tasks(spec_slug, data, reason=reason)
 
 
 def detect_base_branch() -> str:
@@ -820,10 +661,7 @@ def detect_base_branch() -> str:
 
 
 def load_bmad_template(role: str) -> str:
-    path = BMAD_DIR / f"{role}.md"
-    if not path.exists():
-        return "No BMAD template configured for this role."
-    return path.read_text(encoding="utf-8")
+    return cli.load_bmad_template(role)
 
 
 def native_resume_preview(agent: AgentSpec) -> list[str]:
@@ -1122,10 +960,9 @@ def create_spec(args: argparse.Namespace) -> None:
     ensure_state()
     slug = slugify(args.slug or args.title)
     files = spec_files(slug)
-    if files["spec"].exists():
+    if files["spec_md"].exists():
         raise SystemExit(f"spec already exists: {slug}")
-    files["dir"].mkdir(parents=True, exist_ok=True)
-    files["handoffs_dir"].mkdir(parents=True, exist_ok=True)
+    files["base"].mkdir(parents=True, exist_ok=True)
     spec_markdown = f"""# {args.title}
 
 ## Summary
@@ -1162,23 +999,10 @@ Describe the problem this system is solving.
 - Review is a separate step from implementation.
 - Git workflow hooks can prepare isolated task branches.
 """
-    metadata = {
-        "slug": slug,
-        "title": args.title,
-        "summary": args.summary,
-        "created_at": now_stamp(),
-        "updated_at": now_stamp(),
-        "status": "draft",
-        "worktree": {
-            "path": "",
-            "branch": worktree_branch(slug),
-            "base_branch": detect_base_branch(),
-        },
-    }
+    cli.create_spec(slug, args.title, args.summary, content=spec_markdown)
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
-    files["spec"].write_text(spec_markdown, encoding="utf-8")
-    files["handoff"].write_text(handoff, encoding="utf-8")
-    write_json(files["metadata"], metadata)
+    handoff_path = files["base"] / "handoff.md"
+    handoff_path.write_text(handoff, encoding="utf-8")
     save_review_state(slug, review_state_default())
     if not task_file(slug).exists():
         write_json(
@@ -1190,7 +1014,7 @@ Describe the problem this system is solving.
             },
         )
     record_event(slug, "spec.created", {"title": args.title})
-    print(str(files["dir"]))
+    print(str(files["base"]))
 
 
 def list_tasks(args: argparse.Namespace) -> None:
@@ -1269,7 +1093,6 @@ def write_handoff(
         ]
     )
     handoff_path.write_text(handoff_text, encoding="utf-8")
-    files["handoff"].write_text(handoff_text, encoding="utf-8")
     record_event(spec_slug, "handoff.created", {"task": task_id, "role": role, "result": result})
     return handoff_path
 
@@ -1316,7 +1139,7 @@ def build_prompt(
     resume_from: str | None = None,
 ) -> str:
     files = spec_files(spec_slug)
-    if not files["spec"].exists():
+    if not files["spec_md"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
     selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
@@ -1384,7 +1207,7 @@ def build_prompt(
             fix_request or "No QA fix request present.",
             "",
             "## Spec",
-            files["spec"].read_text(encoding="utf-8"),
+            files["spec_md"].read_text(encoding="utf-8"),
             "",
             "## Selected task",
             json.dumps(selected_task, indent=2, ensure_ascii=True) if selected_task else "{}",
