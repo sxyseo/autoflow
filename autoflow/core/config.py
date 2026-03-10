@@ -23,6 +23,8 @@ import json5
 
 from pydantic import BaseModel, Field, field_validator
 
+from autoflow.core.sanitization import SanitizationConfig
+
 
 # Default configuration paths
 DEFAULT_CONFIG_PATH = "config/settings.json5"
@@ -99,6 +101,88 @@ class CIConfig(BaseModel):
     gates: list[CIGateConfig] = Field(default_factory=list)
     require_all: bool = True
 
+class HealingConfig(BaseModel):
+    """Self-healing workflow configuration."""
+
+    enabled: bool = True
+    max_attempts: int = 3
+    timeout_seconds: int = 600
+    retry_delay_seconds: int = 10
+    strategies: list[str] = Field(
+        default_factory=lambda: ["retry", "fallback", "recovery"]
+    )
+    analysis_timeout_seconds: int = 300
+
+class IssueSourceConfig(BaseModel):
+    """Configuration for a single issue source."""
+
+    id: str
+    type: str  # "github", "gitlab", "linear", "jira", "custom"
+    name: str
+    url: str
+    enabled: bool = True
+    api_token: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class WebhookConfig(BaseModel):
+    """Webhook server configuration."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8765
+    path: str = "/webhooks"
+    auto_start: bool = False
+
+
+class SyncConfig(BaseModel):
+    """Synchronization settings."""
+
+    enabled: bool = True
+    auto_import: bool = True
+    auto_sync_status: bool = True
+    sync_comments: bool = True
+    interval_seconds: int = 300  # 5 minutes
+    batch_size: int = 50
+
+
+class IntakeConfig(BaseModel):
+    """Issue intake system configuration."""
+
+    enabled: bool = True
+    sources: list[IssueSourceConfig] = Field(default_factory=list)
+    webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+    sync: SyncConfig = Field(default_factory=SyncConfig)
+    default_priority: str = "no_priority"
+    default_category: Optional[str] = None
+
+class ParallelConfig(BaseModel):
+    """Parallel execution configuration."""
+
+    enabled: bool = False
+    max_concurrent_tasks: int = 3
+    timeout_seconds: int = 300
+
+class TeamMemberConfig(BaseModel):
+    """Configuration for a team member."""
+
+    name: str
+    email: str
+    role: str = "member"  # "owner", "admin", "member", "viewer"
+    permissions: list[str] = Field(default_factory=lambda: ["read", "write"])
+
+
+class CollaborationConfig(BaseModel):
+    """Team collaboration settings."""
+
+    enabled: bool = False
+    team_name: str = ""
+    members: list[TeamMemberConfig] = Field(default_factory=list)
+    require_approval_for_deploy: bool = True
+    allow_sharing: bool = False
+    shared_workspaces: list[str] = Field(default_factory=list)
+
 
 class RepositoryConfig(BaseModel):
     """Configuration for a single repository in multi-repository setup."""
@@ -137,6 +221,10 @@ class Config(BaseModel):
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     ci: CIConfig = Field(default_factory=CIConfig)
     repositories: RepositoriesConfig = Field(default_factory=RepositoriesConfig)
+    sanitization: SanitizationConfig = Field(default_factory=SanitizationConfig)
+    intake: IntakeConfig = Field(default_factory=IntakeConfig)
+    parallel: ParallelConfig = Field(default_factory=ParallelConfig)
+    collaboration: CollaborationConfig = Field(default_factory=CollaborationConfig)
     state_dir: str = ".autoflow"
 
     @field_validator("state_dir", mode="before")
@@ -161,6 +249,7 @@ class SystemConfig(BaseModel):
     default_timeout_seconds: int = 300
     retry_attempts: int = 3
     retry_delay_seconds: int = 5
+    healing: HealingConfig = Field(default_factory=HealingConfig)
 
     @field_validator("project_root", "log_dir", mode="before")
     @classmethod

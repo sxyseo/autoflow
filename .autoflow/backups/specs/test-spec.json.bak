@@ -1,0 +1,15 @@
+{
+  "id": "test-spec",
+  "title": "Test Specification for Archive Command",
+  "content": "# Test Specification\n\nThis is a test spec to verify the archive command works correctly.",
+  "version": "1.0",
+  "created_at": "2026-03-08T12:00:00Z",
+  "updated_at": "2026-03-08T12:00:00Z",
+  "author": "test",
+  "tags": ["test", "archive-test"],
+  "status": "completed",
+  "metadata": {
+    "purpose": "Testing the archive-spec command",
+    "test_id": "subtask-3-1"
+  }
+}

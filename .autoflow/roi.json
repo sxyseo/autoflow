@@ -1,0 +1,18 @@
+{
+  "records": [
+    {
+      "task_id": "test-task-1",
+      "autoflow_time_seconds": 1800,
+      "estimated_manual_time_seconds": 7200,
+      "time_saved_seconds": 5400,
+      "efficiency_ratio": 4.0,
+      "task_complexity": "medium",
+      "timestamp": "2026-03-08T13:49:07.472957+00:00",
+      "metadata": {}
+    }
+  ],
+  "metadata": {
+    "total_records": 1,
+    "last_updated": "2026-03-08T13:49:07.473264+00:00"
+  }
+}
