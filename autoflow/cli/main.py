@@ -19,6 +19,7 @@ import click
 
 from autoflow import __version__
 from autoflow.cli.init import init
+from autoflow.cli.status import status
 from autoflow.core.config import Config, load_config
 
 
@@ -129,3 +130,4 @@ def main(
 
 # Register subcommands
 main.add_command(init)
+main.add_command(status)
