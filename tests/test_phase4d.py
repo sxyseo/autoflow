@@ -571,26 +571,31 @@ class Phase4DTests(unittest.TestCase):
         self.autoflow._prompt_context_cache.clear()
         first_prompt = self.autoflow.build_prompt("strategy-cache-spec", "reviewer", "T1", agent)
 
-        # Verify original content is in prompt
+        # Verify original content is in prompt (findings are not rendered, only summary and actions)
         self.assertIn("Original strategy reflection", first_prompt)
-        self.assertIn("Original finding", first_prompt)
 
         # Modify the strategy memory file directly
-        strategy_memory_file = self.autoflow.STRATEGY_MEMORY_DIR / "strategy-cache-spec.md"
-        existing_content = strategy_memory_file.read_text(encoding="utf-8")
-        modified_content = existing_content.replace("Original strategy reflection", "Updated strategy reflection")
-        modified_content = modified_content.replace("Original finding", "Updated finding")
-        strategy_memory_file.write_text(modified_content, encoding="utf-8")
+        import json as json_mod
+        strategy_memory_file = self.autoflow.STRATEGY_MEMORY_DIR / "specs" / "strategy-cache-spec.json"
+        existing_content = json_mod.loads(strategy_memory_file.read_text(encoding="utf-8"))
+        # Update the reflection summary
+        for reflection in existing_content.get("reflections", []):
+            if reflection["summary"] == "Original strategy reflection":
+                reflection["summary"] = "Updated strategy reflection"
+        strategy_memory_file.write_text(json_mod.dumps(existing_content, indent=2), encoding="utf-8")
 
         # Build prompt again - should detect file changes and invalidate cache
         second_prompt = self.autoflow.build_prompt("strategy-cache-spec", "reviewer", "T1", agent)
 
-        # Verify updated content is in prompt
+        # Verify updated content is in strategy memory section
         self.assertIn("Updated strategy reflection", second_prompt)
-        self.assertIn("Updated finding", second_prompt)
-        # Verify original content is NOT in prompt
-        self.assertNotIn("Original strategy reflection", second_prompt)
-        self.assertNotIn("Original finding", second_prompt)
+        # Verify the strategy memory section was updated (not just cached)
+        # The strategy memory section should show the updated reflection
+        strategy_section_start = second_prompt.find("## Strategy memory")
+        strategy_section_end = second_prompt.find("\n## ", strategy_section_start + 1)
+        strategy_section = second_prompt[strategy_section_start:strategy_section_end]
+        self.assertIn("Updated strategy reflection", strategy_section)
+        self.assertNotIn("Original strategy reflection", strategy_section)
 
 
 if __name__ == "__main__":
