@@ -23,6 +23,7 @@ from autoflow.cli.init import init
 from autoflow.cli.run import run
 from autoflow.cli.skill import skill
 from autoflow.cli.status import status
+from autoflow.cli.task import task
 from autoflow.core.config import Config, load_config
 
 
@@ -137,3 +138,4 @@ main.add_command(run)
 main.add_command(status)
 main.add_command(agent)
 main.add_command(skill)
+main.add_command(task)
