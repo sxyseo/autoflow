@@ -156,6 +156,9 @@ def sample_config() -> dict:
         "agent_selection": {
             "sync_before_dispatch": False,
         },
+        "dispatch": {
+            "max_concurrent_runs": 1,
+        },
         "verify_commands": [],
         "commit": {
             "message_prefix": "autoflow",
@@ -852,15 +855,14 @@ class TestSelectAgentForRole:
 class TestDispatchGate:
     """Tests for dispatch_gate function."""
 
-    def test_gate_blocked_by_active_runs(self, sample_config: dict) -> None:
-        """Test that dispatch is blocked when active runs exist."""
-        state = {"active_runs": ["run-1"], "blocking_reason": None}
+    def test_gate_does_not_block_on_active_runs_alone(self, sample_config: dict) -> None:
+        """Active runs are handled by concurrency limits, not the base gate."""
+        state = {"spec": "test-spec", "active_runs": ["run-1"], "blocking_reason": None}
 
-        result = dispatch_gate(sample_config, state, {})
+        with patch("continuous_iteration.task_history", return_value=[]):
+            result = dispatch_gate(sample_config, state, {"id": "T1", "status": "todo"})
 
-        assert result is not None
-        assert result["blocked"] is True
-        assert result["reason"] == "active_run_exists"
+        assert result is None
 
     def test_gate_blocked_by_blocking_reason(self, sample_config: dict) -> None:
         """Test that dispatch is blocked when there's a blocking reason."""
@@ -971,18 +973,94 @@ class TestDispatchNext:
     """Tests for dispatch_next function."""
 
     def test_dispatch_blocked_by_gate(self, sample_config: dict) -> None:
-        """Test that dispatch is blocked when gate returns a block."""
+        """Test that dispatch honors the per-spec concurrency limit."""
         state = {
-            "active_runs": ["run-1"],
+            "spec": "test-spec",
+            "active_runs": [{"task": "T0", "agent": "agent-a"}],
             "blocking_reason": None,
+            "ready_tasks": [
+                {
+                    "id": "T1",
+                    "owner_role": "implementation-runner",
+                    "status": "todo",
+                }
+            ],
+            "recommended_next_action": None,
         }
 
         with patch("continuous_iteration.workflow_state", return_value=state):
-            result = dispatch_next(sample_config, "test-spec", False)
+            with patch("continuous_iteration.load_agent_catalog", return_value={"agent-a": {"max_concurrent": 2}}):
+                with patch("continuous_iteration.select_agent_for_role", return_value=("agent-a", "fallback")):
+                    result = dispatch_next(sample_config, "test-spec", False)
 
         assert result["dispatched"] is False
-        assert result["reason"] == "active_run_exists"
+        assert result["reason"] == "spec_concurrency_limit_reached"
         assert "state" in result
+
+    def test_dispatch_can_select_ready_task_below_concurrency_limit(self, sample_config: dict) -> None:
+        """When below the limit, dispatch should choose another ready task."""
+        config = {
+            **sample_config,
+            "dispatch": {
+                "max_concurrent_runs": 2,
+            },
+        }
+        state = {
+            "spec": "test-spec",
+            "active_runs": [{"task": "T0", "agent": "agent-a"}],
+            "blocking_reason": None,
+            "ready_tasks": [
+                {
+                    "id": "T0",
+                    "owner_role": "implementation-runner",
+                    "status": "todo",
+                },
+                {
+                    "id": "T2",
+                    "owner_role": "implementation-runner",
+                    "status": "todo",
+                },
+            ],
+            "recommended_next_action": None,
+        }
+
+        with patch("continuous_iteration.workflow_state", return_value=state):
+            with patch("continuous_iteration.load_agent_catalog", return_value={"agent-a": {"max_concurrent": 3}}):
+                with patch("continuous_iteration.select_agent_for_role", return_value=("agent-a", "fallback")):
+                    result = dispatch_next(config, "test-spec", False)
+
+        assert result["dispatched"] is False
+        assert result["payload"]["task"] == "T2"
+
+    def test_dispatch_blocked_by_agent_concurrency_limit(self, sample_config: dict) -> None:
+        """Per-agent max_concurrent should block additional dispatches."""
+        config = {
+            **sample_config,
+            "dispatch": {
+                "max_concurrent_runs": 3,
+            },
+        }
+        state = {
+            "spec": "test-spec",
+            "active_runs": [{"task": "T0", "agent": "agent-a"}],
+            "blocking_reason": None,
+            "ready_tasks": [
+                {
+                    "id": "T2",
+                    "owner_role": "implementation-runner",
+                    "status": "todo",
+                }
+            ],
+            "recommended_next_action": None,
+        }
+
+        with patch("continuous_iteration.workflow_state", return_value=state):
+            with patch("continuous_iteration.load_agent_catalog", return_value={"agent-a": {"max_concurrent": 1}}):
+                with patch("continuous_iteration.select_agent_for_role", return_value=("agent-a", "fallback")):
+                    result = dispatch_next(config, "test-spec", False)
+
+        assert result["dispatched"] is False
+        assert result["reason"] == "agent_concurrency_limit_reached"
 
     def test_dispatch_no_agent_for_role(self, sample_config: dict) -> None:
         """Test dispatch when no agent is available for the role."""

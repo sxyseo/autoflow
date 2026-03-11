@@ -434,6 +434,21 @@ python3 scripts/continuous_iteration.py \
 5. 在后台启动代理
 6. 每 2-5 分钟重复一次
 
+### 验证 README 流程
+
+```bash
+# 命令层 smoke test
+python3 scripts/validate_readme_flow.py --agent codex
+
+# 运行层 smoke test（使用一次性的 dummy ACP agent 和 tmux）
+python3 scripts/validate_runtime_loop.py
+```
+
+第二条命令会验证：
+- `continuous_iteration.py --dispatch` 能创建后台 tmux run
+- `scheduler.py run-once --job-type continuous_iteration` 能使用调度配置驱动同一条链路
+- active run 记录会被写入状态层，而不是只停留在文档声明
+
 ## 配置
 
 ### 代理配置 (`.autoflow/agents.json`)
@@ -552,6 +567,28 @@ python3 scripts/continuous_iteration.py \
     "max_attempts": 3,
     "require_fix_request": true,
     "backoff_multiplier": 2
+  }
+}
+```
+
+### 调度器配置 (`config/scheduler_config.json`)
+
+`continuous_iteration` job 需要显式指定要驱动的 spec：
+
+```json
+{
+  "jobs": {
+    "continuous_iteration": {
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "args": {
+        "spec": "my-first-project",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true,
+        "commit_if_dirty": false,
+        "push": false
+      }
+    }
   }
 }
 ```

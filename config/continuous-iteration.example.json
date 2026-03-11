@@ -21,6 +21,10 @@
       ]
     }
   },
+  "dispatch": {
+    "max_concurrent_runs": 2,
+    "dispatch_interval_seconds": 120
+  },
   "verify_commands": [
     "bash scripts/ci_check.sh",
     "python3 scripts/autoflow.py workflow-state --spec {spec}"
