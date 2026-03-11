@@ -442,12 +442,20 @@ python3 scripts/validate_readme_flow.py --agent codex
 
 # 运行层 smoke test（使用一次性的 dummy ACP agent 和 tmux）
 python3 scripts/validate_runtime_loop.py
+
+# 恢复与 QA 自愈 smoke test
+python3 scripts/validate_recovery_loop.py
 ```
 
 第二条命令会验证：
-- `continuous_iteration.py --dispatch` 能创建后台 tmux run
+- `continuous_iteration.py --dispatch` 能创建后台 tmux run，并在 agent 写出 `agent_result.json` 后自动 finalize
 - `scheduler.py run-once --job-type continuous_iteration` 能使用调度配置驱动同一条链路
-- active run 记录会被写入状态层，而不是只停留在文档声明
+- 状态层会推进到 reviewer handoff，而不是只留下悬空的 active run
+
+第三条命令会验证：
+- stale run 能被恢复为新的 retry run
+- reviewer `needs_changes` 会生成 fix request，并把下一步动作切回实现者
+- 修复后重新审查能把任务推进到后续阶段
 
 ## 配置
 
@@ -655,6 +663,12 @@ python3 scripts/autoflow.py complete-run \
   --run <run-id> \
   --result <success|needs_changes|blocked|failed> \
   --summary "<summary>"
+
+# 或者从 agent_result.json 自动收尾（run.sh 会在代理退出后自动调用）
+python3 scripts/autoflow.py finalize-run \
+  --run <run-id> \
+  --exit-code 0 \
+  --result-file .autoflow/runs/<run-id>/agent_result.json
 ```
 
 #### 记忆和学习

@@ -76,6 +76,7 @@ REVIEW_STATE_FILE = "review_state.json"
 EVENTS_FILE = "events.jsonl"
 QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
 QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
+AGENT_RESULT_FILE = "agent_result.json"
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -85,7 +86,17 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
-INACTIVE_RUN_STATUSES = {"completed", "abandoned", "cancelled", "cleaned"}
+INACTIVE_RUN_STATUSES = {
+    "completed",
+    "abandoned",
+    "cancelled",
+    "cleaned",
+    "recovered",
+    "stale",
+}
+RUN_LEASE_ACTIVE_STATUSES = {"created", "running"}
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30
+DEFAULT_STALE_AFTER_SECONDS = 120
 
 
 def repository_manager():
@@ -113,6 +124,24 @@ def now_stamp() -> str:
         Timestamp string in format YYYYMMDDTHHMMSSZ
     """
     return now_utc().strftime("%Y%m%dT%H%M%SZ")
+
+
+def parse_stamp(value: str) -> datetime | None:
+    """Parse an Autoflow timestamp into a UTC datetime."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def tmux_session_exists(session_name: str) -> bool:
+    """Return True when a tmux session exists."""
+    if not session_name or not shutil.which("tmux"):
+        return False
+    result = run_cmd(["tmux", "has-session", "-t", session_name], check=False)
+    return result.returncode == 0
 
 
 def slugify(value: str) -> str:
@@ -202,7 +231,10 @@ def write_json(path: Path, data: Any) -> None:
     preserve_runtime_config = resolved_path in {
         SYSTEM_CONFIG_FILE.resolve(),
         AGENTS_FILE.resolve(),
-    }
+    } or (
+        resolved_path.name == "run.json"
+        and resolved_path.parent.parent == RUNS_DIR.resolve()
+    )
     sanitized_data = data if preserve_runtime_config else (
         sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
     )
@@ -345,19 +377,27 @@ class AgentSpec:
             configuration fields including name, command, args, resume settings,
             protocol, model, tools, and transport configuration.
         """
-        return {
+        data = {
             "name": self.name,
             "command": self.command,
             "args": self.args,
-            "resume": self.resume or {},
             "protocol": self.protocol,
-            "model": self.model,
-            "model_profile": self.model_profile,
-            "tools": self.tools or [],
-            "tool_profile": self.tool_profile,
-            "memory_scopes": self.memory_scopes or [],
-            "transport": self.transport or {},
         }
+        if self.resume:
+            data["resume"] = self.resume
+        if self.model:
+            data["model"] = self.model
+        if self.model_profile:
+            data["model_profile"] = self.model_profile
+        if self.tools:
+            data["tools"] = self.tools
+        if self.tool_profile:
+            data["tool_profile"] = self.tool_profile
+        if self.memory_scopes:
+            data["memory_scopes"] = self.memory_scopes
+        if self.transport:
+            data["transport"] = self.transport
+        return data
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -2817,6 +2857,7 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
         item
         for item in _run_metadata_cache.get(spec_slug, [])
         if item.get("status") not in INACTIVE_RUN_STATUSES
+        and not run_is_stale(item)
     ]
 
 
@@ -2848,6 +2889,68 @@ def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[
 
     # Sort by created_at and return last `limit` items
     return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
+
+
+def run_metadata_path(run_id: str) -> Path:
+    return RUNS_DIR / run_id / "run.json"
+
+
+def load_run_metadata(run_id: str) -> dict[str, Any]:
+    path = run_metadata_path(run_id)
+    if not path.exists():
+        raise SystemExit(f"unknown run: {run_id}")
+    return read_json(path)
+
+
+def write_run_metadata(run_id: str, metadata: dict[str, Any]) -> None:
+    metadata["updated_at"] = now_stamp()
+    write_json(run_metadata_path(run_id), metadata)
+    invalidate_run_cache()
+
+
+def run_last_activity(metadata: dict[str, Any]) -> datetime | None:
+    for field in ("heartbeat_at", "updated_at", "created_at"):
+        parsed = parse_stamp(metadata.get(field, ""))
+        if parsed:
+            return parsed
+    return None
+
+
+def run_stale_reason(
+    metadata: dict[str, Any],
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> str:
+    if metadata.get("status") not in RUN_LEASE_ACTIVE_STATUSES:
+        return ""
+    session_name = metadata.get("tmux_session", "")
+    if session_name and not tmux_session_exists(session_name):
+        return "tmux_session_missing"
+    last_activity = run_last_activity(metadata)
+    if not last_activity:
+        return "missing_heartbeat"
+    age_seconds = (now_utc() - last_activity).total_seconds()
+    if age_seconds > stale_after_seconds:
+        return "heartbeat_expired"
+    return ""
+
+
+def run_is_stale(
+    metadata: dict[str, Any],
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> bool:
+    return bool(run_stale_reason(metadata, stale_after_seconds=stale_after_seconds))
+
+
+def stale_runs_for_spec(
+    spec_slug: str,
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> list[dict[str, Any]]:
+    _populate_run_cache_for_spec(spec_slug)
+    return [
+        item
+        for item in _run_metadata_cache.get(spec_slug, [])
+        if run_is_stale(item, stale_after_seconds=stale_after_seconds)
+    ]
 
 
 def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
@@ -3649,6 +3752,7 @@ def build_prompt(
     task_id: str | None,
     agent: AgentSpec,
     resume_from: str | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Build a comprehensive execution prompt for an AI agent.
@@ -3667,6 +3771,7 @@ def build_prompt(
         task_id: Specific task ID to execute, or None to auto-select next task
         agent: Agent specification with configuration, tools, and memory scopes
         resume_from: Optional run ID to resume from for recovery
+        run_id: Optional run ID so the prompt can include the completion artifact path
 
     Returns:
         Complete prompt string with all context sections for agent execution
@@ -3684,6 +3789,7 @@ def build_prompt(
     fix_request_data = load_fix_request_data(spec_slug)
     memory_context = load_memory_context(spec_slug, agent.memory_scopes)
     strategy_context = render_strategy_context(spec_slug)
+    agent_result_path = str(RUNS_DIR / run_id / AGENT_RESULT_FILE) if run_id else ""
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
@@ -3737,6 +3843,30 @@ def build_prompt(
             "",
             "## Resume context",
             resume_context(resume_from),
+            "",
+            "## Completion contract",
+            (
+                "When you finish, write a JSON file to "
+                f"{agent_result_path} with this shape:\n"
+                "{\n"
+                '  "result": "success|needs_changes|blocked|failed",\n'
+                '  "summary": "concise execution summary",\n'
+                '  "findings": [\n'
+                "    {\n"
+                '      "file": "path/to/file",\n'
+                '      "line": 10,\n'
+                '      "severity": "low|medium|high|critical",\n'
+                '      "category": "tests|bug|security|workflow|docs",\n'
+                '      "title": "short finding title",\n'
+                '      "body": "what is wrong and why",\n'
+                '      "suggested_fix": "optional next action"\n'
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                "Always write the file before exiting. Use an empty findings array when there are no findings."
+            )
+            if agent_result_path
+            else "No completion artifact path was assigned for this run.",
             "",
             "## QA fix request (structured)",
             json.dumps(fix_request_data, indent=2, ensure_ascii=True),
@@ -3800,24 +3930,70 @@ def create_run_record(
         run_dir = RUNS_DIR / run_id
         suffix += 1
     run_dir.mkdir(parents=True, exist_ok=False)
+    branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
+    target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
+    run_json_path = run_dir / "run.json"
+    run_script = run_dir / "run.sh"
     prompt_path = run_dir / "prompt.md"
+    agent_result_path = run_dir / AGENT_RESULT_FILE
+    command = [agent.command, *agent.args, str(prompt_path)]
     prompt_path.write_text(
-        build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
+        build_prompt(
+            spec_slug,
+            role,
+            task_id,
+            agent,
+            resume_from=resume_from,
+            run_id=run_id,
+        ),
         encoding="utf-8",
     )
     prompt_hash = hash_file_content(prompt_path)
-    branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
-    target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
-    command = [agent.command, *agent.args, str(prompt_path)]
-    run_json_path = run_dir / "run.json"
-    run_script = run_dir / "run.sh"
     run_script.write_text(
         "\n".join(
             [
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
                 f"cd {shlex.quote(str(target_workdir))}",
-                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}",
+                'session_name="${AUTOFLOW_TMUX_SESSION:-}"',
+                f"export AUTOFLOW_RUN_ID={shlex.quote(run_id)}",
+                f"export AUTOFLOW_RUN_DIR={shlex.quote(str(run_dir))}",
+                f"export AUTOFLOW_AGENT_RESULT={shlex.quote(str(agent_result_path))}",
+                "heartbeat_status() {",
+                '  local status="$1"',
+                "  shift || true",
+                f"  local cmd=(python3 {shlex.quote(str(ROOT / 'scripts' / 'autoflow.py'))} heartbeat-run --run {shlex.quote(run_id)} --status \"$status\")",
+                '  if [[ -n "${session_name}" ]]; then',
+                '    cmd+=(--session "${session_name}")',
+                "  fi",
+                '  if [[ $# -gt 0 ]]; then',
+                '    cmd+=("$@")',
+                "  fi",
+                '  "${cmd[@]}" >/dev/null 2>&1 || true',
+                "}",
+                "heartbeat_status running",
+                "(",
+                "  while true; do",
+                f"    sleep {DEFAULT_HEARTBEAT_INTERVAL_SECONDS}",
+                "    heartbeat_status running",
+                "  done",
+                ") &",
+                "heartbeat_pid=$!",
+                f"if {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}; then",
+                "  exit_code=0",
+                "else",
+                "  exit_code=$?",
+                "fi",
+                'kill "${heartbeat_pid}" >/dev/null 2>&1 || true',
+                'wait "${heartbeat_pid}" 2>/dev/null || true',
+                'heartbeat_status exited --exit-code "${exit_code}"',
+                (
+                    f"python3 {shlex.quote(str(ROOT / 'scripts' / 'autoflow.py'))} "
+                    f"finalize-run --run {shlex.quote(run_id)} "
+                    f"--exit-code \"${{exit_code}}\" "
+                    f"--result-file {shlex.quote(str(agent_result_path))}"
+                ),
+                'exit "${exit_code}"',
                 "",
             ]
         ),
@@ -3836,8 +4012,13 @@ def create_run_record(
         "branch": branch,
         "workdir": str(target_workdir),
         "created_at": now_stamp(),
+        "heartbeat_at": now_stamp(),
         "command_preview": command,
         "status": "created",
+        "heartbeat_interval_seconds": DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+        "stale_after_seconds": DEFAULT_STALE_AFTER_SECONDS,
+        "tmux_session": "",
+        "agent_result_path": str(agent_result_path),
         "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
@@ -3960,6 +4141,170 @@ def resume_run(args: argparse.Namespace) -> None:
     print(str(new_run))
 
 
+def heartbeat_run_cmd(args: argparse.Namespace) -> None:
+    metadata = load_run_metadata(args.run)
+    if metadata.get("status") in {"completed", "cancelled", "cleaned"}:
+        print_json({"run": args.run, "status": metadata.get("status", "")})
+        return
+    if args.status:
+        metadata["status"] = args.status
+    metadata["heartbeat_at"] = now_stamp()
+    if args.session:
+        metadata["tmux_session"] = args.session
+    if args.exit_code is not None:
+        metadata["last_exit_at"] = now_stamp()
+        metadata["exit_code"] = args.exit_code
+    write_run_metadata(args.run, metadata)
+    print_json(
+        {
+            "run": args.run,
+            "status": metadata.get("status", ""),
+            "heartbeat_at": metadata.get("heartbeat_at", ""),
+            "tmux_session": metadata.get("tmux_session", ""),
+        }
+    )
+
+
+def recover_run_record(run_id: str, reason: str, dispatch: bool = False) -> dict[str, Any]:
+    metadata = load_run_metadata(run_id)
+    if metadata.get("status") in {"completed", "cancelled", "cleaned", "recovered"}:
+        raise SystemExit(f"run {run_id} cannot be recovered from status {metadata.get('status', '')}")
+    review_summary = review_status_summary(metadata["spec"])
+    if metadata["role"] in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
+        raise SystemExit(
+            "spec review approval is not valid; approve the current planning contract before recovering implementation"
+        )
+    tasks = load_tasks(metadata["spec"])
+    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
+    task["status"] = "in_progress"
+    task.setdefault("notes", []).append(
+        {"at": now_stamp(), "note": f"recovery created from {run_id}: {reason}"}
+    )
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+
+    metadata["status"] = "recovered"
+    metadata["recovered_at"] = now_stamp()
+    metadata["recovery_reason"] = reason
+    write_run_metadata(run_id, metadata)
+
+    new_run_dir = create_run_record(
+        metadata["spec"],
+        metadata["role"],
+        metadata["agent"],
+        metadata["task"],
+        branch=metadata.get("branch"),
+        resume_from=run_id,
+    )
+    new_run_id = new_run_dir.name
+    new_metadata = load_run_metadata(new_run_id)
+    new_metadata["recovery_reason"] = reason
+    write_run_metadata(new_run_id, new_metadata)
+
+    session_name = ""
+    if dispatch:
+        session_name = run_cmd(
+            ["bash", str(ROOT / "scripts" / "tmux-start.sh"), str(new_run_dir / "run.sh")]
+        ).stdout.strip()
+        if session_name:
+            new_metadata = load_run_metadata(new_run_id)
+            new_metadata["tmux_session"] = session_name
+            write_run_metadata(new_run_id, new_metadata)
+
+    record_event(
+        metadata["spec"],
+        "run.recovered",
+        {
+            "from": run_id,
+            "to": new_run_id,
+            "task": metadata["task"],
+            "role": metadata["role"],
+            "dispatch": dispatch,
+            "reason": reason,
+        },
+    )
+    return {
+        "run": run_id,
+        "new_run": new_run_id,
+        "reason": reason,
+        "dispatched": dispatch,
+        "tmux_session": session_name,
+    }
+
+
+def recover_run_cmd(args: argparse.Namespace) -> None:
+    print_json(recover_run_record(args.run, args.reason or "manual_recover", dispatch=args.dispatch))
+
+
+def sweep_runs_cmd(args: argparse.Namespace) -> None:
+    ensure_state()
+    stale_after = max(1, int(args.stale_after))
+    tasks = load_tasks(args.spec)
+    task_updates = []
+    marked_stale = []
+    recovered = []
+
+    for metadata in list(run_metadata_iter()):
+        if metadata.get("spec") != args.spec:
+            continue
+        if metadata.get("status") not in args.include_status:
+            continue
+        reason = run_stale_reason(metadata, stale_after_seconds=stale_after)
+        if not reason:
+            continue
+
+        if args.auto_recover:
+            recovered.append(
+                recover_run_record(
+                    metadata["id"],
+                    reason=f"stale:{reason}",
+                    dispatch=args.dispatch_recovery,
+                )
+            )
+            continue
+
+        payload = load_run_metadata(metadata["id"])
+        payload["status"] = args.target_status
+        payload["stale_at"] = now_stamp()
+        payload["stale_reason"] = reason
+        write_run_metadata(metadata["id"], payload)
+        marked_stale.append(
+            {
+                "run": metadata["id"],
+                "reason": reason,
+                "status": args.target_status,
+            }
+        )
+        task = task_lookup(tasks, payload["task"], spec_slug=args.spec)
+        if task.get("status") == "in_progress":
+            fallback_status = args.task_status or ("in_review" if payload.get("role") == "reviewer" else "todo")
+            task["status"] = fallback_status
+            task.setdefault("notes", []).append(
+                {
+                    "at": now_stamp(),
+                    "note": f"run {metadata['id']} marked {args.target_status}; task returned to {fallback_status}",
+                }
+            )
+            task_updates.append({"task": payload["task"], "status": fallback_status})
+        record_event(
+            args.spec,
+            "run.stale",
+            {"run": metadata["id"], "reason": reason, "status": args.target_status},
+        )
+
+    if task_updates:
+        save_tasks(args.spec, tasks, reason="run_sweep")
+
+    print_json(
+        {
+            "spec": args.spec,
+            "stale_after": stale_after,
+            "marked_stale": marked_stale,
+            "recovered": recovered,
+            "task_updates": task_updates,
+        }
+    )
+
+
 def complete_run(args: argparse.Namespace) -> None:
     """
     Mark a run as completed and update task status.
@@ -3982,57 +4327,75 @@ def complete_run(args: argparse.Namespace) -> None:
     Raises:
         SystemExit: If result is invalid or run ID is unknown
     """
-    if args.result not in RUN_RESULTS:
-        raise SystemExit(f"invalid result: {args.result}")
-    run_dir = RUNS_DIR / args.run
+    findings = parse_findings(args)
+    print_json(complete_run_record(args.run, args.result, args.summary, findings=findings))
+
+
+def complete_run_record(
+    run_id: str,
+    result: str,
+    summary: str | None = None,
+    findings: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if result not in RUN_RESULTS:
+        raise SystemExit(f"invalid result: {result}")
+    run_dir = RUNS_DIR / run_id
     metadata_path = run_dir / "run.json"
     if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {args.run}")
+        raise SystemExit(f"unknown run: {run_id}")
     metadata = read_json(metadata_path)
-    findings = parse_findings(args)
+    findings = findings or []
     metadata["status"] = "completed"
-    metadata["result"] = args.result
+    metadata["result"] = result
     metadata["completed_at"] = now_stamp()
-    metadata["findings_count"] = len(findings or [])
+    metadata["findings_count"] = len(findings)
     write_json(metadata_path, metadata)
-    summary = args.summary or f"Run {args.run} completed with result {args.result}."
+    summary = summary or f"Run {run_id} completed with result {result}."
     (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
 
     tasks = load_tasks(metadata["spec"])
     task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     if metadata["role"] == "reviewer":
-        next_status = "done" if args.result == "success" else args.result
-    elif args.result == "success":
+        next_status = "done" if result == "success" else result
+    elif result == "success":
         next_status = "in_review"
     else:
-        next_status = args.result
+        next_status = result
     status_map = {
         "success": next_status,
         "needs_changes": "needs_changes",
         "blocked": "blocked",
         "failed": "blocked",
     }
-    task["status"] = status_map[args.result]
+    task["status"] = status_map[result]
     task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
     next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
     fix_request_path = ""
-    if metadata["role"] == "reviewer" and args.result in {"needs_changes", "blocked", "failed"}:
-        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result, findings=findings))
-    if metadata["role"] == "implementation-runner" and args.result == "success":
+    if metadata["role"] == "reviewer" and result in {"needs_changes", "blocked", "failed"}:
+        fix_request_path = str(
+            write_fix_request(
+                metadata["spec"],
+                metadata["task"],
+                summary,
+                result,
+                findings=findings,
+            )
+        )
+    if metadata["role"] == "implementation-runner" and result == "success":
         clear_fix_request(metadata["spec"])
-    strategy_paths = record_reflection(metadata["spec"], metadata, args.result, summary, findings=findings)
+    strategy_paths = record_reflection(metadata["spec"], metadata, result, summary, findings=findings)
     memory_cfg = load_system_config().get("memory", {})
     if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
         for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
             append_memory(
                 scope,
-                f"role={metadata['role']}\nresult={args.result}\nsummary={summary}",
+                f"role={metadata['role']}\nresult={result}\nsummary={summary}",
                 spec_slug=metadata["spec"],
-                title=f"{metadata['task']} {metadata['role']} {args.result}",
+                title=f"{metadata['task']} {metadata['role']} {result}",
             )
     handoff_path = write_handoff(
-        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
+        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, result
     )
     record_event(
         metadata["spec"],
@@ -4041,23 +4404,73 @@ def complete_run(args: argparse.Namespace) -> None:
             "run": metadata["id"],
             "task": metadata["task"],
             "role": metadata["role"],
-            "result": args.result,
+            "result": result,
             "fix_request": fix_request_path,
         },
     )
-    print(
-        json.dumps(
-            {
-                "run": metadata["id"],
-                "task_status": task["status"],
-                "handoff": str(handoff_path),
-                "fix_request": fix_request_path,
-                "strategy_memory": [str(path) for path in strategy_paths],
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
+    return {
+        "run": metadata["id"],
+        "task_status": task["status"],
+        "handoff": str(handoff_path),
+        "fix_request": fix_request_path,
+        "strategy_memory": [str(path) for path in strategy_paths],
+    }
+
+
+def load_agent_result_payload(result_file: Path) -> tuple[str, str, list[dict[str, Any]], str]:
+    if not result_file.exists():
+        raise FileNotFoundError(result_file)
+    raw = read_json(result_file)
+    if not isinstance(raw, dict):
+        raise ValueError("agent result payload must be a JSON object")
+    result = str(raw.get("result", "")).strip()
+    if result not in RUN_RESULTS:
+        raise ValueError("agent result payload must contain a valid result")
+    summary = str(raw.get("summary", "")).strip() or f"Agent reported result {result}."
+    findings = raw.get("findings", [])
+    if findings is None:
+        findings = []
+    if not isinstance(findings, list):
+        raise ValueError("agent result findings must be a list")
+    normalized = normalize_findings(summary, findings) if findings else []
+    return result, summary, normalized, str(result_file)
+
+
+def finalize_run_record(
+    run_id: str,
+    exit_code: int,
+    result_file: str = "",
+) -> dict[str, Any]:
+    result_path = Path(result_file) if result_file else (RUNS_DIR / run_id / AGENT_RESULT_FILE)
+    source = "fallback"
+    details = ""
+    findings: list[dict[str, Any]] = []
+    try:
+        result, summary, findings, details = load_agent_result_payload(result_path)
+        source = "agent_result"
+    except FileNotFoundError:
+        if exit_code == 0:
+            result = "failed"
+            summary = (
+                f"Agent exited successfully but did not write {AGENT_RESULT_FILE}; "
+                "treating the run as failed."
+            )
+        else:
+            result = "failed"
+            summary = f"Agent exited with code {exit_code} before producing {AGENT_RESULT_FILE}."
+    except Exception as exc:
+        result = "failed"
+        summary = f"Invalid agent result payload in {result_path}: {exc}"
+    payload = complete_run_record(run_id, result, summary, findings=findings)
+    payload["exit_code"] = exit_code
+    payload["result_source"] = source
+    if details:
+        payload["result_file"] = details
+    return payload
+
+
+def finalize_run_cmd(args: argparse.Namespace) -> None:
+    print_json(finalize_run_record(args.run, int(args.exit_code), result_file=args.result_file or ""))
 
 
 def cancel_run(args: argparse.Namespace) -> None:
@@ -4705,6 +5118,7 @@ def workflow_state(args: argparse.Namespace) -> None:
     data = load_tasks(args.spec)
     review_summary = review_status_summary(args.spec)
     active_runs = active_runs_for_spec(args.spec)
+    stale_runs = stale_runs_for_spec(args.spec)
     ready = []
     blocked = []
     for task in data.get("tasks", []):
@@ -4738,6 +5152,7 @@ def workflow_state(args: argparse.Namespace) -> None:
         "fix_request": load_fix_request_data(args.spec),
         "strategy_summary": strategy_summary(args.spec),
         "active_runs": active_runs,
+        "stale_runs": stale_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
         "blocking_reason": blocking_reason,
@@ -5332,6 +5747,19 @@ def build_parser() -> argparse.ArgumentParser:
     resume_cmd.add_argument("--run", required=True)
     resume_cmd.set_defaults(func=resume_run)
 
+    heartbeat_cmd = sub.add_parser("heartbeat-run", help="update run heartbeat metadata")
+    heartbeat_cmd.add_argument("--run", required=True)
+    heartbeat_cmd.add_argument("--status", default="")
+    heartbeat_cmd.add_argument("--session", default="")
+    heartbeat_cmd.add_argument("--exit-code", type=int)
+    heartbeat_cmd.set_defaults(func=heartbeat_run_cmd)
+
+    recover_cmd = sub.add_parser("recover-run", help="recover a stale or interrupted run")
+    recover_cmd.add_argument("--run", required=True)
+    recover_cmd.add_argument("--reason", default="manual_recover")
+    recover_cmd.add_argument("--dispatch", action="store_true")
+    recover_cmd.set_defaults(func=recover_run_cmd)
+
     complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
     complete_cmd.add_argument("--run", required=True)
     complete_cmd.add_argument("--result", required=True)
@@ -5339,6 +5767,12 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--findings-json", default="")
     complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
+
+    finalize_cmd = sub.add_parser("finalize-run", help="complete a run from an agent result artifact or exit code")
+    finalize_cmd.add_argument("--run", required=True)
+    finalize_cmd.add_argument("--exit-code", required=True, type=int)
+    finalize_cmd.add_argument("--result-file", default="")
+    finalize_cmd.set_defaults(func=finalize_run_cmd)
 
     cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
     cancel_cmd.add_argument("--run", required=True)
@@ -5357,6 +5791,16 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_runs.add_argument("--task-status", default="")
     cleanup_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
     cleanup_runs.set_defaults(func=cleanup_runs_cmd)
+
+    sweep_runs = sub.add_parser("sweep-runs", help="detect stale runs and mark or recover them")
+    sweep_runs.add_argument("--spec", required=True)
+    sweep_runs.add_argument("--stale-after", type=int, default=DEFAULT_STALE_AFTER_SECONDS)
+    sweep_runs.add_argument("--target-status", default="stale")
+    sweep_runs.add_argument("--task-status", default="")
+    sweep_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
+    sweep_runs.add_argument("--auto-recover", action="store_true")
+    sweep_runs.add_argument("--dispatch-recovery", action="store_true")
+    sweep_runs.set_defaults(func=sweep_runs_cmd)
 
     events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
     events_cmd.add_argument("--spec", required=True)

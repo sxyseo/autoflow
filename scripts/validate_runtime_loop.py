@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -81,13 +82,18 @@ def create_dummy_agent(binary_dir: Path) -> Path:
                 "#!/usr/bin/env python3",
                 "from pathlib import Path",
                 "import json",
+                "import os",
                 "import sys",
                 "import time",
                 f"log_path = Path({str(log_path)!r})",
                 "log_path.parent.mkdir(parents=True, exist_ok=True)",
                 "with log_path.open('a', encoding='utf-8') as handle:",
-                "    handle.write(json.dumps({'argv': sys.argv[1:]}) + '\\n')",
-                "time.sleep(2)",
+                "    handle.write(json.dumps({'argv': sys.argv[1:], 'run_id': os.environ.get('AUTOFLOW_RUN_ID', '')}) + '\\n')",
+                "time.sleep(1)",
+                "result_path = os.environ.get('AUTOFLOW_AGENT_RESULT', '').strip()",
+                "if result_path:",
+                "    path = Path(result_path)",
+                "    path.write_text(json.dumps({'result': 'success', 'summary': 'Dummy ACP agent wrote the completion artifact.', 'findings': []}) + '\\n', encoding='utf-8')",
                 "print('dummy acp agent complete')",
             ]
         )
@@ -133,6 +139,33 @@ def create_disposable_spec(slug: str) -> None:
         ]
     )
     run(["python3", "scripts/autoflow.py", "init-tasks", "--spec", slug])
+
+
+def workflow_state(slug: str, env: dict[str, str]) -> dict[str, Any]:
+    return json.loads(
+        run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", slug], env=env).stdout
+    )
+
+
+def wait_for_no_active_runs(slug: str, env: dict[str, str], timeout_seconds: float = 15.0) -> dict[str, Any]:
+    deadline = time.time() + timeout_seconds
+    last_state: dict[str, Any] = {}
+    while time.time() < deadline:
+        last_state = workflow_state(slug, env)
+        if not last_state.get("active_runs"):
+            return last_state
+        time.sleep(0.5)
+    raise SystemExit(
+        json.dumps(
+            {
+                "error": "timed_out_waiting_for_run_completion",
+                "spec": slug,
+                "last_state": last_state,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
 
 
 def main() -> None:
@@ -244,15 +277,14 @@ def main() -> None:
         )
         sessions.append(dispatch_result["dispatch"]["payload"]["tmux_session"])
         run(["tmux", "has-session", "-t", sessions[-1]], env=env)
-        dispatch_state = json.loads(
-            run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", dispatch_slug], env=env).stdout
-        )
-        if not dispatch_state["active_runs"]:
-            raise SystemExit("direct dispatch did not leave an active run record")
+        dispatch_state = wait_for_no_active_runs(dispatch_slug, env)
+        if dispatch_state["recommended_next_action"]["owner_role"] != "reviewer":
+            raise SystemExit("direct dispatch did not auto-complete into reviewer handoff")
         results["direct_dispatch"] = dispatch_result
         results["direct_dispatch_state"] = {
             "active_runs": len(dispatch_state["active_runs"]),
             "ready_tasks": dispatch_state["ready_tasks"],
+            "recommended_next_action": dispatch_state["recommended_next_action"],
         }
 
         scheduler_run = run(
@@ -268,11 +300,9 @@ def main() -> None:
             ],
             env=env,
         )
-        scheduler_state = json.loads(
-            run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", scheduler_slug], env=env).stdout
-        )
-        if not scheduler_state["active_runs"]:
-            raise SystemExit("scheduler run-once did not dispatch an active run")
+        scheduler_state = wait_for_no_active_runs(scheduler_slug, env)
+        if scheduler_state["recommended_next_action"]["owner_role"] != "reviewer":
+            raise SystemExit("scheduler run-once did not auto-complete into reviewer handoff")
         active_sessions = run(["tmux", "ls"], env=env, check=False).stdout.splitlines()
         for line in active_sessions:
             name = line.split(":", 1)[0]
@@ -282,6 +312,7 @@ def main() -> None:
             "stdout": scheduler_run.stdout,
             "stderr": scheduler_run.stderr,
             "active_runs": len(scheduler_state["active_runs"]),
+            "recommended_next_action": scheduler_state["recommended_next_action"],
         }
         results["validated"] = True
         print(json.dumps(results, indent=2, ensure_ascii=True))

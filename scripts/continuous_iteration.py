@@ -462,6 +462,28 @@ def sync_agents(overwrite: bool = False) -> dict[str, Any]:
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
+def sweep_stale_runs(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
+    recovery_cfg = config.get("recovery", {})
+    cmd = [
+        "python3",
+        "scripts/autoflow.py",
+        "sweep-runs",
+        "--spec",
+        spec,
+        "--stale-after",
+        str(recovery_cfg.get("stale_after_seconds", 120)),
+    ]
+    include_status = recovery_cfg.get("include_statuses", ["created", "running"])
+    if include_status:
+        cmd.extend(["--include-status", *include_status])
+    if recovery_cfg.get("auto_recover", True):
+        cmd.append("--auto-recover")
+        if dispatch and recovery_cfg.get("dispatch_recovery", True):
+            cmd.append("--dispatch-recovery")
+    result = run(cmd)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
 def load_agent_catalog() -> dict[str, dict[str, Any]]:
     data = load_json(AGENTS_FILE, default={"agents": {}})
     agents = data.get("agents", {})
@@ -661,6 +683,7 @@ def main() -> None:
 
     config = load_config(args.config)
     result = {"spec": args.spec}
+    result["recovery"] = sweep_stale_runs(config, args.spec, args.dispatch)
     initial_state = workflow_state(args.spec)
     if args.commit_if_dirty:
         result["commit"] = auto_commit(config, args.spec, args.push, initial_state)

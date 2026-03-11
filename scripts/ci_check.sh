@@ -9,6 +9,7 @@ python3 -m py_compile \
   scripts/continuous_iteration.py \
   scripts/scheduler.py \
   scripts/validate_readme_flow.py \
+  scripts/validate_recovery_loop.py \
   scripts/validate_runtime_loop.py \
   tests/autoflow_tests/test_scheduler.py \
   tests/test_agent_runner.py \
