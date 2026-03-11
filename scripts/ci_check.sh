@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! python3 -c "import pytest" >/dev/null 2>&1; then
-  python3 -m pip install pytest
+if ! python3 -c "import pytest, click" >/dev/null 2>&1; then
+  python3 -m pip install pytest click
 fi
 
 python3 -m py_compile \
