@@ -21,6 +21,16 @@
       ]
     }
   },
+  "dispatch": {
+    "max_concurrent_runs": 2,
+    "dispatch_interval_seconds": 120
+  },
+  "recovery": {
+    "stale_after_seconds": 120,
+    "include_statuses": ["created", "running"],
+    "auto_recover": true,
+    "dispatch_recovery": true
+  },
   "verify_commands": [
     "bash scripts/ci_check.sh",
     "python3 scripts/autoflow.py workflow-state --spec {spec}"

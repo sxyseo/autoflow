@@ -462,6 +462,28 @@ def sync_agents(overwrite: bool = False) -> dict[str, Any]:
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
+def sweep_stale_runs(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
+    recovery_cfg = config.get("recovery", {})
+    cmd = [
+        "python3",
+        "scripts/autoflow.py",
+        "sweep-runs",
+        "--spec",
+        spec,
+        "--stale-after",
+        str(recovery_cfg.get("stale_after_seconds", 120)),
+    ]
+    include_status = recovery_cfg.get("include_statuses", ["created", "running"])
+    if include_status:
+        cmd.extend(["--include-status", *include_status])
+    if recovery_cfg.get("auto_recover", True):
+        cmd.append("--auto-recover")
+        if dispatch and recovery_cfg.get("dispatch_recovery", True):
+            cmd.append("--dispatch-recovery")
+    result = run(cmd)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
 def load_agent_catalog() -> dict[str, dict[str, Any]]:
     data = load_json(AGENTS_FILE, default={"agents": {}})
     agents = data.get("agents", {})
@@ -477,6 +499,38 @@ def default_role_preferences(role: str) -> list[str]:
         "maintainer": ["codex-impl", "codex", "acp-example"],
     }
     return preferences.get(role, [])
+
+
+def dispatch_settings(config: dict[str, Any]) -> dict[str, Any]:
+    return config.get("dispatch", {})
+
+
+def select_dispatch_candidate(state: dict[str, Any]) -> dict[str, Any] | None:
+    next_action = state.get("recommended_next_action")
+    if next_action:
+        return next_action
+
+    ready_tasks = state.get("ready_tasks", [])
+    if not ready_tasks:
+        return None
+
+    active_task_ids = {
+        item.get("task")
+        for item in state.get("active_runs", [])
+        if isinstance(item, dict) and item.get("task")
+    }
+    for entry in ready_tasks:
+        if entry.get("id") not in active_task_ids:
+            return entry
+    return None
+
+
+def active_runs_for_agent(state: dict[str, Any], agent_name: str) -> int:
+    return sum(
+        1
+        for item in state.get("active_runs", [])
+        if isinstance(item, dict) and item.get("agent") == agent_name
+    )
 
 
 def select_agent_for_role(config: dict[str, Any], role: str, catalog: dict[str, dict[str, Any]]) -> tuple[str | None, str]:
@@ -499,8 +553,6 @@ def select_agent_for_role(config: dict[str, Any], role: str, catalog: dict[str, 
 
 
 def dispatch_gate(config: dict[str, Any], state: dict[str, Any], next_action: dict[str, Any] | None) -> dict[str, Any] | None:
-    if state.get("active_runs"):
-        return {"blocked": True, "reason": "active_run_exists"}
     if state.get("blocking_reason"):
         return {"blocked": True, "reason": state["blocking_reason"]}
     if not next_action:
@@ -527,9 +579,41 @@ def dispatch_gate(config: dict[str, Any], state: dict[str, Any], next_action: di
     return None
 
 
+def concurrency_gate(
+    config: dict[str, Any],
+    state: dict[str, Any],
+    agent_name: str,
+    catalog: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    active_runs = state.get("active_runs", [])
+    dispatch_cfg = dispatch_settings(config)
+    max_spec_runs = dispatch_cfg.get("max_concurrent_runs", 1)
+    if len(active_runs) >= max_spec_runs:
+        return {
+            "blocked": True,
+            "reason": "spec_concurrency_limit_reached",
+            "active_runs": len(active_runs),
+            "max_concurrent_runs": max_spec_runs,
+        }
+
+    agent_spec = catalog.get(agent_name, {})
+    max_agent_runs = agent_spec.get("max_concurrent")
+    if isinstance(max_agent_runs, int) and max_agent_runs > 0:
+        current_agent_runs = active_runs_for_agent(state, agent_name)
+        if current_agent_runs >= max_agent_runs:
+            return {
+                "blocked": True,
+                "reason": "agent_concurrency_limit_reached",
+                "agent": agent_name,
+                "active_runs": current_agent_runs,
+                "max_concurrent": max_agent_runs,
+            }
+    return None
+
+
 def dispatch_next(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
     state = workflow_state(spec)
-    next_action = state.get("recommended_next_action")
+    next_action = select_dispatch_candidate(state)
     gate = dispatch_gate(config, state, next_action)
     if gate:
         return {"dispatched": False, "reason": gate["reason"], "gate": gate, "state": state}
@@ -546,6 +630,15 @@ def dispatch_next(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str
         return {
             "dispatched": False,
             "reason": f"no_agent_for_role:{role}",
+            "state": state,
+            "agent_sync": sync_result,
+        }
+    limit_gate = concurrency_gate(config, state, agent, catalog)
+    if limit_gate:
+        return {
+            "dispatched": False,
+            "reason": limit_gate["reason"],
+            "gate": limit_gate,
             "state": state,
             "agent_sync": sync_result,
         }
@@ -590,6 +683,7 @@ def main() -> None:
 
     config = load_config(args.config)
     result = {"spec": args.spec}
+    result["recovery"] = sweep_stale_runs(config, args.spec, args.dispatch)
     initial_state = workflow_state(args.spec)
     if args.commit_if_dirty:
         result["commit"] = auto_commit(config, args.spec, args.push, initial_state)

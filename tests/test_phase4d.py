@@ -247,13 +247,17 @@ class Phase4DTests(unittest.TestCase):
             model="claude-sonnet-4-6",
             memory_scopes=["spec"],
         )
-        prompt = self.autoflow.build_prompt("prompt-spec", "reviewer", "T1", agent)
+        prompt = self.autoflow.build_prompt(
+            "prompt-spec", "reviewer", "T1", agent, run_id="run-123"
+        )
         self.assertIn('"file": "scripts/continuous_iteration.py"', prompt)
         self.assertIn(
             '"suggested_fix": "Return the blocker in dispatch output."', prompt
         )
         self.assertIn("spec memory", prompt)
         self.assertNotIn("global memory", prompt)
+        self.assertIn(".autoflow/runs/run-123/agent_result.json", prompt)
+        self.assertIn("## Completion contract", prompt)
 
     def test_complete_run_records_strategy_reflection_and_playbook(self) -> None:
         self.create_spec("strategy-spec")
@@ -509,6 +513,276 @@ class Phase4DTests(unittest.TestCase):
         )
         self.assertEqual(metadata["resume_from"], first_run)
         self.assertEqual(metadata["attempt_count"], 2)
+
+    def test_heartbeat_run_updates_session_and_status(self) -> None:
+        self.create_spec("lease-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="lease-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.heartbeat_run_cmd,
+            SimpleNamespace(
+                run=run_id,
+                status="running",
+                session="autoflow-lease-test",
+                exit_code=None,
+            ),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(metadata["status"], "running")
+        self.assertEqual(metadata["tmux_session"], "autoflow-lease-test")
+        self.assertIn("heartbeat_at", metadata)
+
+    def test_sweep_runs_marks_stale_and_requeues_task(self) -> None:
+        self.create_spec("stale-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="stale-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        metadata = self.autoflow.load_run_metadata(run_id)
+        metadata["status"] = "running"
+        metadata["heartbeat_at"] = "20200101T000000Z"
+        metadata["tmux_session"] = ""
+        self.autoflow.write_run_metadata(run_id, metadata)
+        result = self.capture_json_output(
+            self.autoflow.sweep_runs_cmd,
+            SimpleNamespace(
+                spec="stale-spec",
+                stale_after=60,
+                target_status="stale",
+                task_status="",
+                include_status=["created", "running"],
+                auto_recover=False,
+                dispatch_recovery=False,
+            ),
+        )
+        self.assertEqual(result["marked_stale"][0]["run"], run_id)
+        metadata = self.autoflow.load_run_metadata(run_id)
+        self.assertEqual(metadata["status"], "stale")
+        tasks = self.autoflow.load_tasks("stale-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(task["status"], "todo")
+
+    def test_recover_run_creates_retry_and_marks_old_run(self) -> None:
+        self.create_spec("recover-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="recover-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        metadata = self.autoflow.load_run_metadata(run_id)
+        metadata["status"] = "stale"
+        self.autoflow.write_run_metadata(run_id, metadata)
+        result = self.capture_json_output(
+            self.autoflow.recover_run_cmd,
+            SimpleNamespace(run=run_id, reason="stale:heartbeat_expired", dispatch=False),
+        )
+        old_metadata = self.autoflow.load_run_metadata(run_id)
+        new_metadata = self.autoflow.load_run_metadata(result["new_run"])
+        self.assertEqual(old_metadata["status"], "recovered")
+        self.assertEqual(new_metadata["resume_from"], run_id)
+        self.assertEqual(new_metadata["recovery_reason"], "stale:heartbeat_expired")
+
+    def test_finalize_run_uses_agent_result_artifact(self) -> None:
+        self.create_spec("finalize-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="finalize-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result_file = self.autoflow.RUNS_DIR / run_id / "agent_result.json"
+        result_file.write_text(
+            json.dumps(
+                {
+                    "result": "success",
+                    "summary": "Agent finished the slice and recorded the result.",
+                    "findings": [],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = self.capture_json_output(
+            self.autoflow.finalize_run_cmd,
+            SimpleNamespace(run=run_id, exit_code=0, result_file=str(result_file)),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        tasks = self.autoflow.load_tasks("finalize-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(result["result_source"], "agent_result")
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(metadata["result"], "success")
+        self.assertEqual(task["status"], "in_review")
+
+    def test_finalize_run_without_result_file_marks_failed(self) -> None:
+        self.create_spec("finalize-fallback")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="finalize-fallback",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.finalize_run_cmd,
+            SimpleNamespace(run=run_id, exit_code=0, result_file=""),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        tasks = self.autoflow.load_tasks("finalize-fallback")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(result["result_source"], "fallback")
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(metadata["result"], "failed")
+        self.assertEqual(task["status"], "blocked")
+        self.assertIn("did not write agent_result.json", (self.autoflow.RUNS_DIR / run_id / "summary.md").read_text(encoding="utf-8"))
+
+    def test_bounded_qa_loop_progresses_from_fix_request_to_done(self) -> None:
+        self.create_spec("qa-loop-spec")
+        tasks = self.autoflow.load_tasks("qa-loop-spec")
+        self.autoflow.task_lookup(tasks, "T1")["status"] = "done"
+        self.autoflow.task_lookup(tasks, "T2")["status"] = "done"
+        self.autoflow.save_tasks("qa-loop-spec", tasks, reason="task_status_updated")
+        self.capture_json_output(
+            self.autoflow.approve_spec,
+            SimpleNamespace(spec="qa-loop-spec", approved_by="tester"),
+        )
+
+        impl_out = io.StringIO()
+        with redirect_stdout(impl_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="implementation-runner",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        impl_run = Path(impl_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=impl_run, result="success", summary="Initial implementation slice done."),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "reviewer")
+        self.assertEqual(state["recommended_next_action"]["id"], "T3")
+
+        review_out = io.StringIO()
+        with redirect_stdout(review_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="reviewer",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        review_run = Path(review_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(
+                run=review_run,
+                result="needs_changes",
+                summary="Please tighten the implementation and add follow-up checks.",
+            ),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertTrue(state["fix_request_present"])
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "implementation-runner")
+        self.assertEqual(state["recommended_next_action"]["id"], "T3")
+
+        retry_out = io.StringIO()
+        with redirect_stdout(retry_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="implementation-runner",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        retry_run = Path(retry_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=retry_run, result="success", summary="Applied reviewer fixes."),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "reviewer")
+
+        final_review_out = io.StringIO()
+        with redirect_stdout(final_review_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="reviewer",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        final_review_run = Path(final_review_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=final_review_run, result="success", summary="Review passed."),
+        )
+        tasks = self.autoflow.load_tasks("qa-loop-spec")
+        task = self.autoflow.task_lookup(tasks, "T3")
+        self.assertEqual(task["status"], "done")
+        self.assertFalse(self.autoflow.load_fix_request("qa-loop-spec"))
 
     def test_workflow_state_blocks_implementation_when_review_invalid(self) -> None:
         self.create_spec("gate-spec")

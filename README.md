@@ -585,6 +585,29 @@ That's it! Autoflow will now:
 3. Verify and commit changes
 4. Repeat autonomously
 
+### Validate the Runtime Loop
+
+```bash
+# Command-layer smoke test
+python3 scripts/validate_readme_flow.py --agent codex
+
+# Runtime-loop smoke test (uses a disposable dummy ACP agent and tmux)
+python3 scripts/validate_runtime_loop.py
+
+# Recovery and bounded QA-loop smoke test
+python3 scripts/validate_recovery_loop.py
+```
+
+The runtime validation confirms that:
+- `continuous_iteration.py --dispatch` creates a real background tmux run and auto-finalizes it after the agent writes `agent_result.json`
+- `scheduler.py run-once --job-type continuous_iteration` can drive the same path from scheduler config
+- Autoflow advances state into reviewer handoff instead of leaving a dangling active run
+
+The recovery validation confirms that:
+- stale runs can be recovered into retry runs
+- reviewer `needs_changes` generates a fix request and hands work back to implementation
+- the bounded fix and re-review loop advances the task into the next stage
+
 ## Configuration
 
 ### Agent Configuration (`.autoflow/agents.json`)
@@ -703,6 +726,28 @@ That's it! Autoflow will now:
     "max_attempts": 3,
     "require_fix_request": true,
     "backoff_multiplier": 2
+  }
+}
+```
+
+### Scheduler Configuration
+
+The scheduler's `continuous_iteration` job must declare which spec it should drive:
+
+```json
+{
+  "jobs": {
+    "continuous_iteration": {
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "args": {
+        "spec": "my-first-project",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true,
+        "commit_if_dirty": false,
+        "push": false
+      }
+    }
   }
 }
 ```
