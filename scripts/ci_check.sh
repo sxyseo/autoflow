@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! python3 -c "import pytest" >/dev/null 2>&1; then
+  python3 -m pip install pytest
+fi
+
 python3 -m py_compile \
   scripts/agent_runner.py \
   scripts/autoflow.py \
