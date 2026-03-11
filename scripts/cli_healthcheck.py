@@ -30,6 +30,7 @@ from autoflow.utils.time_helpers import now_stamp
 
 
 ROOT = Path(__file__).resolve().parent.parent
+run = run_cmd
 
 
 def probe_binary(name: str) -> dict[str, Any]:
@@ -47,8 +48,8 @@ def probe_binary(name: str) -> dict[str, Any]:
     version_cmd = [name, "--version"]
     if name == "tmux":
         version_cmd = [name, "-V"]
-    version_result = run_cmd(version_cmd, cwd=ROOT, check=False)
-    help_result = run_cmd([name, "--help"], cwd=ROOT, check=False)
+    version_result = run(version_cmd, cwd=ROOT, check=False)
+    help_result = run([name, "--help"], cwd=ROOT, check=False)
     version_text = (version_result.stdout or version_result.stderr).strip()
     help_text = (help_result.stdout or "") + (help_result.stderr or "")
     capabilities = {
@@ -68,7 +69,7 @@ def probe_binary(name: str) -> dict[str, Any]:
 def tmux_sessions() -> list[dict[str, Any]]:
     if not shutil.which("tmux"):
         return []
-    result = run_cmd(["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"], cwd=ROOT, check=False)
+    result = run(["tmux", "list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}"], cwd=ROOT, check=False)
     if result.returncode != 0:
         return []
     sessions = []

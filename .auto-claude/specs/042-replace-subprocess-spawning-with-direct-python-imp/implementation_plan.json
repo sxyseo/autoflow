@@ -679,11 +679,10 @@
     }
   },
   "qa_signoff": null,
-  "status": "human_review",
-  "planStatus": "review",
-  "xstateState": "human_review",
-  "executionPhase": "complete",
-  "updated_at": "2026-03-10T15:48:17.369Z",
-  "last_updated": "2026-03-07T22:51:00.000000+00:00",
-  "reviewReason": "completed"
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-07T15:13:17.975Z",
+  "last_updated": "2026-03-07T22:51:00.000000+00:00"
 }

@@ -1421,20 +1421,16 @@ def load_tasks(spec_slug: str) -> dict[str, Any]:
     """
     global _tasks_metadata_cache, _cache_loaded_task_specs
 
-    # Return cached data if available (cache hit)
+    _populate_tasks_cache(spec_slug)
     if spec_slug in _cache_loaded_task_specs:
         return _tasks_metadata_cache.get(spec_slug, {})
 
-    # Load from disk
     path = task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
     tasks_data = read_json(path)
-
-    # Populate cache
     _tasks_metadata_cache[spec_slug] = tasks_data
     _cache_loaded_task_specs.add(spec_slug)
-
     return tasks_data
 
 
@@ -2131,6 +2127,7 @@ def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_stat
     """
     data["updated_at"] = now_stamp()
     write_json(task_file(spec_slug), data)
+    invalidate_tasks_cache()
     sync_review_state(spec_slug, reason=reason)
 
 
@@ -2702,6 +2699,13 @@ def invalidate_config_cache() -> None:
     """
     invalidate_system_config_cache()
     invalidate_agents_cache()
+
+
+def invalidate_tasks_cache() -> None:
+    """Invalidate the task metadata cache."""
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+    _tasks_metadata_cache.clear()
+    _cache_loaded_task_specs.clear()
 
 
 def _populate_tasks_cache(spec_slug: str) -> None:
@@ -4469,6 +4473,7 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
         "tasks": normalized,
     }
     write_json(task_file(args.spec), data)
+    invalidate_tasks_cache()
     sync_review_state(args.spec, reason="taskmaster_import")
     record_event(args.spec, "taskmaster.imported", {"task_count": len(normalized), "source": args.input})
     print_json({"spec": args.spec, "task_count": len(normalized)})
