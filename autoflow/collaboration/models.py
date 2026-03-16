@@ -16,6 +16,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+# Import typed metadata from types module
+from autoflow.collaboration.types import ActivityMetadata, NotificationMetadata
+
 
 class User(BaseModel):
     """
@@ -45,7 +48,7 @@ class User(BaseModel):
     full_name: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: ActivityMetadata = Field(default_factory=dict)
 
     def touch(self) -> None:
         """Update the updated_at timestamp."""
@@ -332,7 +335,7 @@ class ActivityEvent(BaseModel):
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     description: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: ActivityMetadata = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -404,7 +407,7 @@ class Notification(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     read_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: NotificationMetadata = Field(default_factory=dict)
 
     def mark_as_read(self) -> None:
         """Mark the notification as read."""
