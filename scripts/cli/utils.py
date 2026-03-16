@@ -585,3 +585,268 @@ def save_tasks(
     invalidate_tasks_cache()
     if sync_review_state_callback:
         sync_review_state_callback(spec_slug, reason=reason)
+
+
+# Run metadata cache for performance optimization
+
+_run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
+_cache_loaded_specs: set[str] = set()
+
+
+def _populate_run_cache_for_spec(spec_slug: str) -> None:
+    """Load run metadata for a specific spec_slug into the cache.
+
+    This implements lazy-loading: runs are only loaded from disk when needed.
+    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
+
+    Opportunistic Caching:
+        Since we must scan all run directories to find runs for the requested spec,
+        we opportunistically cache runs for ALL specs encountered during the scan.
+        This means the first call for any spec effectively caches runs for all specs,
+        making subsequent calls for other specs essentially free (O(1) lookup).
+
+    Cache Invalidation:
+        If the spec is already in _cache_loaded_specs, we skip the filesystem scan
+        entirely and return immediately. This ensures that after the first load,
+        all subsequent calls are pure memory lookups.
+
+    Args:
+        spec_slug: The spec identifier to load runs for.
+    """
+    global _run_metadata_cache, _cache_loaded_specs
+
+    # Skip if this spec has already been loaded (cache hit)
+    if spec_slug in _cache_loaded_specs:
+        return
+
+    # Ensure the spec has an entry in the cache
+    if spec_slug not in _run_metadata_cache:
+        _run_metadata_cache[spec_slug] = []
+
+    # Load runs from filesystem for this spec
+    # Note: We must scan all directories to find runs matching this spec
+    if not RUNS_DIR.exists():
+        _cache_loaded_specs.add(spec_slug)
+        return
+
+    # First pass: discover all specs and collect their run IDs
+    # This enables opportunistic caching of all specs in one scan
+    spec_runs = {}
+    for run_dir in sorted(RUNS_DIR.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        metadata_path = run_dir / "run.json"
+        if metadata_path.exists():
+            metadata = read_json(metadata_path)
+            run_spec = metadata.get("spec", "")
+            if run_spec:
+                if run_spec not in spec_runs:
+                    spec_runs[run_spec] = []
+                spec_runs[run_spec].append(metadata)
+
+    # Second pass: add all discovered runs to cache
+    # This implements opportunistic caching for all specs encountered
+    for discovered_spec, runs in spec_runs.items():
+        if discovered_spec not in _run_metadata_cache:
+            _run_metadata_cache[discovered_spec] = []
+        _run_metadata_cache[discovered_spec].extend(runs)
+        _cache_loaded_specs.add(discovered_spec)
+
+
+def _populate_run_cache() -> None:
+    """Populate the run metadata cache from the filesystem for all specs.
+
+    This is the non-lazy version that loads all runs at once.
+    Prefer using _populate_run_cache_for_spec() for lazy-loading.
+    """
+    global _run_metadata_cache, _cache_loaded_specs
+
+    # Load all specs that haven't been loaded yet
+    if not RUNS_DIR.exists():
+        return
+
+    # First, discover all spec_slugs
+    all_specs = set()
+    for run_dir in sorted(RUNS_DIR.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        metadata_path = run_dir / "run.json"
+        if metadata_path.exists():
+            metadata = read_json(metadata_path)
+            spec_slug = metadata.get("spec", "")
+            if spec_slug:
+                all_specs.add(spec_slug)
+
+    # Load each spec that hasn't been loaded yet
+    for spec_slug in all_specs:
+        _populate_run_cache_for_spec(spec_slug)
+
+
+def invalidate_run_cache() -> None:
+    """Invalidate the run metadata cache.
+
+    Call this function whenever runs are created, modified, or deleted to ensure
+    the cache remains consistent with the filesystem state. This is a simple but
+    correct approach: we clear all cached data, and it will be reloaded on demand.
+
+    Cache Invalidation Strategy:
+        - Simple: clear all cached data (not selective invalidation)
+        - Safe: ensures cache consistency after any run modification
+        - Lazy: data is reloaded on next access (not immediately)
+        - Called by: create_run_record() after creating new run directories
+
+    Note: While invalidating the entire cache may seem aggressive, it's the
+    correct approach because:
+        1. Run creation is relatively rare (not a hot path)
+        2. Cache rebuild is lazy (amortized cost)
+        3. Simplicity avoids complex invalidation bugs
+        4. Performance impact is minimal (cache rebuilds are fast)
+    """
+    global _run_metadata_cache, _cache_loaded_specs
+    _run_metadata_cache.clear()
+    _cache_loaded_specs.clear()
+
+
+def run_metadata_path(run_id: str) -> Path:
+    """
+    Get the path to a run's metadata file.
+
+    Args:
+        run_id: Unique identifier for the run
+
+    Returns:
+        Path to the run.json metadata file for the run
+    """
+    return RUNS_DIR / run_id / "run.json"
+
+
+def load_run_metadata(run_id: str) -> dict[str, Any]:
+    """
+    Load metadata for a run.
+
+    Args:
+        run_id: Unique identifier for the run
+
+    Returns:
+        Dictionary containing run metadata
+
+    Raises:
+        SystemExit: If the run does not exist
+    """
+    path = run_metadata_path(run_id)
+    if not path.exists():
+        raise SystemExit(f"unknown run: {run_id}")
+    return read_json(path)
+
+
+def write_run_metadata(run_id: str, metadata: dict[str, Any]) -> None:
+    """
+    Write metadata for a run.
+
+    Updates the updated_at timestamp before saving and invalidates the cache.
+
+    Args:
+        run_id: Unique identifier for the run
+        metadata: Metadata dictionary to save
+    """
+    metadata["updated_at"] = now_stamp()
+    write_json(run_metadata_path(run_id), metadata)
+    invalidate_run_cache()
+
+
+def run_last_activity(metadata: dict[str, Any]) -> datetime | None:
+    """
+    Get the last activity timestamp from run metadata.
+
+    Checks multiple timestamp fields in order of priority:
+    - heartbeat_at: Most recent heartbeat from the run
+    - updated_at: Last metadata update
+    - created_at: Initial run creation time
+
+    Args:
+        metadata: Run metadata dictionary
+
+    Returns:
+        Datetime of last activity, or None if no timestamp found
+    """
+    for field in ("heartbeat_at", "updated_at", "created_at"):
+        parsed = parse_stamp(metadata.get(field, ""))
+        if parsed:
+            return parsed
+    return None
+
+
+def run_stale_reason(
+    metadata: dict[str, Any],
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> str:
+    """
+    Determine if a run is stale and return the reason.
+
+    A run is considered stale if:
+    - It has an active status (created/running)
+    - Its tmux session no longer exists
+    - No heartbeat has been received within the stale_after_seconds window
+
+    Args:
+        metadata: Run metadata dictionary
+        stale_after_seconds: Seconds of inactivity before considering stale
+
+    Returns:
+        String reason for staleness:
+        - "": Not stale
+        - "tmux_session_missing": Tmux session no longer exists
+        - "missing_heartbeat": No heartbeat timestamp found
+        - "heartbeat_expired": Heartbeat too old
+    """
+    if metadata.get("status") not in RUN_LEASE_ACTIVE_STATUSES:
+        return ""
+    session_name = metadata.get("tmux_session", "")
+    if session_name and not tmux_session_exists(session_name):
+        return "tmux_session_missing"
+    last_activity = run_last_activity(metadata)
+    if not last_activity:
+        return "missing_heartbeat"
+    age_seconds = (now_utc() - last_activity).total_seconds()
+    if age_seconds > stale_after_seconds:
+        return "heartbeat_expired"
+    return ""
+
+
+def run_is_stale(
+    metadata: dict[str, Any],
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> bool:
+    """
+    Check if a run is stale.
+
+    Args:
+        metadata: Run metadata dictionary
+        stale_after_seconds: Seconds of inactivity before considering stale
+
+    Returns:
+        True if the run is stale, False otherwise
+    """
+    return bool(run_stale_reason(metadata, stale_after_seconds=stale_after_seconds))
+
+
+def stale_runs_for_spec(
+    spec_slug: str,
+    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+) -> list[dict[str, Any]]:
+    """
+    Get all stale runs for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+        stale_after_seconds: Seconds of inactivity before considering stale
+
+    Returns:
+        List of stale run metadata dictionaries
+    """
+    _populate_run_cache_for_spec(spec_slug)
+    return [
+        item
+        for item in _run_metadata_cache.get(spec_slug, [])
+        if run_is_stale(item, stale_after_seconds=stale_after_seconds)
+    ]

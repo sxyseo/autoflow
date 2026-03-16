@@ -3,13 +3,13 @@
   "spec": "106-split-monolithic-autoflow-py-cli-into-modular-subc",
   "state": "building",
   "subtasks": {
-    "completed": 5,
+    "completed": 8,
     "total": 25,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Extract Task Commands",
+    "current": "Extract Run Commands",
     "id": null,
     "total": 2
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 7,
+    "number": 10,
     "started_at": "2026-03-16T11:30:55.478090"
   },
-  "last_update": "2026-03-16T11:45:50.477812"
+  "last_update": "2026-03-16T11:56:43.145102"
 }
