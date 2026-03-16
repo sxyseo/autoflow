@@ -141,3 +141,60 @@ def duplication_report(
         click.echo("")
         click.echo("Note: This is a CLI placeholder. Full report display")
         click.echo("      requires async runtime and persistence integration.")
+
+
+@duplication.command("analyze")
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, path_type=click.Path),
+    default=None,
+    help="Path to analyze for duplications (default: current directory).",
+)
+@click.option(
+    "--threshold",
+    "-t",
+    type=click.FloatRange(0.0, 1.0),
+    default=0.8,
+    help="Similarity threshold for reporting duplications (0.0-1.0).",
+)
+@click.option(
+    "--detailed/--summary",
+    default=False,
+    help="Show detailed analysis vs summary view.",
+)
+@click.pass_context
+def duplication_analyze(
+    ctx: click.Context,
+    path: click.Path | None,
+    threshold: float,
+    detailed: bool,
+) -> None:
+    """
+    Analyze code for duplications and display results.
+
+    Performs a one-shot duplication analysis without creating a report file.
+
+    \b
+    Examples:
+        autoflow duplication analyze
+        autoflow duplication analyze --path ./src --threshold 0.9
+        autoflow duplication analyze --detailed
+    """
+    if ctx.obj.get("output_json"):
+        _print_json({
+            "status": "placeholder",
+            "path": str(path) if path else ".",
+            "threshold": threshold,
+            "detailed": detailed,
+            "message": "Duplication analysis requires async execution. This is a placeholder.",
+        })
+    else:
+        click.echo("Code Duplication Analysis")
+        click.echo("=" * 60)
+        click.echo(f"Path: {path if path else '.'}")
+        click.echo(f"Threshold: {threshold}")
+        click.echo(f"Mode: {'Detailed' if detailed else 'Summary'}")
+        click.echo("")
+        click.echo("Note: This is a CLI placeholder. Full duplication analysis")
+        click.echo("      requires async runtime and AI model integration.")
