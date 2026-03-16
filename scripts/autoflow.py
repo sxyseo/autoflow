@@ -2035,14 +2035,8 @@ def compute_file_hash(path: Path) -> str:
     """
     Compute MD5 hash of a file's content with caching.
 
-    Uses an in-memory cache indexed by file path with mtime-based invalidation.
-    Returns cached hash if file exists and mtime matches, otherwise computes
-    and caches the hash.
-
-    Cache Invalidation Strategy:
-        - First call: computes hash and stores with current mtime
-        - Subsequent calls: returns cached hash if mtime unchanged
-        - File modification: mtime changes triggers recomputation
+    Uses in-memory cache with mtime-based invalidation. First call reads file
+    and computes hash. Subsequent calls return cached hash if file unchanged.
 
     Args:
         path: Path to the file to hash
@@ -2050,28 +2044,27 @@ def compute_file_hash(path: Path) -> str:
     Returns:
         Hexadecimal MD5 hash string, or empty string if file doesn't exist
     """
-    global _file_hash_cache
+    global _file_hash_cache, _file_mtime_cache
 
     if not path.exists():
         return ""
 
-    path_str = str(path)
-    current_mtime = path.stat().st_mtime
+    current_mtime = get_file_mtime(path)
 
-    # Check cache with mtime validation
-    if path_str in _file_hash_cache:
-        cached_hash, cached_mtime = _file_hash_cache[path_str]
-        if cached_mtime == current_mtime:
-            return cached_hash
+    # Check if we have a cached value and file hasn't changed
+    if path in _file_mtime_cache and path in _file_hash_cache:
+        if _file_mtime_cache[path] == current_mtime:
+            return _file_hash_cache[path]
 
-    # Cache miss or mtime changed - compute hash
+    # File changed or not cached, recompute hash
     content = path.read_text(encoding="utf-8")
-    file_hash = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    hash_value = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
 
-    # Store in cache with mtime for invalidation
-    _file_hash_cache[path_str] = (file_hash, current_mtime)
+    # Update cache
+    _file_hash_cache[path] = hash_value
+    _file_mtime_cache[path] = current_mtime
 
-    return file_hash
+    return hash_value
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
@@ -2560,8 +2553,8 @@ _system_config_cache: dict[str, Any] | None = None
 _agents_config_cache: dict[str, AgentSpec] | None = None
 _tasks_metadata_cache: dict[str, dict[str, Any]] = {}
 _cache_loaded_task_specs: set[str] = set()
-_file_hash_cache: dict[str, str] = {}
-_file_mtime_cache: dict[str, float] = {}
+_file_hash_cache: dict[Path, str] = {}
+_file_mtime_cache: dict[Path, float] = {}
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2807,8 +2800,9 @@ def clear_hash_cache() -> None:
         - Lazy: data is reloaded on next access (not immediately)
         - Efficient: avoids unnecessary filesystem reads
     """
-    global _file_hash_cache
+    global _file_hash_cache, _file_mtime_cache
     _file_hash_cache.clear()
+    _file_mtime_cache.clear()
 
 
 def _populate_tasks_cache(spec_slug: str) -> None:
