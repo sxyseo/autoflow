@@ -1,0 +1,69 @@
+{
+  "attempts": {
+    "a0359ba1-1cd2-4228-bcd5-717ae71201ea": {
+      "attempt_id": "a0359ba1-1cd2-4228-bcd5-717ae71201ea",
+      "pattern_id": "test-timeout-error",
+      "timestamp": "2026-03-08T03:34:29.328478+00:00",
+      "strategy_used": "retry_with_backoff",
+      "action_type": "RETRY",
+      "parameters": {
+        "max_retries": 3
+      },
+      "outcome": "success",
+      "success": true,
+      "error": null,
+      "execution_time": 2.5,
+      "changes_made": [],
+      "verification_passed": false,
+      "outcome_details": "",
+      "metadata": {}
+    }
+  },
+  "patterns": {
+    "test-timeout-error": {
+      "pattern_id": "test-timeout-error",
+      "error_category": "unknown",
+      "error_signature": "",
+      "features": {},
+      "occurrence_count": 2,
+      "first_seen": "2026-03-08T03:34:29.328508+00:00",
+      "last_seen": "2026-03-08T03:34:29.328515+00:00",
+      "related_strategies": [
+        "retry_with_backoff"
+      ],
+      "success_count": 1,
+      "failure_count": 0,
+      "confidence": "low",
+      "metadata": {}
+    }
+  },
+  "learned_strategies": {
+    "test-timeout-error:retry_with_backoff": {
+      "strategy_id": "test-timeout-error:retry_with_backoff",
+      "pattern_id": "test-timeout-error",
+      "strategy_name": "retry_with_backoff",
+      "strategy_type": "RETRY",
+      "description": "Learned strategy for test-timeout-error",
+      "success_rate": 1.0,
+      "total_attempts": 1,
+      "successful_attempts": 1,
+      "failed_attempts": 0,
+      "avg_execution_time": 2.5,
+      "optimal_parameters": {
+        "max_retries": 3
+      },
+      "confidence": "low",
+      "first_learned": "2026-03-08T03:34:29.328539+00:00",
+      "last_successful_use": "2026-03-08T03:34:29.328558+00:00",
+      "last_attempt": "2026-03-08T03:34:29.328557+00:00",
+      "effectiveness_score": 0.94,
+      "metadata": {}
+    }
+  },
+  "metadata": {
+    "total_attempts": 1,
+    "total_patterns": 1,
+    "total_strategies": 1,
+    "last_updated": "2026-03-08T03:34:29.328614+00:00"
+  }
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Scheduler Core for Autoflow - APScheduler 4.x AsyncScheduler-based task scheduler.
+Scheduler Core for Autoflow.
 
 This module provides scheduled task automation for continuous iteration,
 maintenance, and other automated jobs. It supports:
@@ -20,46 +20,71 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
+import os
 import signal
+import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("scheduler")
 
-# Try to import APScheduler 4.x
+# Try to import APScheduler 4.x first, then fall back to 3.x.
 try:
     from apscheduler import AsyncScheduler
     from apscheduler.triggers.cron import CronTrigger
+
     APSCHEDULER_AVAILABLE = True
+    APSCHEDULER_VERSION = 4
 except ImportError:
-    APSCHEDULER_AVAILABLE = False
-    logger.warning("APScheduler 4.x not available. Install with: pip install apscheduler>=4.0.0")
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler as AsyncScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        APSCHEDULER_AVAILABLE = True
+        APSCHEDULER_VERSION = 3
+    except ImportError:
+        APSCHEDULER_AVAILABLE = False
+        APSCHEDULER_VERSION = 0
+        logger.warning(
+            "APScheduler not available. Install with: pip install 'apscheduler>=3.10.0'"
+        )
 
 
 # Path to scheduler configuration
-SCHEDULER_CONFIG_PATH = Path(__file__).parent.parent / "config" / "scheduler_config.json"
+SCHEDULER_CONFIG_PATH = (
+    Path(__file__).parent.parent / "config" / "scheduler_config.json"
+)
+
+
+def scheduler_config_from_args(args: argparse.Namespace):
+    config_path = getattr(args, "config", "")
+    if not isinstance(config_path, (str, os.PathLike)):
+        config_path = ""
+    return SchedulerConfig(Path(config_path) if config_path else None)
 
 
 class SchedulerConfig:
     """Configuration for the scheduler."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize scheduler configuration.
 
         Args:
             config_path: Path to configuration file. Defaults to config/scheduler_config.json.
         """
         if config_path is None:
-            config_path = SCHEDULER_CONFIG_PATH
+            env_override = os.environ.get("AUTOFLOW_SCHEDULER_CONFIG", "").strip()
+            config_path = Path(env_override) if env_override else SCHEDULER_CONFIG_PATH
 
         self.config_path = config_path
         self._config = self._load_config()
@@ -69,7 +94,7 @@ class SchedulerConfig:
         if not self.config_path.exists():
             return self._default_config()
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             return json.load(f)
 
     def _default_config(self) -> dict:
@@ -79,39 +104,46 @@ class SchedulerConfig:
                 "timezone": "UTC",
                 "max_instances": 3,
                 "coalesce": True,
-                "misfire_grace_time": 300
+                "misfire_grace_time": 300,
             },
             "jobs": {
                 "continuous_iteration": {
                     "enabled": True,
                     "cron": "*/5 * * * *",
                     "max_instances": 1,
-                    "description": "Run continuous iteration loop every 5 minutes"
+                    "description": "Run continuous iteration loop every 5 minutes",
+                    "args": {
+                        "spec": "",
+                        "config": "config/continuous-iteration.example.json",
+                        "dispatch": True,
+                        "commit_if_dirty": False,
+                        "push": False
+                    }
                 },
                 "nightly_maintenance": {
                     "enabled": True,
                     "cron": "0 2 * * *",
                     "max_instances": 1,
-                    "description": "Run maintenance tasks at 2 AM daily"
+                    "description": "Run maintenance tasks at 2 AM daily",
                 },
                 "weekly_consolidation": {
                     "enabled": True,
                     "cron": "0 3 * * 0",
                     "max_instances": 1,
-                    "description": "Run memory consolidation on Sundays at 3 AM"
+                    "description": "Run memory consolidation on Sundays at 3 AM",
                 },
                 "monthly_dependency_update": {
                     "enabled": True,
                     "cron": "0 4 1 * *",
                     "max_instances": 1,
-                    "description": "Check for dependency updates on the 1st of each month"
-                }
+                    "description": "Check for dependency updates on the 1st of each month",
+                },
             },
             "job_defaults": {
                 "max_instances": 1,
                 "coalesce": True,
-                "misfire_grace_time": 300
-            }
+                "misfire_grace_time": 300,
+            },
         }
 
     @property
@@ -134,7 +166,7 @@ class SchedulerConfig:
         """Get default job settings."""
         return self._config.get("job_defaults", {})
 
-    def get_job_config(self, job_type: str) -> Optional[dict]:
+    def get_job_config(self, job_type: str) -> dict | None:
         """Get configuration for a specific job type.
 
         Args:
@@ -144,6 +176,11 @@ class SchedulerConfig:
             Job configuration dict or None if not found.
         """
         return self.jobs.get(job_type)
+
+    def get_job_args(self, job_type: str) -> dict[str, Any]:
+        job_config = self.get_job_config(job_type) or {}
+        args = job_config.get("args", {})
+        return args if isinstance(args, dict) else {}
 
     def save(self) -> None:
         """Save current configuration to file."""
@@ -155,8 +192,9 @@ class SchedulerConfig:
 class JobRegistry:
     """Registry of available job functions."""
 
-    def __init__(self):
+    def __init__(self, config: SchedulerConfig | None = None):
         """Initialize job registry."""
+        self.config = config or SchedulerConfig()
         self._jobs: dict[str, Callable] = {}
         self._register_builtin_jobs()
 
@@ -177,7 +215,7 @@ class JobRegistry:
         self._jobs[job_type] = func
         logger.debug(f"Registered job: {job_type}")
 
-    def get(self, job_type: str) -> Optional[Callable]:
+    def get(self, job_type: str) -> Callable | None:
         """Get a registered job function.
 
         Args:
@@ -198,6 +236,33 @@ class JobRegistry:
 
     # Built-in job implementations
 
+    def _continuous_iteration_command(self) -> tuple[list[str] | None, str | None]:
+        job_args = self.config.get_job_args("continuous_iteration")
+        spec = str(job_args.get("spec", "")).strip()
+        if not spec:
+            return None, (
+                "continuous_iteration job requires jobs.continuous_iteration.args.spec "
+                "in the scheduler config"
+            )
+
+        scripts_path = Path(__file__).parent
+        command = [
+            "python3",
+            str(scripts_path / "continuous_iteration.py"),
+            "--spec",
+            spec,
+        ]
+        iteration_config = str(job_args.get("config", "")).strip()
+        if iteration_config:
+            command.extend(["--config", iteration_config])
+        if job_args.get("dispatch", True):
+            command.append("--dispatch")
+        if job_args.get("commit_if_dirty", False):
+            command.append("--commit-if-dirty")
+        if job_args.get("push", False):
+            command.append("--push")
+        return command, None
+
     async def _continuous_iteration_job(self) -> dict[str, Any]:
         """Run continuous iteration loop.
 
@@ -205,34 +270,36 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running continuous iteration job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
-            # Import and run continuous iteration
-            scripts_path = Path(__file__).parent
-            if scripts_path.exists():
-                import subprocess
-                result = subprocess.run(
-                    ["python3", str(scripts_path / "continuous_iteration.py"), "--dispatch"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300
-                )
-                output = result.stdout + result.stderr
-                success = result.returncode == 0
-            else:
-                # Simulate if continuous_iteration.py doesn't exist
-                output = "Continuous iteration script not found - simulating"
-                success = True
+            command, error = self._continuous_iteration_command()
+            if error:
+                return {
+                    "job": "continuous_iteration",
+                    "success": False,
+                    "error": error,
+                    "timestamp": start_time.isoformat(),
+                }
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "continuous_iteration",
                 "success": success,
+                "command": command,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Continuous iteration job failed: {e}")
@@ -240,7 +307,7 @@ class JobRegistry:
                 "job": "continuous_iteration",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _nightly_maintenance_job(self) -> dict[str, Any]:
@@ -250,7 +317,7 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running nightly maintenance job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Import and run maintenance if available
@@ -259,11 +326,12 @@ class JobRegistry:
 
             if maintenance_script.exists():
                 import subprocess
+
                 result = subprocess.run(
                     ["python3", str(maintenance_script), "--cleanup"],
                     capture_output=True,
                     text=True,
-                    timeout=600
+                    timeout=600,
                 )
                 output = result.stdout + result.stderr
                 success = result.returncode == 0
@@ -272,14 +340,14 @@ class JobRegistry:
                 output = "Maintenance script not found - simulating cleanup"
                 success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "nightly_maintenance",
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Nightly maintenance job failed: {e}")
@@ -287,7 +355,7 @@ class JobRegistry:
                 "job": "nightly_maintenance",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _weekly_consolidation_job(self) -> dict[str, Any]:
@@ -297,21 +365,21 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running weekly consolidation job")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # This would integrate with the learning system
             output = "Weekly memory consolidation completed"
             success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "weekly_consolidation",
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Weekly consolidation job failed: {e}")
@@ -319,7 +387,7 @@ class JobRegistry:
                 "job": "weekly_consolidation",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
     async def _monthly_dependency_update_job(self) -> dict[str, Any]:
@@ -329,21 +397,21 @@ class JobRegistry:
             Job execution result.
         """
         logger.info("Running monthly dependency update check")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # This would check for dependency updates
             output = "Monthly dependency check completed"
             success = True
 
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+            duration = (datetime.now(UTC) - start_time).total_seconds()
 
             return {
                 "job": "monthly_dependency_update",
                 "success": success,
                 "output": output,
                 "duration_seconds": duration,
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
         except Exception as e:
             logger.error(f"Monthly dependency update job failed: {e}")
@@ -351,14 +419,14 @@ class JobRegistry:
                 "job": "monthly_dependency_update",
                 "success": False,
                 "error": str(e),
-                "timestamp": start_time.isoformat()
+                "timestamp": start_time.isoformat(),
             }
 
 
 class Scheduler:
     """APScheduler-based task scheduler."""
 
-    def __init__(self, config: Optional[SchedulerConfig] = None):
+    def __init__(self, config: SchedulerConfig | None = None):
         """Initialize scheduler.
 
         Args:
@@ -370,9 +438,10 @@ class Scheduler:
             )
 
         self.config = config or SchedulerConfig()
-        self.job_registry = JobRegistry()
-        self._scheduler: Optional[AsyncScheduler] = None
+        self.job_registry = JobRegistry(self.config)
+        self._scheduler: Any = None
         self._running = False
+        self._stop_event: asyncio.Event | None = None
         self._scheduled_jobs: dict[str, str] = {}  # job_id -> job_type
 
     async def start(self) -> None:
@@ -383,28 +452,44 @@ class Scheduler:
 
         logger.info("Starting scheduler...")
 
-        async with AsyncScheduler() as scheduler:
-            self._scheduler = scheduler
-            self._running = True
-
-            # Register signal handlers for graceful shutdown
-            loop = asyncio.get_event_loop()
-            for sig in (signal.SIGINT, signal.SIGTERM):
+        loop = asyncio.get_event_loop()
+        self._stop_event = asyncio.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
                 loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
 
-            # Add configured jobs
-            await self._add_configured_jobs()
+        if APSCHEDULER_VERSION == 4:
+            async with AsyncScheduler() as scheduler:
+                self._scheduler = scheduler
+                self._running = True
+                await self._add_configured_jobs()
+                logger.info("Scheduler started. Press Ctrl+C to stop.")
+                try:
+                    await scheduler.run_until_stopped()
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    logger.info("Scheduler stopping...")
+                finally:
+                    self._running = False
+                    self._scheduler = None
+                    self._stop_event = None
+            return
 
-            logger.info("Scheduler started. Press Ctrl+C to stop.")
-
-            # Run until stopped
-            try:
-                await scheduler.run_until_stopped()
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                logger.info("Scheduler stopping...")
-            finally:
-                self._running = False
-                self._scheduler = None
+        scheduler = AsyncScheduler(timezone=self.config.timezone)
+        self._scheduler = scheduler
+        self._running = True
+        await self._add_configured_jobs()
+        scheduler.start()
+        logger.info("Scheduler started. Press Ctrl+C to stop.")
+        try:
+            await self._stop_event.wait()
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("Scheduler stopping...")
+        finally:
+            with contextlib.suppress(Exception):
+                scheduler.shutdown(wait=False)
+            self._running = False
+            self._scheduler = None
+            self._stop_event = None
 
     async def stop(self) -> None:
         """Stop the scheduler."""
@@ -415,7 +500,12 @@ class Scheduler:
         self._running = False
 
         if self._scheduler:
-            await self._scheduler.stop()
+            if APSCHEDULER_VERSION == 4:
+                await self._scheduler.stop()
+            else:
+                self._scheduler.shutdown(wait=False)
+        if self._stop_event:
+            self._stop_event.set()
 
     async def _add_configured_jobs(self) -> None:
         """Add all enabled jobs from configuration."""
@@ -424,15 +514,15 @@ class Scheduler:
                 await self.add_job(
                     job_type=job_type,
                     cron=job_config.get("cron", "*/5 * * * *"),
-                    job_id=job_type
+                    job_id=job_type,
                 )
 
     async def add_job(
         self,
         job_type: str,
         cron: str,
-        job_id: Optional[str] = None,
-        max_instances: Optional[int] = None
+        job_id: str | None = None,
+        max_instances: int | None = None,
     ) -> str:
         """Add a scheduled job.
 
@@ -458,18 +548,27 @@ class Scheduler:
         # Get job-specific config or use defaults
         job_config = self.config.get_job_config(job_type) or {}
         if max_instances is None:
-            max_instances = job_config.get("max_instances", self.config.job_defaults.get("max_instances", 1))
+            max_instances = job_config.get(
+                "max_instances", self.config.job_defaults.get("max_instances", 1)
+            )
 
         # Create cron trigger
         trigger = CronTrigger.from_crontab(cron)
 
         # Add schedule
-        await self._scheduler.add_schedule(
-            job_func,
-            trigger,
-            id=job_id,
-            max_instances=max_instances
-        )
+        if APSCHEDULER_VERSION == 4:
+            await self._scheduler.add_schedule(
+                job_func, trigger, id=job_id, max_instances=max_instances
+            )
+        else:
+            self._scheduler.add_job(
+                job_func,
+                trigger=trigger,
+                id=job_id,
+                max_instances=max_instances,
+                coalesce=self.config.job_defaults.get("coalesce", True),
+                misfire_grace_time=self.config.job_defaults.get("misfire_grace_time", 300),
+            )
 
         self._scheduled_jobs[job_id] = job_type
         logger.info(f"Added job: {job_id} ({job_type}) with cron: {cron}")
@@ -489,7 +588,10 @@ class Scheduler:
             raise RuntimeError("Scheduler not started")
 
         if job_id in self._scheduled_jobs:
-            await self._scheduler.remove_schedule(job_id)
+            if APSCHEDULER_VERSION == 4:
+                await self._scheduler.remove_schedule(job_id)
+            else:
+                self._scheduler.remove_job(job_id)
             del self._scheduled_jobs[job_id]
             logger.info(f"Removed job: {job_id}")
             return True
@@ -505,13 +607,15 @@ class Scheduler:
         jobs = []
         for job_id, job_type in self._scheduled_jobs.items():
             job_config = self.config.get_job_config(job_type) or {}
-            jobs.append({
-                "id": job_id,
-                "type": job_type,
-                "cron": job_config.get("cron", "unknown"),
-                "enabled": job_config.get("enabled", True),
-                "description": job_config.get("description", "")
-            })
+            jobs.append(
+                {
+                    "id": job_id,
+                    "type": job_type,
+                    "cron": job_config.get("cron", "unknown"),
+                    "enabled": job_config.get("enabled", True),
+                    "description": job_config.get("description", ""),
+                }
+            )
         return jobs
 
     def get_status(self) -> dict[str, Any]:
@@ -526,12 +630,13 @@ class Scheduler:
             "jobs": self.list_jobs(),
             "config": {
                 "timezone": self.config.timezone,
-                "max_instances": self.config.max_instances
-            }
+                "max_instances": self.config.max_instances,
+            },
         }
 
 
 # CLI Commands
+
 
 def cmd_start(args: argparse.Namespace) -> int:
     """Start the scheduler.
@@ -543,17 +648,15 @@ def cmd_start(args: argparse.Namespace) -> int:
         Exit code.
     """
     if not APSCHEDULER_AVAILABLE:
-        print("Error: APScheduler 4.x is required.")
-        print("Install with: pip install apscheduler>=4.0.0")
+        print("Error: APScheduler is required.")
+        print("Install with: pip install 'apscheduler>=3.10.0'")
         return 1
 
-    config = SchedulerConfig()
+    config = scheduler_config_from_args(args)
     scheduler = Scheduler(config)
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(scheduler.start())
-    except KeyboardInterrupt:
-        pass
 
     return 0
 
@@ -567,7 +670,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    config = SchedulerConfig()
+    config = scheduler_config_from_args(args)
 
     print("Scheduler Configuration:")
     print(f"  Timezone: {config.timezone}")
@@ -580,10 +683,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         status = "ENABLED" if enabled else "DISABLED"
         cron = job_config.get("cron", "N/A")
         desc = job_config.get("description", "")
+        args_summary = job_config.get("args", {})
         print(f"  [{status}] {job_type}")
         print(f"    Cron: {cron}")
         if desc:
             print(f"    Description: {desc}")
+        if args_summary:
+            print(f"    Args: {json.dumps(args_summary, ensure_ascii=True)}")
         print()
 
     return 0
@@ -607,7 +713,7 @@ def cmd_add_job(args: argparse.Namespace) -> int:
     print(f"  Job ID: {args.job_id or args.job_type}")
 
     # Update configuration
-    config = SchedulerConfig()
+    config = scheduler_config_from_args(args)
     job_id = args.job_id or args.job_type
 
     if "jobs" not in config._config:
@@ -617,8 +723,16 @@ def cmd_add_job(args: argparse.Namespace) -> int:
         "enabled": True,
         "cron": args.cron,
         "max_instances": args.max_instances or 1,
-        "description": args.description or f"Custom job: {args.job_type}"
+        "description": args.description or f"Custom job: {args.job_type}",
     }
+    if args.job_type == "continuous_iteration":
+        config._config["jobs"][args.job_type]["args"] = {
+            "spec": getattr(args, "spec", "") or "",
+            "config": getattr(args, "iteration_config", "") or "config/continuous-iteration.example.json",
+            "dispatch": bool(getattr(args, "dispatch", False)),
+            "commit_if_dirty": bool(getattr(args, "commit_if_dirty", False)),
+            "push": bool(getattr(args, "push", False)),
+        }
     config.save()
 
     print(f"\nJob '{job_id}' added to configuration.")
@@ -636,7 +750,7 @@ def cmd_list_jobs(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    config = SchedulerConfig()
+    config = scheduler_config_from_args(args)
 
     if not config.jobs:
         print("No jobs configured.")
@@ -667,7 +781,7 @@ def cmd_remove_job(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    config = SchedulerConfig()
+    config = scheduler_config_from_args(args)
 
     if args.job_id not in config.jobs:
         print(f"Job '{args.job_id}' not found in configuration.")
@@ -691,7 +805,8 @@ def cmd_run_once(args: argparse.Namespace) -> int:
     Returns:
         Exit code.
     """
-    registry = JobRegistry()
+    config = scheduler_config_from_args(args)
+    registry = JobRegistry(config)
     job_func = registry.get(args.job_type)
 
     if not job_func:
@@ -728,7 +843,7 @@ def main() -> int:
         Exit code.
     """
     parser = argparse.ArgumentParser(
-        description="Scheduler Core for Autoflow - APScheduler 4.x AsyncScheduler",
+        description="Scheduler Core for Autoflow",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -738,85 +853,53 @@ Examples:
     python3 scripts/scheduler.py list-jobs
     python3 scripts/scheduler.py remove-job --job-id continuous_iteration
     python3 scripts/scheduler.py run-once --job-type continuous_iteration --verbose
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Start command
-    start_parser = subparsers.add_parser(
-        "start",
-        help="Start the scheduler"
-    )
+    start_parser = subparsers.add_parser("start", help="Start the scheduler")
+    start_parser.add_argument("--config", default="", help="path to scheduler config JSON")
 
     # Status command
-    status_parser = subparsers.add_parser(
-        "status",
-        help="Show scheduler status"
-    )
+    status_parser = subparsers.add_parser("status", help="Show scheduler status")
+    status_parser.add_argument("--config", default="", help="path to scheduler config JSON")
 
     # Add job command
-    add_parser = subparsers.add_parser(
-        "add-job",
-        help="Add a scheduled job"
-    )
+    add_parser = subparsers.add_parser("add-job", help="Add a scheduled job")
+    add_parser.add_argument("--job-type", required=True, help="Type of job to schedule")
     add_parser.add_argument(
-        "--job-type",
-        required=True,
-        help="Type of job to schedule"
+        "--cron", required=True, help="Cron expression for scheduling"
     )
+    add_parser.add_argument("--job-id", help="Optional job ID (defaults to job-type)")
     add_parser.add_argument(
-        "--cron",
-        required=True,
-        help="Cron expression for scheduling"
+        "--max-instances", type=int, default=1, help="Maximum concurrent instances"
     )
-    add_parser.add_argument(
-        "--job-id",
-        help="Optional job ID (defaults to job-type)"
-    )
-    add_parser.add_argument(
-        "--max-instances",
-        type=int,
-        default=1,
-        help="Maximum concurrent instances"
-    )
-    add_parser.add_argument(
-        "--description",
-        help="Job description"
-    )
+    add_parser.add_argument("--description", help="Job description")
+    add_parser.add_argument("--config", default="", help="path to scheduler config JSON")
+    add_parser.add_argument("--spec", default="", help="spec slug for continuous_iteration jobs")
+    add_parser.add_argument("--iteration-config", default="", help="continuous_iteration config path")
+    add_parser.add_argument("--dispatch", action="store_true", help="enable dispatch for continuous_iteration jobs")
+    add_parser.add_argument("--commit-if-dirty", action="store_true", help="enable commit-if-dirty for continuous_iteration jobs")
+    add_parser.add_argument("--push", action="store_true", help="enable push for continuous_iteration jobs")
 
     # List jobs command
-    list_parser = subparsers.add_parser(
-        "list-jobs",
-        help="List all scheduled jobs"
-    )
+    list_parser = subparsers.add_parser("list-jobs", help="List all scheduled jobs")
+    list_parser.add_argument("--config", default="", help="path to scheduler config JSON")
 
     # Remove job command
-    remove_parser = subparsers.add_parser(
-        "remove-job",
-        help="Remove a scheduled job"
-    )
-    remove_parser.add_argument(
-        "--job-id",
-        required=True,
-        help="ID of job to remove"
-    )
+    remove_parser = subparsers.add_parser("remove-job", help="Remove a scheduled job")
+    remove_parser.add_argument("--job-id", required=True, help="ID of job to remove")
+    remove_parser.add_argument("--config", default="", help="path to scheduler config JSON")
 
     # Run once command
-    run_parser = subparsers.add_parser(
-        "run-once",
-        help="Run a job once immediately"
-    )
+    run_parser = subparsers.add_parser("run-once", help="Run a job once immediately")
+    run_parser.add_argument("--job-type", required=True, help="Type of job to run")
     run_parser.add_argument(
-        "--job-type",
-        required=True,
-        help="Type of job to run"
+        "--verbose", "-v", action="store_true", help="Show job output"
     )
-    run_parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Show job output"
-    )
+    run_parser.add_argument("--config", default="", help="path to scheduler config JSON")
 
     args = parser.parse_args()
 

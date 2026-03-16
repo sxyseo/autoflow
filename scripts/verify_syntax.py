@@ -14,9 +14,9 @@ def verify_syntax(directory: str) -> tuple[int, list[str]]:
     """
     files = []
     for root, dirs, filenames in os.walk(directory):
-        dirs[:] = [d for d in dirs if d != '__pycache__']
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
         for f in filenames:
-            if f.endswith('.py'):
+            if f.endswith(".py"):
                 files.append(os.path.join(root, f))
 
     errors = []
@@ -25,7 +25,7 @@ def verify_syntax(directory: str) -> tuple[int, list[str]]:
             with open(f) as fp:
                 ast.parse(fp.read())
         except SyntaxError as e:
-            errors.append(f'{f}: {e}')
+            errors.append(f"{f}: {e}")
 
     return len(files), errors
 
@@ -35,7 +35,7 @@ def main():
     print("=== Python Syntax Verification ===\n")
 
     # Verify autoflow package
-    count, errors = verify_syntax('autoflow')
+    count, errors = verify_syntax("autoflow")
     if errors:
         print(f"SYNTAX ERRORS in autoflow/ ({count} files):")
         for e in errors:
@@ -44,7 +44,7 @@ def main():
     print(f"autoflow/: All {count} Python files have valid syntax")
 
     # Verify tests
-    count, errors = verify_syntax('tests')
+    count, errors = verify_syntax("tests")
     if errors:
         print(f"SYNTAX ERRORS in tests/ ({count} files):")
         for e in errors:
@@ -56,5 +56,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # Global orchestrator reference (set by the scheduler daemon)
-_orchestrator: Optional[Any] = None
+_orchestrator: Any | None = None
 
 
 def set_orchestrator(orchestrator: Any) -> None:
@@ -50,7 +50,7 @@ def set_orchestrator(orchestrator: Any) -> None:
     _orchestrator = orchestrator
 
 
-def get_orchestrator() -> Optional[Any]:
+def get_orchestrator() -> Any | None:
     """
     Get the global orchestrator reference.
 
@@ -64,18 +64,18 @@ class JobResult(BaseModel):
     """Result from a scheduled job execution."""
 
     job_name: str
-    success: bool
+    success: bool = False
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    output: Optional[str] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    output: str | None = None
+    error: str | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
 
     def mark_complete(
         self,
         success: bool,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
+        output: str | None = None,
+        error: str | None = None,
     ) -> None:
         """Mark the job as complete."""
         self.success = success
@@ -91,11 +91,11 @@ class AgentHealthInfo:
     agent_id: str
     agent_type: str
     status: str
-    last_activity: Optional[datetime] = None
-    current_task: Optional[str] = None
-    uptime_seconds: Optional[float] = None
+    last_activity: datetime | None = None
+    current_task: str | None = None
+    uptime_seconds: float | None = None
     is_responsive: bool = True
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass
@@ -110,8 +110,8 @@ class TaskDistributionResult:
 
 
 async def monitor_agents(
-    config: Optional[Config] = None,
-    state_dir: Optional[Path] = None,
+    config: Config | None = None,
+    state_dir: Path | None = None,
 ) -> JobResult:
     """
     Monitor agent health and session status.
@@ -288,8 +288,8 @@ async def monitor_agents(
 
 
 async def distribute_tasks(
-    config: Optional[Config] = None,
-    state_dir: Optional[Path] = None,
+    config: Config | None = None,
+    state_dir: Path | None = None,
 ) -> JobResult:
     """
     Distribute pending tasks to available agents.
@@ -353,7 +353,7 @@ async def distribute_tasks(
                 task_id = task_data.get("id")
                 task_title = task_data.get("title", "Untitled task")
                 task_description = task_data.get("description", task_title)
-                task_labels = task_data.get("labels", [])
+                task_data.get("labels", [])
 
                 # Determine best agent type based on task
                 agent_type = _select_agent_for_task(task_data, config)
@@ -532,8 +532,8 @@ async def _execute_distributed_task(
 
 
 async def cleanup_sessions(
-    config: Optional[Config] = None,
-    state_dir: Optional[Path] = None,
+    config: Config | None = None,
+    state_dir: Path | None = None,
     max_age_hours: int = 24,
 ) -> JobResult:
     """
@@ -658,8 +658,8 @@ async def cleanup_sessions(
 
 
 async def health_check(
-    config: Optional[Config] = None,
-    state_dir: Optional[Path] = None,
+    config: Config | None = None,
+    state_dir: Path | None = None,
 ) -> JobResult:
     """
     Perform system health check.

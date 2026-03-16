@@ -10,7 +10,7 @@ TARGET="$1"
 SESSION_NAME="${2:-autoflow-$(date +%s)}"
 
 if [[ -f "${TARGET}" ]]; then
-  tmux new-session -d -s "${SESSION_NAME}" "bash ${TARGET}"
+  tmux new-session -d -s "${SESSION_NAME}" "AUTOFLOW_TMUX_SESSION=${SESSION_NAME} bash ${TARGET}"
 else
   tmux new-session -d -s "${SESSION_NAME}" "${TARGET}"
 fi

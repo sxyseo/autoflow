@@ -13,7 +13,6 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -28,7 +27,6 @@ from autoflow.core.state import (
     read_json,
     write_json,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -495,7 +493,9 @@ class TestStateManagerJSON:
 
         assert result == {"default": True}
 
-    def test_write_json_atomic(self, state_manager: StateManager, tmp_path: Path) -> None:
+    def test_write_json_atomic(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
         """Test write_json uses atomic write pattern."""
         file_path = tmp_path / "atomic.json"
 
@@ -521,7 +521,9 @@ class TestStateManagerJSON:
 class TestStateManagerTasks:
     """Tests for StateManager task operations."""
 
-    def test_save_task(self, state_manager: StateManager, sample_task_data: dict) -> None:
+    def test_save_task(
+        self, state_manager: StateManager, sample_task_data: dict
+    ) -> None:
         """Test save_task creates task file."""
         result = state_manager.save_task("task-001", sample_task_data)
 
@@ -572,9 +574,7 @@ class TestStateManagerTasks:
         self, state_manager: StateManager, sample_task_data: dict
     ) -> None:
         """Test list_tasks filters by status."""
-        state_manager.save_task(
-            "task-001", {**sample_task_data, "status": "pending"}
-        )
+        state_manager.save_task("task-001", {**sample_task_data, "status": "pending"})
         state_manager.save_task(
             "task-002", {**sample_task_data, "id": "task-002", "status": "completed"}
         )
@@ -593,7 +593,8 @@ class TestStateManagerTasks:
             "task-001", {**sample_task_data, "assigned_agent": "claude-code"}
         )
         state_manager.save_task(
-            "task-002", {**sample_task_data, "id": "task-002", "assigned_agent": "codex"}
+            "task-002",
+            {**sample_task_data, "id": "task-002", "assigned_agent": "codex"},
         )
 
         claude_tasks = state_manager.list_tasks(agent="claude-code")
@@ -700,7 +701,9 @@ class TestStateManagerRuns:
     ) -> None:
         """Test list_runs respects limit."""
         for i in range(10):
-            state_manager.save_run(f"run-{i:03d}", {**sample_run_data, "id": f"run-{i:03d}"})
+            state_manager.save_run(
+                f"run-{i:03d}", {**sample_run_data, "id": f"run-{i:03d}"}
+            )
 
         runs = state_manager.list_runs(limit=5)
 
@@ -715,7 +718,9 @@ class TestStateManagerRuns:
 class TestStateManagerSpecs:
     """Tests for StateManager spec operations."""
 
-    def test_save_spec(self, state_manager: StateManager, sample_spec_data: dict) -> None:
+    def test_save_spec(
+        self, state_manager: StateManager, sample_spec_data: dict
+    ) -> None:
         """Test save_spec creates spec file."""
         result = state_manager.save_spec("spec-001", sample_spec_data)
 
@@ -887,7 +892,9 @@ class TestStateManagerMemory:
 class TestStateManagerUtilities:
     """Tests for StateManager utility methods."""
 
-    def test_get_status(self, state_manager: StateManager, sample_task_data: dict) -> None:
+    def test_get_status(
+        self, state_manager: StateManager, sample_task_data: dict
+    ) -> None:
         """Test get_status returns summary."""
         state_manager.save_task("task-001", sample_task_data)
         state_manager.save_run("run-001", {"id": "run-001", "agent": "test"})
@@ -981,10 +988,10 @@ class TestBackupRecovery:
     """Tests for backup and recovery functionality."""
 
     def test_backup_created_on_overwrite(
-        self, state_manager: StateManager, tmp_path: Path
+        self, state_manager: StateManager, temp_state_dir: Path
     ) -> None:
         """Test backup is created when overwriting file."""
-        file_path = tmp_path / "test.json"
+        file_path = temp_state_dir / "test.json"
 
         state_manager.write_json(file_path, {"version": 1})
         state_manager.write_json(file_path, {"version": 2})
@@ -993,13 +1000,14 @@ class TestBackupRecovery:
         assert state_manager.backup_dir.exists()
 
     def test_restore_from_backup(
-        self, state_manager: StateManager, tmp_path: Path
+        self, state_manager: StateManager, temp_state_dir: Path
     ) -> None:
         """Test restoring from backup on corrupt file."""
-        file_path = tmp_path / "test.json"
+        file_path = temp_state_dir / "test.json"
 
-        # Write valid data
+        # Write initial data (creates backup on second write)
         state_manager.write_json(file_path, {"version": 1})
+        state_manager.write_json(file_path, {"version": 2})
 
         # Corrupt the file
         file_path.write_text("invalid json content")
@@ -1007,7 +1015,7 @@ class TestBackupRecovery:
         # Reading should restore from backup
         result = state_manager.read_json(file_path, default={"restored": False})
 
-        # Should have restored from backup
+        # Should have restored from backup (version 1)
         assert result == {"version": 1}
 
 
@@ -1045,7 +1053,9 @@ class TestEdgeCases:
         assert tasks[0]["id"] == "task-002"
         assert tasks[1]["id"] == "task-001"
 
-    def test_write_json_with_unicode(self, state_manager: StateManager, tmp_path: Path) -> None:
+    def test_write_json_with_unicode(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
         """Test write_json handles unicode characters."""
         file_path = tmp_path / "unicode.json"
         data = {"message": "Hello 世界 🌍"}
@@ -1080,3 +1090,232 @@ class TestEdgeCases:
         result = state_manager.load_memory("complex")
 
         assert result == complex_value
+
+
+# ============================================================================
+# File Write Sanitization Tests
+# ============================================================================
+
+
+class TestFileWriteSanitization:
+    """Integration tests for file write sanitization."""
+
+    def test_write_json_sanitizes_api_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes api_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"api_key": "sk-secret123", "name": "test"}
+
+        state_manager.write_json(file_path, data)
+
+        # Read the file content directly
+        with open(file_path) as f:
+            content = f.read()
+            loaded = json.loads(content)
+
+        # api_key should be redacted
+        assert loaded["api_key"] == "***REDACTED***"
+        assert loaded["name"] == "test"
+
+    def test_write_json_sanitizes_password(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes password fields."""
+        file_path = tmp_path / "test.json"
+        data = {"username": "user", "password": "secret123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["password"] == "***REDACTED***"
+        assert result["username"] == "user"
+
+    def test_write_json_sanitizes_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"access_token": "token123", "id": "123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["access_token"] == "***REDACTED***"
+        assert result["id"] == "123"
+
+    def test_write_json_sanitizes_nested_dict(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes nested dictionaries."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "config": {
+                "api_key": "secret123",
+                "endpoint": "https://api.example.com",
+            }
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["config"]["api_key"] == "***REDACTED***"
+        assert result["config"]["endpoint"] == "https://api.example.com"
+
+    def test_write_json_sanitizes_list_of_dicts(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes lists containing dictionaries."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "items": [
+                {"name": "item1", "api_key": "key1"},
+                {"name": "item2", "secret": "secret2"},
+            ]
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["items"][0]["api_key"] == "***REDACTED***"
+        assert result["items"][0]["name"] == "item1"
+        assert result["items"][1]["secret"] == "***REDACTED***"
+        assert result["items"][1]["name"] == "item2"
+
+    def test_write_json_preserves_non_sensitive(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json preserves non-sensitive data."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "name": "test",
+            "count": 42,
+            "active": True,
+            "tags": ["tag1", "tag2"],
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result == data
+
+    def test_write_json_sanitizes_multiple_sensitive_fields(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes multiple sensitive fields."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "api_key": "key123",
+            "password": "pass123",
+            "token": "token123",
+            "secret": "secret123",
+            "normal_field": "keep_this",
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["api_key"] == "***REDACTED***"
+        assert result["password"] == "***REDACTED***"
+        assert result["token"] == "***REDACTED***"
+        assert result["secret"] == "***REDACTED***"
+        assert result["normal_field"] == "keep_this"
+
+    def test_write_json_case_insensitive_matching(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json matches sensitive fields case-insensitively."""
+        file_path = tmp_path / "test.json"
+        data = {
+            "API_KEY": "secret1",
+            "ApiKey": "secret2",
+            "api_key": "secret3",
+            "PASSWORD": "pass1",
+        }
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["API_KEY"] == "***REDACTED***"
+        assert result["ApiKey"] == "***REDACTED***"
+        assert result["api_key"] == "***REDACTED***"
+        assert result["PASSWORD"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_auth_field(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes auth-related fields."""
+        file_path = tmp_path / "test.json"
+        data = {"auth": "credentials", "authorization": "bearer token"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["auth"] == "***REDACTED***"
+        assert result["authorization"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_credential_field(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes credential fields."""
+        file_path = tmp_path / "test.json"
+        data = {"credential": "user:pass", "credentials": {"key": "value"}}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["credential"] == "***REDACTED***"
+        # credentials is a dict, should be preserved but nested values checked
+        assert isinstance(result["credentials"], dict)
+
+    def test_write_json_sanitizes_private_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes private_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"private_key": "-----BEGIN PRIVATE KEY-----", "public_key": "public"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["private_key"] == "***REDACTED***"
+        assert result["public_key"] == "public"
+
+    def test_write_json_sanitizes_session_key(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes session_key fields."""
+        file_path = tmp_path / "test.json"
+        data = {"session_key": "session123", "session_id": "id123"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["session_key"] == "***REDACTED***"
+        assert result["session_id"] == "id123"
+
+    def test_write_json_sanitizes_csrf_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes csrf token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"csrf_token": "csrf123", "csrf": "csrf456"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["csrf_token"] == "***REDACTED***"
+        assert result["csrf"] == "***REDACTED***"
+
+    def test_write_json_sanitizes_bearer_token(
+        self, state_manager: StateManager, tmp_path: Path
+    ) -> None:
+        """Test that write_json sanitizes bearer token fields."""
+        file_path = tmp_path / "test.json"
+        data = {"bearer": "bearer123", "bearer_token": "token456"}
+
+        state_manager.write_json(file_path, data)
+
+        result = state_manager.read_json(file_path)
+        assert result["bearer"] == "***REDACTED***"
+        assert result["bearer_token"] == "***REDACTED***"

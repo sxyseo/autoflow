@@ -10,7 +10,14 @@
       "enabled": true,
       "cron": "*/5 * * * *",
       "max_instances": 1,
-      "description": "Run continuous iteration loop every 5 minutes"
+      "description": "Run continuous iteration loop every 5 minutes",
+      "args": {
+        "spec": "",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true,
+        "commit_if_dirty": false,
+        "push": false
+      }
     },
     "nightly_maintenance": {
       "enabled": true,
@@ -29,6 +36,12 @@
       "cron": "0 4 1 * *",
       "max_instances": 1,
       "description": "Check for dependency updates on the 1st of each month at 4 AM"
+    },
+    "refresh_prs": {
+      "enabled": true,
+      "cron": "*/10 * * * *",
+      "max_instances": 1,
+      "description": "Refresh pull request data every 10 minutes"
     }
   },
   "job_defaults": {

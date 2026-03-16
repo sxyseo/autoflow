@@ -25,10 +25,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -54,7 +55,7 @@ class ManagerStats(BaseModel):
 class TmuxManagerError(Exception):
     """Exception raised for tmux manager errors."""
 
-    def __init__(self, message: str, session_id: Optional[str] = None):
+    def __init__(self, message: str, session_id: str | None = None):
         self.session_id = session_id
         super().__init__(message)
 
@@ -119,7 +120,7 @@ class TmuxManager:
         self._created_at = datetime.utcnow()
 
         # Health monitoring task
-        self._health_task: Optional[asyncio.Task] = None
+        self._health_task: asyncio.Task | None = None
         self._running = False
 
     @property
@@ -137,16 +138,13 @@ class TmuxManager:
         """Update manager statistics."""
         total = len(self._sessions)
         active = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.RUNNING
+            1 for s in self._sessions.values() if s.status == SessionStatus.RUNNING
         )
         stopped = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.STOPPED
+            1 for s in self._sessions.values() if s.status == SessionStatus.STOPPED
         )
         error = sum(
-            1 for s in self._sessions.values()
-            if s.status == SessionStatus.ERROR
+            1 for s in self._sessions.values() if s.status == SessionStatus.ERROR
         )
 
         self._stats.total_sessions = total
@@ -167,11 +165,11 @@ class TmuxManager:
     async def create_session(
         self,
         name: str,
-        workdir: Union[str, Path],
-        session_id: Optional[str] = None,
+        workdir: str | Path,
+        session_id: str | None = None,
         shell: str = "/bin/bash",
-        env: Optional[dict[str, str]] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        env: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
         auto_start: bool = True,
     ) -> TmuxSession:
         """
@@ -221,7 +219,7 @@ class TmuxManager:
 
         return session
 
-    async def get_session(self, session_id: str) -> Optional[TmuxSession]:
+    async def get_session(self, session_id: str) -> TmuxSession | None:
         """
         Get a session by ID.
 
@@ -233,7 +231,7 @@ class TmuxManager:
         """
         return self._sessions.get(session_id)
 
-    async def get_session_by_name(self, name: str) -> Optional[TmuxSession]:
+    async def get_session_by_name(self, name: str) -> TmuxSession | None:
         """
         Get a session by its human-readable name.
 
@@ -250,8 +248,8 @@ class TmuxManager:
 
     async def list_sessions(
         self,
-        status: Optional[SessionStatus] = None,
-        prefix: Optional[str] = None,
+        status: SessionStatus | None = None,
+        prefix: str | None = None,
     ) -> list[TmuxSession]:
         """
         List tracked sessions with optional filtering.
@@ -275,7 +273,7 @@ class TmuxManager:
 
     async def list_session_infos(
         self,
-        status: Optional[SessionStatus] = None,
+        status: SessionStatus | None = None,
     ) -> list[SessionInfo]:
         """
         Get information about all tracked sessions.
@@ -321,10 +319,7 @@ class TmuxManager:
             Number of sessions killed
         """
         count = 0
-        session_ids = [
-            sid for sid in self._sessions
-            if sid.startswith(prefix)
-        ]
+        session_ids = [sid for sid in self._sessions if sid.startswith(prefix)]
 
         for session_id in session_ids:
             if await self.kill_session(session_id):
@@ -437,10 +432,8 @@ class TmuxManager:
 
         if self._health_task:
             self._health_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._health_task
-            except asyncio.CancelledError:
-                pass
             self._health_task = None
 
     async def _health_monitor_loop(self) -> None:
@@ -492,7 +485,7 @@ class TmuxManager:
     def get_session_metadata(
         self,
         session_id: str,
-        key: Optional[str] = None,
+        key: str | None = None,
     ) -> Any:
         """
         Get metadata for a session.
@@ -517,7 +510,7 @@ class TmuxManager:
     async def broadcast_command(
         self,
         command: str,
-        status: Optional[SessionStatus] = SessionStatus.RUNNING,
+        status: SessionStatus | None = SessionStatus.RUNNING,
     ) -> dict[str, bool]:
         """
         Send a command to multiple sessions.
@@ -544,7 +537,7 @@ class TmuxManager:
     async def capture_all_outputs(
         self,
         lines: int = 1000,
-        status: Optional[SessionStatus] = SessionStatus.RUNNING,
+        status: SessionStatus | None = SessionStatus.RUNNING,
     ) -> dict[str, str]:
         """
         Capture output from multiple sessions.
@@ -579,14 +572,11 @@ class TmuxManager:
         all_tmux_sessions = await TmuxSession.list_sessions(prefix=self.prefix)
 
         # Find sessions not in our registry
-        orphaned = [
-            sid for sid in all_tmux_sessions
-            if sid not in self._sessions
-        ]
+        orphaned = [sid for sid in all_tmux_sessions if sid not in self._sessions]
 
         return orphaned
 
-    async def adopt_orphaned_session(self, session_id: str) -> Optional[TmuxSession]:
+    async def adopt_orphaned_session(self, session_id: str) -> TmuxSession | None:
         """
         Adopt an orphaned tmux session into management.
 
@@ -679,7 +669,7 @@ class TmuxManager:
             f"active sessions"
         )
 
-    async def __aenter__(self) -> "TmuxManager":
+    async def __aenter__(self) -> TmuxManager:
         """Async context manager entry."""
         return self
 

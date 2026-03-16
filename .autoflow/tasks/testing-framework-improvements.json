@@ -1,0 +1,197 @@
+{
+  "spec_slug": "testing-framework-improvements",
+  "updated_at": "20260316T154000Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "设计多层次测试框架架构",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "定义测试金字塔结构（单元、集成、E2E、性能、安全）",
+        "设计E2E测试框架接口",
+        "规划测试环境架构",
+        "定义测试数据管理策略"
+      ],
+      "notes": [
+        "需要考虑向后兼容性",
+        "测试执行速度平衡",
+        "CI/CD集成需求"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "实现E2E测试框架基础设施",
+      "status": "todo",
+      "depends_on": ["T1"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "创建tests/e2e/目录结构",
+        "实现E2E测试基类和辅助函数",
+        "实现测试环境设置和清理",
+        "实现测试结果报告生成",
+        "创建Docker compose配置用于测试环境"
+      ],
+      "notes": [
+        "使用pytest-asyncio支持异步测试",
+        "测试环境需要与生产环境配置一致",
+        "测试隔离性很重要"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "实现核心场景E2E测试",
+      "status": "todo",
+      "depends_on": ["T2"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "实现完整自主开发流程E2E测试",
+        "实现spec创建和管理E2E测试",
+        "实现任务执行和状态管理E2E测试",
+        "实现agent调度和监控E2E测试",
+        "实现错误恢复和重试E2E测试"
+      ],
+      "notes": [
+        "至少5个核心场景",
+        "测试必须可以独立运行",
+        "测试结果需要详细报告"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "重构集成测试使用真实环境",
+      "status": "todo",
+      "depends_on": ["T2"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "识别使用mock的集成测试",
+        "替换mock为真实依赖（数据库、文件系统等）",
+        "实现测试数据库管理",
+        "实现测试文件系统管理",
+        "确保测试隔离性和可重复性"
+      ],
+      "notes": [
+        "目标：mock使用率<30%",
+        "需要谨慎管理测试数据",
+        "测试运行时间会增加"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "实现用户验收测试（UAT）框架",
+      "status": "todo",
+      "depends_on": ["T2"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "定义用户使用场景列表",
+        "创建tests/uat/目录结构",
+        "实现UAT测试基类",
+        "实现用户场景模拟器",
+        "实现用户反馈收集机制"
+      ],
+      "notes": [
+        "需要从用户角度思考",
+        "场景应该基于真实使用案例",
+        "UAT测试不需要完全自动化"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "实现完成标准检查系统",
+      "status": "todo",
+      "depends_on": ["T3", "T4", "T5"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "创建autoflow/quality/completion_checker.py",
+        "定义完成标准检查清单",
+        "实现自动化检查工具",
+        "实现性能基准测试",
+        "实现安全扫描集成",
+        "生成完成检查报告"
+      ],
+      "notes": [
+        "标准必须明确可衡量",
+        "需要集成到CI/CD",
+        "支持自定义标准"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "集成到CI/CD流程",
+      "status": "todo",
+      "depends_on": ["T6"],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "更新GitHub Actions工作流",
+        "添加E2E测试阶段",
+        "添加完成标准检查",
+        "配置测试环境",
+        "实现测试结果可视化"
+      ],
+      "notes": [
+        "E2E测试可能需要更长时间",
+        "考虑使用矩阵策略并行测试",
+        "失败时提供清晰的反馈"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "编写测试策略文档",
+      "status": "todo",
+      "depends_on": ["T7"],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "创建docs/TESTING_STRATEGY.md",
+        "描述测试金字塔和各层目的",
+        "提供E2E测试编写指南",
+        "提供测试数据管理最佳实践",
+        "提供测试性能优化建议"
+      ],
+      "notes": [
+        "文档需要清晰的示例",
+        "包含常见问题和解决方案",
+        "保持文档更新"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "创建完成标准使用指南",
+      "status": "todo",
+      "depends_on": ["T6"],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "创建docs/COMPLETION_STANDARDS.md",
+        "详细说明每项完成标准",
+        "提供自定义标准指南",
+        "提供集成指南",
+        "包含常见问题FAQ"
+      ],
+      "notes": [
+        "标准必须清晰无歧义",
+        "提供充分的示例",
+        "解释为什么每项标准重要"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "测试验证和质量保证",
+      "status": "todo",
+      "depends_on": ["T8", "T9"],
+      "owner_role": "reviewer",
+      "acceptance_criteria": [
+        "所有E2E测试通过",
+        "集成测试通过（真实环境）",
+        "UAT场景验证通过",
+        "完成标准系统验证通过",
+        "代码审查通过",
+        "文档审查通过"
+      ],
+      "notes": [
+        "这是对测试系统的测试",
+        "确保测试本身的质量",
+        "验证测量指标是否达标"
+      ]
+    }
+  ]
+}

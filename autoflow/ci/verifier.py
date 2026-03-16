@@ -20,16 +20,15 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 
-class CheckStatus(str, Enum):
+class CheckStatus(StrEnum):
     """Status of a CI check."""
 
     PENDING = "pending"
@@ -41,7 +40,7 @@ class CheckStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
-class CheckType(str, Enum):
+class CheckType(StrEnum):
     """Types of CI checks."""
 
     TEST = "test"
@@ -78,10 +77,10 @@ class CheckResult:
     status: CheckStatus = CheckStatus.PENDING
     output: str = ""
     error: str = ""
-    exit_code: Optional[int] = None
-    duration_seconds: Optional[float] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    exit_code: int | None = None
+    duration_seconds: float | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -108,7 +107,7 @@ class CheckResult:
         status: CheckStatus,
         output: str = "",
         error: str = "",
-        exit_code: Optional[int] = None,
+        exit_code: int | None = None,
     ) -> None:
         """
         Mark the check as complete.
@@ -168,10 +167,10 @@ class CheckDefinition:
 
     name: str
     check_type: CheckType
-    command: Union[str, list[str]]
-    cwd: Optional[Union[str, Path]] = None
+    command: str | list[str]
+    cwd: str | Path | None = None
     timeout_seconds: int = 300
-    env: Optional[dict[str, str]] = None
+    env: dict[str, str] | None = None
     expected_exit_codes: list[int] = field(default_factory=lambda: [0])
     enabled: bool = True
     required: bool = True
@@ -204,9 +203,9 @@ class VerificationResult:
     check_results: list[CheckResult] = field(default_factory=list)
     passed: bool = False
     started_at: datetime = field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
-    error: Optional[str] = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -238,7 +237,7 @@ class VerificationResult:
         self,
         status: CheckStatus,
         passed: bool = False,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         """
         Mark verification as complete.
@@ -252,9 +251,7 @@ class VerificationResult:
         self.passed = passed
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
@@ -284,8 +281,8 @@ class CIVerifierError(Exception):
     def __init__(
         self,
         message: str,
-        verification_id: Optional[str] = None,
-        check_name: Optional[str] = None,
+        verification_id: str | None = None,
+        check_name: str | None = None,
     ):
         self.verification_id = verification_id
         self.check_name = check_name
@@ -303,7 +300,7 @@ class CIVerifierStats:
         self.checks_passed: int = 0
         self.checks_failed: int = 0
         self.average_duration: float = 0.0
-        self.last_verification_at: Optional[datetime] = None
+        self.last_verification_at: datetime | None = None
         self.started_at: datetime = datetime.utcnow()
 
     def update(self, result: VerificationResult) -> None:
@@ -324,8 +321,8 @@ class CIVerifierStats:
             total = self.total_verifications
             current_avg = self.average_duration
             self.average_duration = (
-                (current_avg * (total - 1) + result.duration_seconds) / total
-            )
+                current_avg * (total - 1) + result.duration_seconds
+            ) / total
 
     def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary."""
@@ -429,9 +426,9 @@ class CIVerifier:
 
     def __init__(
         self,
-        checks: Optional[list[CheckDefinition]] = None,
-        default_timeout: Optional[int] = None,
-        parallel: Optional[bool] = None,
+        checks: list[CheckDefinition] | None = None,
+        default_timeout: int | None = None,
+        parallel: bool | None = None,
     ):
         """
         Initialize the CI verifier.
@@ -448,7 +445,10 @@ class CIVerifier:
         self._active_verifications: dict[str, VerificationResult] = {}
 
         # Register default or provided checks
-        for check in checks or DEFAULT_CHECKS:
+        # Empty list [] means no checks, None means load defaults
+        if checks is None:
+            checks = DEFAULT_CHECKS
+        for check in checks:
             self._checks[check.name] = check
 
     @property
@@ -469,12 +469,12 @@ class CIVerifier:
     def register_check(
         self,
         name: str,
-        command: Union[str, list[str]],
+        command: str | list[str],
         check_type: CheckType = CheckType.CUSTOM,
-        timeout_seconds: Optional[int] = None,
-        cwd: Optional[Union[str, Path]] = None,
-        env: Optional[dict[str, str]] = None,
-        expected_exit_codes: Optional[list[int]] = None,
+        timeout_seconds: int | None = None,
+        cwd: str | Path | None = None,
+        env: dict[str, str] | None = None,
+        expected_exit_codes: list[int] | None = None,
         enabled: bool = True,
         required: bool = True,
     ) -> None:
@@ -520,7 +520,7 @@ class CIVerifier:
             return True
         return False
 
-    def get_check(self, name: str) -> Optional[CheckDefinition]:
+    def get_check(self, name: str) -> CheckDefinition | None:
         """
         Get a check definition by name.
 
@@ -567,8 +567,8 @@ class CIVerifier:
     async def run_check(
         self,
         name: str,
-        workdir: Optional[Union[str, Path]] = None,
-        timeout_override: Optional[int] = None,
+        workdir: str | Path | None = None,
+        timeout_override: int | None = None,
     ) -> CheckResult:
         """
         Run a single CI check.
@@ -646,7 +646,7 @@ class CIVerifier:
                     exit_code=exit_code,
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
                 result.mark_complete(
@@ -670,8 +670,8 @@ class CIVerifier:
     async def run_checks(
         self,
         names: list[str],
-        workdir: Optional[Union[str, Path]] = None,
-        parallel: Optional[bool] = None,
+        workdir: str | Path | None = None,
+        parallel: bool | None = None,
     ) -> list[CheckResult]:
         """
         Run multiple CI checks.
@@ -687,10 +687,7 @@ class CIVerifier:
         use_parallel = parallel if parallel is not None else self._parallel
 
         if use_parallel:
-            tasks = [
-                self.run_check(name, workdir=workdir)
-                for name in names
-            ]
+            tasks = [self.run_check(name, workdir=workdir) for name in names]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Convert exceptions to error results
@@ -715,10 +712,10 @@ class CIVerifier:
 
     async def run_all_checks(
         self,
-        workdir: Optional[Union[str, Path]] = None,
-        parallel: Optional[bool] = None,
+        workdir: str | Path | None = None,
+        parallel: bool | None = None,
         include_disabled: bool = False,
-        timeout_seconds: Optional[int] = None,
+        timeout_seconds: int | None = None,
     ) -> VerificationResult:
         """
         Run all registered CI checks.
@@ -772,10 +769,12 @@ class CIVerifier:
                 # Run with overall timeout
                 try:
                     check_results = await asyncio.wait_for(
-                        self.run_checks(checks_to_run, workdir=workdir, parallel=use_parallel),
+                        self.run_checks(
+                            checks_to_run, workdir=workdir, parallel=use_parallel
+                        ),
                         timeout=timeout_seconds,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     verification.mark_complete(
                         status=CheckStatus.TIMEOUT,
                         error=f"Verification timed out after {timeout_seconds} seconds",
@@ -796,10 +795,7 @@ class CIVerifier:
             passed = len(required_failures) == 0
 
             # Determine overall status
-            if passed:
-                status = CheckStatus.PASSED
-            else:
-                status = CheckStatus.FAILED
+            status = CheckStatus.PASSED if passed else CheckStatus.FAILED
 
             verification.mark_complete(status=status, passed=passed)
 
@@ -818,7 +814,7 @@ class CIVerifier:
 
     def run_all_checks_sync(
         self,
-        workdir: Optional[Union[str, Path]] = None,
+        workdir: str | Path | None = None,
         **kwargs: Any,
     ) -> VerificationResult:
         """
@@ -839,9 +835,7 @@ class CIVerifier:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        return loop.run_until_complete(
-            self.run_all_checks(workdir=workdir, **kwargs)
-        )
+        return loop.run_until_complete(self.run_all_checks(workdir=workdir, **kwargs))
 
     def get_active_verifications(self) -> list[VerificationResult]:
         """
@@ -852,7 +846,7 @@ class CIVerifier:
         """
         return list(self._active_verifications.values())
 
-    def get_verification(self, verification_id: str) -> Optional[VerificationResult]:
+    def get_verification(self, verification_id: str) -> VerificationResult | None:
         """
         Get a verification by ID.
 
@@ -898,7 +892,7 @@ class CIVerifier:
 
 
 def create_verifier(
-    checks: Optional[list[CheckDefinition]] = None,
+    checks: list[CheckDefinition] | None = None,
     add_defaults: bool = True,
     parallel: bool = True,
 ) -> CIVerifier:

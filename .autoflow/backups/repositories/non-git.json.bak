@@ -1,0 +1,5 @@
+{
+  "id": "non-git",
+  "name": "Non Git",
+  "path": ".autoflow/non_git_validation"
+}

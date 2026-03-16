@@ -1,0 +1,175 @@
+{
+  // ===========================================
+  // Symphony Multi-Agent Workflow Example
+  // ===========================================
+  // This file demonstrates how to define a Symphony
+  // workflow that coordinates multiple AI agents.
+  //
+  // Symphony workflows can be triggered from Autoflow
+  // specs and integrate with Autoflow's review gates.
+  // ===========================================
+
+  name: "autoflow-symphony-review",
+  description: "Example Symphony workflow for coordinated multi-agent code review with Autoflow integration.",
+
+  // Workflow version for compatibility tracking
+  version: "1.0.0",
+
+  // Workflow execution settings
+  settings: {
+    // Maximum workflow execution time in seconds
+    timeout_seconds: 600,
+
+    // Enable checkpoint creation at review gates
+    checkpoints_enabled: true,
+
+    // Allow workflow to resume from checkpoints
+    resume_enabled: true,
+
+    // Run agents in parallel when possible
+    parallel_execution: true,
+  },
+
+  // Agents involved in this workflow
+  agents: [
+    {
+      id: "code-reviewer",
+      name: "Code Review Agent",
+      role: "reviewer",
+      description: "Analyzes code quality, style, and potential issues",
+      runtime: "claude",
+      model: "claude-sonnet-4-5",
+    },
+    {
+      id: "security-analyst",
+      name: "Security Analyst Agent",
+      role: "security",
+      description: "Identifies security vulnerabilities and best practices",
+      runtime: "claude",
+      model: "claude-sonnet-4-5",
+    },
+    {
+      id: "test-engineer",
+      name: "Test Engineer Agent",
+      role: "testing",
+      description: "Generates test cases and validates coverage",
+      runtime: "claude",
+      model: "claude-sonnet-4-5",
+    },
+  ],
+
+  // Workflow steps executed in sequence
+  steps: [
+    {
+      id: "initialize",
+      name: "Initialize Workflow",
+      description: "Set up workflow context and validate prerequisites",
+      agent: "code-reviewer",
+      command: "analyze-prerequisites --spec <slug>",
+      output: "json",
+      checkpoint: true,
+    },
+    {
+      id: "parallel-analysis",
+      name: "Parallel Code Analysis",
+      description: "Run multiple agents in parallel for comprehensive analysis",
+      parallel: [
+        {
+          id: "quality-review",
+          name: "Code Quality Review",
+          agent: "code-reviewer",
+          command: "review-quality --files <changed_files>",
+          output: "json",
+        },
+        {
+          id: "security-scan",
+          name: "Security Analysis",
+          agent: "security-analyst",
+          command: "scan-security --files <changed_files>",
+          output: "json",
+        },
+        {
+          id: "test-analysis",
+          name: "Test Coverage Analysis",
+          agent: "test-engineer",
+          command: "analyze-coverage --files <changed_files>",
+          output: "json",
+        },
+      ],
+    },
+    {
+      id: "synthesize-results",
+      name: "Synthesize Analysis Results",
+      description: "Combine findings from all agents into comprehensive report",
+      agent: "code-reviewer",
+      command: "synthesize --inputs <parallel-analysis.outputs>",
+      output: "json",
+      depends_on: ["parallel-analysis"],
+    },
+    {
+      id: "review-gate",
+      name: "Autoflow Review Gate",
+      description: "Checkpoint for manual review before proceeding",
+      type: "checkpoint",
+      checkpoint_name: "symphony-review-gate",
+      requires_approval: true,
+      metadata: {
+        gate_type: "code_review",
+        workflow: "autoflow-symphony-review",
+      },
+    },
+    {
+      id: "generate-recommendations",
+      name: "Generate Recommendations",
+      description: "Create actionable recommendations based on analysis",
+      agent: "code-reviewer",
+      command: "recommend --based-on <synthesize-results.output>",
+      output: "json",
+      depends_on: ["review-gate"],
+    },
+    {
+      id: "final-report",
+      name: "Final Report",
+      description: "Generate final workflow report with all findings",
+      agent: "code-reviewer",
+      command: "report --compile <all-outputs>",
+      output: "markdown",
+      depends_on: ["generate-recommendations"],
+    },
+  ],
+
+  // Integration with Autoflow
+  autoflow_integration: {
+    // Sync workflow checkpoints with Autoflow review gates
+    sync_checkpoints: true,
+
+    // Map workflow status to Autoflow run status
+    status_mapping: {
+      "complete": "completed",
+      "failed": "failed",
+      "running": "running",
+      "pending_approval": "paused",
+    },
+
+    // Store workflow results in Autoflow run metadata
+    store_results: true,
+
+    // Enable Autoflow to resume workflow from checkpoints
+    allow_resume: true,
+  },
+
+  // Output configuration
+  outputs: {
+    // Format for final output
+    format: "markdown",
+
+    // Include detailed step-by-step logs
+    include_logs: true,
+
+    // Include agent reasoning traces
+    include_traces: true,
+
+    // Output file path (relative to project root)
+    output_path: ".autoflow/symphony/reports/<slug>-report.md",
+  },
+}

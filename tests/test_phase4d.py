@@ -1,3 +1,13 @@
+"""
+Unit Tests for Phase 4D CLI Functionality
+
+Tests the autoflow CLI tool for spec management, reviewer workflows,
+fix requests, task orchestration, and agent discovery.
+
+These tests use temporary directories and mock git repositories to
+avoid requiring actual project setups or external services.
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -44,7 +54,12 @@ class Phase4DTests(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parents[1]
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
-        subprocess.run(["git", "init", "-b", "main"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "init", "-b", "main"],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
         (self.root / "config").mkdir(parents=True, exist_ok=True)
         (self.root / "config" / "system.example.json").write_text(
             json.dumps(
@@ -56,7 +71,12 @@ class Phase4DTests(unittest.TestCase):
                         "global_file": ".autoflow/memory/global.md",
                         "spec_dir": ".autoflow/memory/specs",
                     },
-                    "models": {"profiles": {"implementation": "gpt-5-codex", "review": "claude-sonnet-4-6"}},
+                    "models": {
+                        "profiles": {
+                            "implementation": "gpt-5-codex",
+                            "review": "claude-sonnet-4-6",
+                        }
+                    },
                     "tools": {"profiles": {"claude-review": ["Read", "Bash(git:*)"]}},
                     "registry": {"acp_agents": []},
                 },
@@ -76,7 +96,9 @@ class Phase4DTests(unittest.TestCase):
             (self.root / "templates" / "bmad" / f"{role}.md").write_text(
                 f"# {role}\n", encoding="utf-8"
             )
-        self.autoflow = load_module(self.repo_root / "scripts" / "autoflow.py", "autoflow_test")
+        self.autoflow = load_module(
+            self.repo_root / "scripts" / "autoflow.py", "autoflow_test"
+        )
         configure_autoflow_module(self.autoflow, self.root)
         self.autoflow.ensure_state()
         self.autoflow.write_json(
@@ -138,7 +160,9 @@ class Phase4DTests(unittest.TestCase):
             ),
         )
         self.assertTrue(result["fix_request"].endswith("QA_FIX_REQUEST.md"))
-        fix_request = self.autoflow.spec_files("phase4d")["qa_fix_request"].read_text(encoding="utf-8")
+        fix_request = self.autoflow.spec_files("phase4d")["qa_fix_request"].read_text(
+            encoding="utf-8"
+        )
         self.assertIn("Reviewer found two issues", fix_request)
 
     def test_structured_findings_are_written_to_markdown_and_json(self) -> None:
@@ -185,12 +209,19 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(payload["findings"][0]["file"], "tests/test_phase4d.py")
         self.assertEqual(payload["findings"][0]["severity"], "high")
         markdown = self.autoflow.load_fix_request("findings-spec")
-        self.assertIn("| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |", markdown)
+        self.assertIn(
+            "| F-1 | high | tests | tests/test_phase4d.py | 10 | Missing test coverage |",
+            markdown,
+        )
 
-    def test_build_prompt_includes_structured_fix_request_and_respects_memory_scope(self) -> None:
+    def test_build_prompt_includes_structured_fix_request_and_respects_memory_scope(
+        self,
+    ) -> None:
         self.create_spec("prompt-spec")
         self.autoflow.append_memory("global", "global memory", title="Global")
-        self.autoflow.append_memory("spec", "spec memory", spec_slug="prompt-spec", title="Spec")
+        self.autoflow.append_memory(
+            "spec", "spec memory", spec_slug="prompt-spec", title="Spec"
+        )
         self.autoflow.write_fix_request(
             "prompt-spec",
             "T1",
@@ -216,11 +247,17 @@ class Phase4DTests(unittest.TestCase):
             model="claude-sonnet-4-6",
             memory_scopes=["spec"],
         )
-        prompt = self.autoflow.build_prompt("prompt-spec", "reviewer", "T1", agent)
+        prompt = self.autoflow.build_prompt(
+            "prompt-spec", "reviewer", "T1", agent, run_id="run-123"
+        )
         self.assertIn('"file": "scripts/continuous_iteration.py"', prompt)
-        self.assertIn('"suggested_fix": "Return the blocker in dispatch output."', prompt)
+        self.assertIn(
+            '"suggested_fix": "Return the blocker in dispatch output."', prompt
+        )
         self.assertIn("spec memory", prompt)
         self.assertNotIn("global memory", prompt)
+        self.assertIn(".autoflow/runs/run-123/agent_result.json", prompt)
+        self.assertIn("## Completion contract", prompt)
 
     def test_complete_run_records_strategy_reflection_and_playbook(self) -> None:
         self.create_spec("strategy-spec")
@@ -261,7 +298,159 @@ class Phase4DTests(unittest.TestCase):
         self.assertEqual(len(result["strategy_memory"]), 2)
         summary = self.autoflow.strategy_summary("strategy-spec")
         self.assertEqual(summary["recent_reflections"][-1]["result"], "needs_changes")
-        self.assertTrue(any(item["category"] == "tests" for item in summary["playbook"]))
+        self.assertTrue(
+            any(item["category"] == "tests" for item in summary["playbook"])
+        )
+
+    def test_show_and_update_spec_support_readme_compat_flags(self) -> None:
+        self.create_spec("compat-spec")
+        result = self.capture_json_output(
+            self.autoflow.update_spec,
+            SimpleNamespace(
+                slug="compat-spec",
+                title="Updated Title",
+                summary="Updated summary text.",
+                status="ready",
+                append="Additional context for the spec.",
+            ),
+        )
+        self.assertEqual(result["metadata"]["title"], "Updated Title")
+        shown = self.capture_json_output(
+            self.autoflow.show_spec,
+            SimpleNamespace(slug="compat-spec"),
+        )
+        self.assertEqual(shown["metadata"]["status"], "ready")
+        self.assertIn("Updated summary text.", shown["spec_markdown"])
+        self.assertIn("Additional context for the spec.", shown["spec_markdown"])
+
+    def test_init_tasks_update_task_and_reset_task(self) -> None:
+        self.create_spec("task-compat")
+        init_result = self.capture_json_output(
+            self.autoflow.init_tasks_cmd,
+            SimpleNamespace(spec="task-compat", force=False),
+        )
+        self.assertFalse(init_result["created"])
+        updated = self.capture_json_output(
+            self.autoflow.update_task_cmd,
+            SimpleNamespace(
+                spec="task-compat",
+                task="T1",
+                status="blocked",
+                title="",
+                owner_role="",
+                append_criterion="",
+                note="manual pause",
+            ),
+        )
+        self.assertEqual(updated["status"], "blocked")
+        self.assertEqual(updated["notes"][-1]["note"], "manual pause")
+        reset = self.capture_json_output(
+            self.autoflow.reset_task_cmd,
+            SimpleNamespace(spec="task-compat", task="T1", note="retry from scratch"),
+        )
+        self.assertEqual(reset["status"], "todo")
+        self.assertEqual(reset["notes"][-1]["note"], "retry from scratch")
+
+    def test_capture_memory_validate_config_and_test_agent(self) -> None:
+        self.create_spec("memory-spec")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="memory-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=run_id, result="success", summary="Spec writer completed."),
+        )
+        captured = self.capture_json_output(
+            self.autoflow.capture_memory_cmd,
+            SimpleNamespace(run=run_id, scopes=None),
+        )
+        self.assertEqual(captured["run"], run_id)
+        memory_text = self.autoflow.memory_file("spec", "memory-spec").read_text(encoding="utf-8")
+        self.assertIn("Spec writer completed.", memory_text)
+        validation = self.capture_json_output(
+            self.autoflow.validate_config_cmd,
+            SimpleNamespace(),
+        )
+        self.assertTrue(validation["valid"])
+        agent_status = self.capture_json_output(
+            self.autoflow.test_agent_cmd,
+            SimpleNamespace(agent="dummy"),
+        )
+        self.assertTrue(agent_status["configured"])
+        self.assertTrue(agent_status["ready"])
+
+    def test_cleanup_runs_marks_created_runs_inactive(self) -> None:
+        self.create_spec("cleanup-spec")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="cleanup-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        state_before = self.capture_json_output(
+            self.autoflow.workflow_state,
+            SimpleNamespace(spec="cleanup-spec"),
+        )
+        self.assertEqual(len(state_before["active_runs"]), 1)
+        cleanup = self.capture_json_output(
+            self.autoflow.cleanup_runs_cmd,
+            SimpleNamespace(
+                spec="cleanup-spec",
+                reason="manual_cleanup",
+                target_status="abandoned",
+                task_status="",
+                include_status=["created", "running"],
+            ),
+        )
+        self.assertEqual(len(cleanup["cleaned_runs"]), 1)
+        self.assertEqual(cleanup["task_updates"][0]["status"], "todo")
+        state_after = self.capture_json_output(
+            self.autoflow.workflow_state,
+            SimpleNamespace(spec="cleanup-spec"),
+        )
+        self.assertEqual(state_after["active_runs"], [])
+        tasks = self.autoflow.load_tasks("cleanup-spec")
+        self.assertEqual(self.autoflow.task_lookup(tasks, "T1")["status"], "todo")
+
+    def test_add_planner_note_accepts_note_flag(self) -> None:
+        self.create_spec("note-spec")
+        with redirect_stdout(io.StringIO()):
+            self.autoflow.add_planner_note_cmd(
+                SimpleNamespace(
+                    spec="note-spec",
+                    title="",
+                    content="",
+                    note="Remember to validate the retry gate.",
+                    category="strategy",
+                    scope="spec",
+                )
+            )
+        summary = self.autoflow.strategy_summary("note-spec")
+        self.assertEqual(summary["planner_notes"][-1]["content"], "Remember to validate the retry gate.")
+
+    def test_resolve_root_path_remaps_foreign_autoflow_paths_into_current_root(self) -> None:
+        foreign = Path("/tmp/other-repo/.autoflow/memory/specs/example.md")
+        resolved = self.autoflow.resolve_root_path(foreign)
+        self.assertEqual(
+            resolved,
+            self.root / ".autoflow" / "memory" / "specs" / "example.md",
+        )
 
     def test_taskmaster_export_import_round_trip(self) -> None:
         self.create_spec("taskmaster-spec")
@@ -311,15 +500,289 @@ class Phase4DTests(unittest.TestCase):
         first_run = Path(output.getvalue().strip()).name
         self.capture_json_output(
             self.autoflow.complete_run,
-            SimpleNamespace(run=first_run, result="blocked", summary="First attempt blocked."),
+            SimpleNamespace(
+                run=first_run, result="blocked", summary="First attempt blocked."
+            ),
         )
         resumed = io.StringIO()
         with redirect_stdout(resumed):
             self.autoflow.resume_run(SimpleNamespace(run=first_run))
         second_run = Path(resumed.getvalue().strip()).name
-        metadata = self.autoflow.read_json(self.autoflow.RUNS_DIR / second_run / "run.json")
+        metadata = self.autoflow.read_json(
+            self.autoflow.RUNS_DIR / second_run / "run.json"
+        )
         self.assertEqual(metadata["resume_from"], first_run)
         self.assertEqual(metadata["attempt_count"], 2)
+
+    def test_heartbeat_run_updates_session_and_status(self) -> None:
+        self.create_spec("lease-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="lease-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.heartbeat_run_cmd,
+            SimpleNamespace(
+                run=run_id,
+                status="running",
+                session="autoflow-lease-test",
+                exit_code=None,
+            ),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(metadata["status"], "running")
+        self.assertEqual(metadata["tmux_session"], "autoflow-lease-test")
+        self.assertIn("heartbeat_at", metadata)
+
+    def test_sweep_runs_marks_stale_and_requeues_task(self) -> None:
+        self.create_spec("stale-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="stale-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        metadata = self.autoflow.load_run_metadata(run_id)
+        metadata["status"] = "running"
+        metadata["heartbeat_at"] = "20200101T000000Z"
+        metadata["tmux_session"] = ""
+        self.autoflow.write_run_metadata(run_id, metadata)
+        result = self.capture_json_output(
+            self.autoflow.sweep_runs_cmd,
+            SimpleNamespace(
+                spec="stale-spec",
+                stale_after=60,
+                target_status="stale",
+                task_status="",
+                include_status=["created", "running"],
+                auto_recover=False,
+                dispatch_recovery=False,
+            ),
+        )
+        self.assertEqual(result["marked_stale"][0]["run"], run_id)
+        metadata = self.autoflow.load_run_metadata(run_id)
+        self.assertEqual(metadata["status"], "stale")
+        tasks = self.autoflow.load_tasks("stale-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(task["status"], "todo")
+
+    def test_recover_run_creates_retry_and_marks_old_run(self) -> None:
+        self.create_spec("recover-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="recover-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        metadata = self.autoflow.load_run_metadata(run_id)
+        metadata["status"] = "stale"
+        self.autoflow.write_run_metadata(run_id, metadata)
+        result = self.capture_json_output(
+            self.autoflow.recover_run_cmd,
+            SimpleNamespace(run=run_id, reason="stale:heartbeat_expired", dispatch=False),
+        )
+        old_metadata = self.autoflow.load_run_metadata(run_id)
+        new_metadata = self.autoflow.load_run_metadata(result["new_run"])
+        self.assertEqual(old_metadata["status"], "recovered")
+        self.assertEqual(new_metadata["resume_from"], run_id)
+        self.assertEqual(new_metadata["recovery_reason"], "stale:heartbeat_expired")
+
+    def test_finalize_run_uses_agent_result_artifact(self) -> None:
+        self.create_spec("finalize-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="finalize-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result_file = self.autoflow.RUNS_DIR / run_id / "agent_result.json"
+        result_file.write_text(
+            json.dumps(
+                {
+                    "result": "success",
+                    "summary": "Agent finished the slice and recorded the result.",
+                    "findings": [],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = self.capture_json_output(
+            self.autoflow.finalize_run_cmd,
+            SimpleNamespace(run=run_id, exit_code=0, result_file=str(result_file)),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        tasks = self.autoflow.load_tasks("finalize-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(result["result_source"], "agent_result")
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(metadata["result"], "success")
+        self.assertEqual(task["status"], "in_review")
+
+    def test_finalize_run_without_result_file_marks_failed(self) -> None:
+        self.create_spec("finalize-fallback")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="finalize-fallback",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.finalize_run_cmd,
+            SimpleNamespace(run=run_id, exit_code=0, result_file=""),
+        )
+        metadata = self.autoflow.load_run_metadata(run_id)
+        tasks = self.autoflow.load_tasks("finalize-fallback")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(result["result_source"], "fallback")
+        self.assertEqual(metadata["status"], "completed")
+        self.assertEqual(metadata["result"], "failed")
+        self.assertEqual(task["status"], "blocked")
+        self.assertIn("did not write agent_result.json", (self.autoflow.RUNS_DIR / run_id / "summary.md").read_text(encoding="utf-8"))
+
+    def test_bounded_qa_loop_progresses_from_fix_request_to_done(self) -> None:
+        self.create_spec("qa-loop-spec")
+        tasks = self.autoflow.load_tasks("qa-loop-spec")
+        self.autoflow.task_lookup(tasks, "T1")["status"] = "done"
+        self.autoflow.task_lookup(tasks, "T2")["status"] = "done"
+        self.autoflow.save_tasks("qa-loop-spec", tasks, reason="task_status_updated")
+        self.capture_json_output(
+            self.autoflow.approve_spec,
+            SimpleNamespace(spec="qa-loop-spec", approved_by="tester"),
+        )
+
+        impl_out = io.StringIO()
+        with redirect_stdout(impl_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="implementation-runner",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        impl_run = Path(impl_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=impl_run, result="success", summary="Initial implementation slice done."),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "reviewer")
+        self.assertEqual(state["recommended_next_action"]["id"], "T3")
+
+        review_out = io.StringIO()
+        with redirect_stdout(review_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="reviewer",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        review_run = Path(review_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(
+                run=review_run,
+                result="needs_changes",
+                summary="Please tighten the implementation and add follow-up checks.",
+            ),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertTrue(state["fix_request_present"])
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "implementation-runner")
+        self.assertEqual(state["recommended_next_action"]["id"], "T3")
+
+        retry_out = io.StringIO()
+        with redirect_stdout(retry_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="implementation-runner",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        retry_run = Path(retry_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=retry_run, result="success", summary="Applied reviewer fixes."),
+        )
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="qa-loop-spec")
+        )
+        self.assertEqual(state["recommended_next_action"]["owner_role"], "reviewer")
+
+        final_review_out = io.StringIO()
+        with redirect_stdout(final_review_out):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="qa-loop-spec",
+                    role="reviewer",
+                    agent="dummy",
+                    task="T3",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        final_review_run = Path(final_review_out.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=final_review_run, result="success", summary="Review passed."),
+        )
+        tasks = self.autoflow.load_tasks("qa-loop-spec")
+        task = self.autoflow.task_lookup(tasks, "T3")
+        self.assertEqual(task["status"], "done")
+        self.assertFalse(self.autoflow.load_fix_request("qa-loop-spec"))
 
     def test_workflow_state_blocks_implementation_when_review_invalid(self) -> None:
         self.create_spec("gate-spec")
@@ -327,12 +790,16 @@ class Phase4DTests(unittest.TestCase):
         self.autoflow.task_lookup(tasks, "T1")["status"] = "done"
         self.autoflow.task_lookup(tasks, "T2")["status"] = "done"
         self.autoflow.save_tasks("gate-spec", tasks, reason="task_status_updated")
-        state = self.capture_json_output(self.autoflow.workflow_state, SimpleNamespace(spec="gate-spec"))
+        state = self.capture_json_output(
+            self.autoflow.workflow_state, SimpleNamespace(spec="gate-spec")
+        )
         self.assertEqual(state["blocking_reason"], "review_approval_required")
         self.assertIsNone(state["recommended_next_action"])
 
     def test_dispatch_gate_stops_after_retry_limit(self) -> None:
-        continuous = load_module(self.repo_root / "scripts" / "continuous_iteration.py", "continuous_test")
+        continuous = load_module(
+            self.repo_root / "scripts" / "continuous_iteration.py", "continuous_test"
+        )
         continuous.task_history = lambda spec, task: [
             {"result": "needs_changes"},
             {"result": "blocked"},
@@ -351,12 +818,19 @@ class Phase4DTests(unittest.TestCase):
                 "blocking_reason": "",
                 "fix_request_present": True,
             },
-            {"id": "T3", "status": "needs_changes", "owner_role": "implementation-runner"},
+            {
+                "id": "T3",
+                "status": "needs_changes",
+                "owner_role": "implementation-runner",
+            },
         )
         self.assertEqual(gate["reason"], "max_automatic_attempts_reached")
 
     def test_continuous_iteration_can_fallback_to_discovered_agent(self) -> None:
-        continuous = load_module(self.repo_root / "scripts" / "continuous_iteration.py", "continuous_fallback_test")
+        continuous = load_module(
+            self.repo_root / "scripts" / "continuous_iteration.py",
+            "continuous_fallback_test",
+        )
         catalog = {"codex": {"command": "codex"}, "claude": {"command": "claude"}}
         agent, source = continuous.select_agent_for_role(
             {"role_agents": {"reviewer": "claude-review"}},
@@ -377,8 +851,18 @@ class Phase4DTests(unittest.TestCase):
         ]
         self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
         with (
-            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None),
-            patch.object(self.autoflow, "run_cmd", return_value=SimpleNamespace(stdout="resume --model", stderr="", returncode=0)),
+            patch.object(
+                self.autoflow.shutil,
+                "which",
+                side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd == "codex" else None,
+            ),
+            patch.object(
+                self.autoflow,
+                "run_cmd",
+                return_value=SimpleNamespace(
+                    stdout="resume --model", stderr="", returncode=0
+                ),
+            ),
         ):
             payload = self.autoflow.discover_agents_registry()
         names = [agent["name"] for agent in payload["agents"]]
@@ -416,13 +900,21 @@ class Phase4DTests(unittest.TestCase):
         ]
         self.autoflow.write_json(self.autoflow.SYSTEM_CONFIG_FILE, config)
         with (
-            patch.object(self.autoflow.shutil, "which", side_effect=lambda cmd: f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None),
+            patch.object(
+                self.autoflow.shutil,
+                "which",
+                side_effect=lambda cmd: (
+                    f"/usr/bin/{cmd}" if cmd in {"codex", "claude"} else None
+                ),
+            ),
             patch.object(
                 self.autoflow,
                 "run_cmd",
                 side_effect=[
                     SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
-                    SimpleNamespace(stdout="--continue --model", stderr="", returncode=0),
+                    SimpleNamespace(
+                        stdout="--continue --model", stderr="", returncode=0
+                    ),
                 ],
             ),
         ):
@@ -433,6 +925,123 @@ class Phase4DTests(unittest.TestCase):
         self.assertIn("test-acp", catalog["agents"])
         self.assertEqual(catalog["agents"]["codex"]["resume"]["subcommand"], "resume")
         self.assertEqual(result["total_agents"], 4)
+
+    def test_cancel_run_updates_run_and_task_status(self) -> None:
+        self.create_spec("cancel-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="cancel-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        result = self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason=""),
+        )
+        self.assertEqual(result["run"], run_id)
+        self.assertEqual(result["task_status"], "todo")
+        run_metadata = self.autoflow.read_json(self.autoflow.RUNS_DIR / run_id / "run.json")
+        self.assertEqual(run_metadata["status"], "cancelled")
+        self.assertIn("cancelled_at", run_metadata)
+        tasks = self.autoflow.load_tasks("cancel-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertEqual(task["status"], "todo")
+
+    def test_cancel_run_records_event_and_summary(self) -> None:
+        self.create_spec("event-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="event-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason="Test cancellation"),
+        )
+        events = self.autoflow.load_events("event-spec", limit=10)
+        cancelled_event = next((e for e in events if e.get("type") == "run.cancelled"), None)
+        self.assertIsNotNone(cancelled_event)
+        self.assertEqual(cancelled_event["payload"]["run"], run_id)
+        self.assertEqual(cancelled_event["payload"]["task"], "T1")
+        summary_path = self.autoflow.RUNS_DIR / run_id / "summary.md"
+        self.assertTrue(summary_path.exists())
+        summary_content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("Test cancellation", summary_content)
+
+    def test_cancel_run_with_reason(self) -> None:
+        self.create_spec("reason-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="reason-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        reason = "Agent process crashed unexpectedly"
+        result = self.capture_json_output(
+            self.autoflow.cancel_run,
+            SimpleNamespace(run=run_id, reason=reason),
+        )
+        self.assertEqual(result["reason"], reason)
+        tasks = self.autoflow.load_tasks("reason-spec")
+        task = self.autoflow.task_lookup(tasks, "T1")
+        self.assertGreaterEqual(len(task["notes"]), 1)
+        cancellation_note = next((n for n in task["notes"] if n["note"] == reason), None)
+        self.assertIsNotNone(cancellation_note)
+        self.assertIn("at", cancellation_note)
+        summary_path = self.autoflow.RUNS_DIR / run_id / "summary.md"
+        summary_content = summary_path.read_text(encoding="utf-8")
+        self.assertIn(reason, summary_content)
+
+    def test_cancel_run_fails_on_completed_run(self) -> None:
+        self.create_spec("completed-spec")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.autoflow.create_run(
+                SimpleNamespace(
+                    spec="completed-spec",
+                    role="spec-writer",
+                    agent="dummy",
+                    task="T1",
+                    branch="",
+                    resume_from=None,
+                )
+            )
+        run_id = Path(output.getvalue().strip()).name
+        self.capture_json_output(
+            self.autoflow.complete_run,
+            SimpleNamespace(run=run_id, result="success", summary="Work completed."),
+        )
+        with self.assertRaises(SystemExit) as context:
+            self.autoflow.cancel_run(SimpleNamespace(run=run_id, reason=""))
+        self.assertIn("cannot cancel run with status completed", str(context.exception))
+
+    def test_cancel_run_fails_on_unknown_run(self) -> None:
+        self.create_spec("unknown-spec")
+        with self.assertRaises(SystemExit) as context:
+            self.autoflow.cancel_run(SimpleNamespace(run="nonexistent-run-id", reason=""))
+        self.assertIn("unknown run: nonexistent-run-id", str(context.exception))
 
 
 if __name__ == "__main__":

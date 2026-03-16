@@ -7,10 +7,8 @@ Integrates with the verification system to create structured fix tasks.
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,7 +17,7 @@ from autoflow.review.qa_findings import (
     QAFinding,
     QAFindingReport,
     QAFindingsManager,
-    SeverityLevel
+    SeverityLevel,
 )
 
 
@@ -42,102 +40,71 @@ Examples:
   %(prog)s --add                                  Add a finding interactively
   %(prog)s --merge report1.json report2.json      Merge multiple reports
   %(prog)s --generate-tasks findings.json         Generate fix tasks from findings
-        """
+        """,
     )
 
-    parser.add_argument(
-        "--input",
-        "-i",
-        help="Input QA findings JSON file"
-    )
+    parser.add_argument("--input", "-i", help="Input QA findings JSON file")
 
     parser.add_argument(
-        "--output",
-        "-o",
-        help="Output file for QA findings (JSON format)"
+        "--output", "-o", help="Output file for QA findings (JSON format)"
     )
 
     parser.add_argument(
         "--show",
         "-s",
         action="store_true",
-        help="Display QA findings in human-readable format"
+        help="Display QA findings in human-readable format",
     )
 
     parser.add_argument(
         "--check",
         "-c",
         action="store_true",
-        help="Check if findings contain blocking issues"
+        help="Check if findings contain blocking issues",
     )
 
     parser.add_argument(
         "--critical-only",
         action="store_true",
-        help="Show only critical and high severity findings"
+        help="Show only critical and high severity findings",
+    )
+
+    parser.add_argument("--by-file", action="store_true", help="Group findings by file")
+
+    parser.add_argument(
+        "--add", action="store_true", help="Add a finding interactively"
     )
 
     parser.add_argument(
-        "--by-file",
-        action="store_true",
-        help="Group findings by file"
-    )
-
-    parser.add_argument(
-        "--add",
-        action="store_true",
-        help="Add a finding interactively"
-    )
-
-    parser.add_argument(
-        "--merge",
-        nargs="+",
-        metavar="REPORT",
-        help="Merge multiple report files"
+        "--merge", nargs="+", metavar="REPORT", help="Merge multiple report files"
     )
 
     parser.add_argument(
         "--generate-tasks",
         action="store_true",
-        help="Generate fix tasks from findings (for future implementation)"
+        help="Generate fix tasks from findings (for future implementation)",
     )
 
-    parser.add_argument(
-        "--file",
-        help="File path for --add"
-    )
+    parser.add_argument("--file", help="File path for --add")
 
-    parser.add_argument(
-        "--line",
-        type=int,
-        help="Line number for --add"
-    )
+    parser.add_argument("--line", type=int, help="Line number for --add")
 
     parser.add_argument(
         "--severity",
         choices=["critical", "high", "medium", "low"],
-        help="Severity level for --add"
+        help="Severity level for --add",
     )
 
     parser.add_argument(
-        "--category",
-        help="Category for --add (e.g., test, coverage, style)"
+        "--category", help="Category for --add (e.g., test, coverage, style)"
     )
 
-    parser.add_argument(
-        "--message",
-        help="Message for --add"
-    )
+    parser.add_argument("--message", help="Message for --add")
+
+    parser.add_argument("--suggested-fix", help="Suggested fix for --add")
 
     parser.add_argument(
-        "--suggested-fix",
-        help="Suggested fix for --add"
-    )
-
-    parser.add_argument(
-        "--work-dir",
-        default=".",
-        help="Working directory (default: .)"
+        "--work-dir", default=".", help="Working directory (default: .)"
     )
 
     return parser.parse_args()
@@ -157,7 +124,7 @@ def print_finding(finding: QAFinding, show_index: bool = False, index: int = 0) 
         SeverityLevel.CRITICAL: "🔴",
         SeverityLevel.HIGH: "🟠",
         SeverityLevel.MEDIUM: "🟡",
-        SeverityLevel.LOW: "🔵"
+        SeverityLevel.LOW: "🔵",
     }.get(finding.severity, "⚪")
 
     print(f"{prefix}{severity_symbol} {finding}")
@@ -175,9 +142,7 @@ def print_finding(finding: QAFinding, show_index: bool = False, index: int = 0) 
 
 
 def print_report(
-    report: QAFindingReport,
-    critical_only: bool = False,
-    by_file: bool = False
+    report: QAFindingReport, critical_only: bool = False, by_file: bool = False
 ) -> None:
     """
     Print QA findings report.
@@ -278,7 +243,7 @@ def add_finding_interactive(args: argparse.Namespace) -> QAFinding:
         severity=SeverityLevel.from_string(severity_str),
         category=category,
         message=message,
-        suggested_fix=suggested_fix
+        suggested_fix=suggested_fix,
     )
 
     print(f"\n✓ Added finding: {finding}")
@@ -286,7 +251,9 @@ def add_finding_interactive(args: argparse.Namespace) -> QAFinding:
     return finding
 
 
-def merge_reports(input_files: List[str], manager: QAFindingsManager) -> QAFindingReport:
+def merge_reports(
+    input_files: list[str], manager: QAFindingsManager
+) -> QAFindingReport:
     """
     Merge multiple report files.
 

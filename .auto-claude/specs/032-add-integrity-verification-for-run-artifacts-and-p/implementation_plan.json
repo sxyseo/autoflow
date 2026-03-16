@@ -1,0 +1,421 @@
+{
+  "feature": "Integrity verification for run artifacts and prompts",
+  "description": "Add cryptographic integrity verification for run.sh scripts and prompt.md files to prevent tampering attacks (CWE-353)",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a feature addition that requires implementing new functionality (integrity checks) across multiple files. While it could be considered simple, the security implications warrant a phased approach to ensure proper implementation and testing.",
+  "phases": [
+    {
+      "id": "phase-1-utilities",
+      "name": "Integrity Verification Utilities",
+      "type": "implementation",
+      "description": "Create helper functions for generating and verifying file integrity hashes using SHA-256",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create file integrity hashing function",
+          "service": "main",
+          "files_to_modify": [],
+          "files_to_create": [
+            "scripts/integrity.py"
+          ],
+          "patterns_from": [
+            "autoflow/review/approval.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from scripts.integrity import hash_file_content; print('OK' if callable(hash_file_content) else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Create file integrity verification function",
+          "service": "main",
+          "files_to_modify": [],
+          "files_to_create": [
+            "scripts/integrity.py"
+          ],
+          "patterns_from": [
+            "autoflow/review/approval.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from scripts.integrity import verify_file_integrity; print('OK' if callable(verify_file_integrity) else 'FAIL')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Add unit tests for integrity functions",
+          "service": "main",
+          "files_to_modify": [
+            "tests/test_agent_runner.py"
+          ],
+          "files_to_create": [
+            "tests/test_integrity.py"
+          ],
+          "patterns_from": [
+            "tests/test_agent_runner.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -m pytest tests/test_integrity.py -v",
+            "expected": "passed"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-signing",
+      "name": "Add File Signing to Run Creation",
+      "type": "implementation",
+      "description": "Modify create_run_record() to generate and store integrity hashes for prompt.md and run.sh immediately after creation",
+      "depends_on": [
+        "phase-1-utilities"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Import integrity functions in autoflow.py",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/autoflow.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"import sys; sys.path.insert(0, 'scripts'); from integrity import hash_file_content, verify_file_integrity; print('Import successful')\"",
+            "expected": "Import successful"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Add integrity hash generation to create_run_record() for prompt.md",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/autoflow.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review create_run_record() to confirm it generates hash after creating prompt.md"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add integrity hash generation to create_run_record() for run.sh",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/autoflow.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review create_run_record() to confirm it generates hash after creating run.sh"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-4",
+          "description": "Store integrity hashes in run.json metadata",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/autoflow.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 scripts/autoflow.py create-run --spec test-spec --agent test-agent --role tester --task test-task && cat .autoflow/runs/*/run.json | python -m json.tool | grep -q 'integrity' && echo 'OK' || echo 'FAIL'",
+            "expected": "OK"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-verification",
+      "name": "Add Integrity Verification to Execution",
+      "type": "implementation",
+      "description": "Modify agent_runner.py to verify file integrity before loading and executing",
+      "depends_on": [
+        "phase-2-signing"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Add integrity verification before loading prompt.md in agent_runner.py",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/agent_runner.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review agent_runner.py main() to confirm it verifies prompt.md before calling load_prompt()"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Add error handling for integrity verification failures",
+          "service": "main",
+          "files_to_modify": [
+            "scripts/agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/agent_runner.py"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Confirm that integrity failures raise SystemExit with clear error message"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-testing",
+      "name": "Integration Testing and Verification",
+      "type": "integration",
+      "description": "Write comprehensive tests and verify end-to-end functionality",
+      "depends_on": [
+        "phase-3-verification"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Write integration test for tampered prompt.md",
+          "service": "main",
+          "files_to_modify": [
+            "tests/test_agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_agent_runner.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -m pytest tests/test_agent_runner.py -v -k tamper",
+            "expected": "passed"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Write integration test for tampered run.sh",
+          "service": "main",
+          "files_to_modify": [
+            "tests/test_agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_agent_runner.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -m pytest tests/test_agent_runner.py -v -k tamper",
+            "expected": "passed"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Write integration test for missing integrity hashes",
+          "service": "main",
+          "files_to_modify": [
+            "tests/test_agent_runner.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_agent_runner.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -m pytest tests/test_agent_runner.py -v -k integrity",
+            "expected": "passed"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-4",
+          "description": "End-to-end verification: create run, verify integrity, tamper with file, confirm rejection",
+          "service": "main",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Create a new run using autoflow.py",
+              "Verify run.json contains integrity hashes",
+              "Modify prompt.md file content",
+              "Attempt to run the agent_runner.py",
+              "Verify execution fails with integrity error"
+            ]
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-4-5",
+          "description": "Run full test suite to ensure no regressions",
+          "service": "main",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python -m pytest tests/ -v",
+            "expected": "All tests pass"
+          },
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "verification_strategy": {
+    "risk_level": "high",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration"
+    ],
+    "security_scanning_required": true,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All existing tests pass",
+      "New integrity functions have unit test coverage",
+      "Integration tests verify tampering is detected",
+      "Security scan passes (bandit)",
+      "No regressions in existing functionality"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "python -m pytest tests/test_integrity.py -v",
+        "expected_outcome": "All unit tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Integration Tests",
+        "command": "python -m pytest tests/test_agent_runner.py -v -k integrity",
+        "expected_outcome": "All integration tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Full Test Suite",
+        "command": "python -m pytest tests/ -v",
+        "expected_outcome": "All tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Security Scan (Bandit)",
+        "command": "python -m bandit -r scripts/integrity.py scripts/autoflow.py scripts/agent_runner.py -f json",
+        "expected_outcome": "No high or critical severity issues",
+        "type": "security",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Manual Verification",
+        "command": null,
+        "expected_outcome": "Manual code review confirms proper implementation",
+        "type": "manual",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "High risk security change requires comprehensive testing. Integrity checks are critical for preventing code execution attacks, so we need unit tests for the crypto functions, integration tests for the full flow, and security scanning to ensure no new vulnerabilities are introduced."
+  },
+  "summary": {
+    "total_phases": 4,
+    "total_subtasks": 15,
+    "services_involved": [
+      "main"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential execution required due to dependencies"
+    },
+    "startup_command": "python -m pytest tests/ -v"
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "python -m pytest tests/test_integrity.py -v"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "python -m pytest tests/test_agent_runner.py -v -k integrity"
+      ],
+      "services_to_test": [
+        "main"
+      ]
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    },
+    "security_verification": {
+      "required": true,
+      "checks": [
+        "bandit-security-scan",
+        "manual-code-review"
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "status": "human_review",
+  "planStatus": "review",
+  "xstateState": "human_review",
+  "executionPhase": "complete",
+  "updated_at": "2026-03-09T06:40:34.488Z",
+  "reviewReason": "completed"
+}

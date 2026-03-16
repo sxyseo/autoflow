@@ -30,38 +30,35 @@ Usage:
     )
 """
 
-from autoflow.review.coverage import (
-    CoverageTracker,
-    CoverageThreshold,
-    CoverageReport
-)
 from autoflow.review.approval import (
-    ApprovalToken,
-    ApprovalGateConfig,
     ApprovalGate,
+    ApprovalGateConfig,
+    ApprovalToken,
     create_git_commit_message_with_approval,
-    extract_approval_hash_from_commit
+    extract_approval_hash_from_commit,
 )
-from autoflow.review.verification import (
-    VerificationOrchestrator,
-    VerificationResult,
-    VerificationConfig,
-    create_verification_report
-)
-
+from autoflow.review.coverage import CoverageReport, CoverageThreshold, CoverageTracker
 from autoflow.review.cross_review import (
     CodeChange,
     CrossReviewer,
     CrossReviewerError,
     CrossReviewerStats,
     CrossReviewResult,
+    ReviewRequest,
     ReviewerConfig,
     ReviewerResult,
     ReviewFinding,
+    ReviewRequest,
     ReviewSeverity,
     ReviewStatus,
     ReviewStrategy,
     create_cross_reviewer,
+)
+from autoflow.review.verification import (
+    VerificationConfig,
+    VerificationOrchestrator,
+    VerificationResult,
+    create_verification_report,
 )
 
 __all__ = [
@@ -86,8 +83,11 @@ __all__ = [
     "CrossReviewResult",
     "ReviewerResult",
     "ReviewFinding",
+    "ReviewRequest",
     "CodeChange",
+    "ReviewRequest",
     "ReviewerConfig",
+    "ReviewRequest",
     "ReviewStatus",
     "ReviewSeverity",
     "ReviewStrategy",

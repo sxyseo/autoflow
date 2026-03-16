@@ -1,0 +1,10 @@
+{
+  "approved": false,
+  "approved_by": "auto",
+  "approved_at": "20260306T175634Z",
+  "spec_hash": "56e503a2002cf177951f7b66fd9c2f48",
+  "review_count": 1,
+  "feedback": [],
+  "invalidated_at": "20260306T175903Z",
+  "invalidated_reason": "planning_artifacts_changed"
+}

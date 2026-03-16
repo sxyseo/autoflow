@@ -8,7 +8,6 @@ installation during tests.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,12 +15,10 @@ import pytest
 
 from autoflow.agents.base import (
     AgentConfig,
-    ExecutionResult,
     ExecutionStatus,
     ResumeMode,
 )
 from autoflow.agents.claude_code import ClaudeCodeAdapter
-
 
 # ============================================================================
 # Fixtures
@@ -217,7 +214,7 @@ class TestClaudeCodeAdapterExecute:
     ) -> None:
         """Test execution timeout handling."""
         mock_process = AsyncMock()
-        mock_process.communicate.side_effect = asyncio.TimeoutError()
+        mock_process.communicate.side_effect = TimeoutError()
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
@@ -241,9 +238,7 @@ class TestClaudeCodeAdapterExecute:
         temp_workdir: Path,
     ) -> None:
         """Test handling when command is not found."""
-        with patch(
-            "asyncio.create_subprocess_exec", side_effect=FileNotFoundError()
-        ):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):
             result = await adapter.execute(
                 prompt="Fix the bug",
                 workdir=temp_workdir,

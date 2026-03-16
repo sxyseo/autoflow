@@ -1,0 +1,172 @@
+=== AUTO-BUILD PROGRESS ===
+
+Project: Add archive-spec CLI command for completed spec cleanup
+Workspace: managed by orchestrator
+Started: 2026-03-08
+
+Workflow Type: simple
+Rationale: Single-service quick task with no cross-service dependencies or complex migrations
+
+Session 1 (Planner):
+- Created implementation_plan.json
+- Created project_index.json
+- Created context.json
+- Created init.sh
+- Phases: 3
+- Total subtasks: 10
+
+Phase Summary:
+- Phase 1 (State Manager Extensions): 4 subtasks, depends on []
+  - subtask-1-1: Add SPECS_ARCHIVE_DIR constant and archive_dir property
+  - subtask-1-2: Add archive_spec() method to StateManager
+  - subtask-1-3: Add list_archived_specs() method to StateManager
+  - subtask-1-4: Update list_specs() to exclude archived specs
+
+- Phase 2 (CLI Command Implementation): 3 subtasks, depends on [phase-1-state-manager]
+  - subtask-2-1: Add 'spec' command group to autoflow CLI
+  - subtask-2-2: Add 'archive' subcommand to spec group
+  - subtask-2-3: Add 'list' subcommand to spec group
+
+- Phase 3 (Integration and Testing): 3 subtasks, depends on [phase-2-cli-command]
+  - subtask-3-1: Create test spec and verify it appears in spec list
+  - subtask-3-2: Archive test spec and verify it's moved
+  - subtask-3-3: Verify archived spec appears in --archived list
+
+Services Involved:
+- cli: CLI command additions and state management extensions
+
+Parallelism Analysis:
+- Max parallel phases: 1
+- Recommended workers: 1
+- Parallel groups: None (sequential execution due to phase dependencies)
+
+Key Implementation Details:
+- Archive directory: .autoflow/specs-archive/
+- Spec artifacts to preserve: spec.md, metadata.json, handoff.md, review_state.json, events.jsonl, QA_FIX_REQUEST files
+- CLI pattern: Follow existing memory/task command patterns in autoflow/cli.py
+- State pattern: Extend StateManager with archive operations similar to existing spec methods
+
+Patterns Identified:
+- CLI commands use @main.command() or @main.group() with @click.pass_context
+- All commands support --json output via ctx.obj['output_json']
+- State operations use StateManager from _get_state_manager(config)
+- Error handling uses click.echo() with err=True and ctx.exit(1)
+
+=== STARTUP COMMAND ===
+
+To continue building this spec, run:
+
+  # Run tests to verify implementation
+  python -m pytest tests/ -v -k state
+
+  # Test the new CLI commands
+  autoflow spec --help
+  autoflow spec list
+  autoflow spec archive <spec-id>
+
+Example development workflow:
+  1. Make code changes
+  2. Run tests: python -m pytest tests/ -v
+  3. Test CLI: autoflow spec --help
+  4. Commit changes with descriptive message
+
+=== END SESSION 1 ===
+
+PLANNING COMPLETE - Ready for implementation by coder agent
+
+=== SESSION 2 - Coder Agent ===
+
+2026-03-08 - Subtask 1-1 Completion:
+- ✓ Added SPECS_ARCHIVE_DIR constant to StateManager class
+- ✓ Added archive_dir property following existing patterns
+- ✓ Updated initialize() method to create archive directory
+- ✓ Updated docstring to document specs_archive directory
+- ✓ Changes committed to git (commit f0d10e1)
+- ✓ Subtask 1-1 marked as completed in implementation plan
+
+=== END SESSION 2 ===
+
+=== SESSION 3 - Coder Agent ===
+
+2026-03-08 - Subtask 1-2 Completion:
+- ✓ Added archive_spec() method to StateManager
+- ✓ Method moves spec from specs_dir to archive_dir atomically
+- ✓ Creates backup before moving for safety
+- ✓ Changes committed to git (commit 3b8d52e)
+- ✓ Subtask 1-2 marked as completed in implementation plan
+
+=== END SESSION 3 ===
+
+=== SESSION 4 - Coder Agent ===
+
+2026-03-08 - Subtask 1-3 Completion:
+- ✓ Added list_archived_specs() method to StateManager
+- ✓ Method lists archived specs from archive_dir
+- ✓ Supports optional tag filtering (follows list_specs() pattern)
+- ✓ Returns specs sorted by created_at descending
+- ✓ Changes committed to git (commit b232793)
+- ✓ Subtask 1-3 marked as completed in implementation plan
+
+=== END SESSION 4 ===
+
+=== SESSION 5 - Coder Agent ===
+
+2026-03-08 - Subtask 3-1 Completion:
+- ✓ Created test spec at .autoflow/specs/test-spec.json
+- ✓ Verified test spec appears in StateManager.list_specs()
+- ✓ Verified archive directory is empty (test-spec not archived yet)
+- ✓ Created verification scripts (test_spec_list.py, test_cli_spec_list.py)
+- ✓ Created verification summary document (verification_subtask_3_1.md)
+- ✓ Changes committed to git (commit 90d650d)
+- ✓ Subtask 3-1 marked as completed in implementation plan
+
+=== END SESSION 5 ===
+
+=== SESSION 6 - Coder Agent ===
+
+2026-03-08 - Subtask 3-2 Completion:
+- ✓ Created verification script (test_subtask_3_2_simple.py)
+- ✓ Successfully archived test-spec using StateManager.archive_spec()
+- ✓ Verified test-spec removed from active enumeration (list_specs now empty)
+- ✓ Verified test-spec moved to specs_archive directory
+- ✓ Verified archived file content preserved correctly
+- ✓ Created verification summary document (verification_subtask_3_2.md)
+- ✓ Changes committed to git (commit ac3172a)
+- ✓ Subtask 3-2 marked as completed in implementation plan
+
+Archive Functionality Verification:
+- Specs moved atomically from specs/ to specs_archive/
+- Backup created before move for safety (backups/specs/test-spec.json.bak)
+- Archived specs excluded from default list_specs()
+- Archived specs appear in list_archived_specs()
+- Archive directory auto-created on first archive operation
+
+=== END SESSION 6 ===
+
+=== SESSION 7 - Coder Agent ===
+
+2026-03-11 - Subtask 3-3 Completion:
+- ✓ Created comprehensive verification script (test_subtask_3_3_verification.py)
+- ✓ Verified test spec creation and appearance in default list
+- ✓ Verified test spec archiving and removal from default list
+- ✓ Verified test spec appears in 'autoflow spec list --archived' output
+- ✓ Verified metadata.json contains 'archived': true flag
+- ✓ Verified JSON output format works correctly (--json flag)
+- ✓ Created verification summary document (verification_subtask_3_3.md)
+- ✓ Changes committed to git (commit b01f2e1)
+- ✓ Subtask 3-3 marked as completed in implementation plan
+
+Verification Results:
+- All 7 verification steps passed successfully
+- Archived specs correctly excluded from default enumeration
+- Archived specs appear when using --archived flag
+- Metadata correctly updated with archived: true
+- JSON output format validated
+
+All Subtasks Complete:
+- Phase 1 (State Manager Extensions): 4/4 subtasks completed
+- Phase 2 (CLI Command Implementation): 3/3 subtasks completed
+- Phase 3 (Integration and Testing): 3/3 subtasks completed
+- Total: 10/10 subtasks completed (100%)
+
+=== END SESSION 7 ===

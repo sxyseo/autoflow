@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
+import cli_healthcheck
 import continuous_iteration
 
+from autoflow.core.commands import (
+    get_strategy_summary,
+    get_workflow_state,
+    taskmaster_export,
+    taskmaster_import,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
@@ -16,33 +22,32 @@ AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
 
 
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=check, capture_output=True, text=True)
-
-
 def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.exists():
         return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return result
 
 
 def load_config(path: str) -> dict[str, Any]:
-    return json.loads((ROOT / path).read_text(encoding="utf-8"))
-
-
-def autoflow_json(*args: str) -> dict[str, Any]:
-    result = run(["python3", "scripts/autoflow.py", *args])
-    return json.loads(result.stdout)
+    result: dict[str, Any] = json.loads((ROOT / path).read_text(encoding="utf-8"))
+    return result
 
 
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
-    cmd = ["python3", "scripts/cli_healthcheck.py"]
-    for item in required or []:
-        cmd.extend(["--require", item])
-    result = run(cmd, check=False)
-    payload = json.loads(result.stdout) if result.stdout.strip() else {"binaries": [], "tmux_sessions": []}
-    payload["status"] = "ok" if result.returncode == 0 else "degraded"
-    payload["returncode"] = result.returncode
+    report = cli_healthcheck.build_report()
+    payload: dict[str, Any] = dict(report)
+    if required:
+        missing = [
+            item["name"]
+            for item in report.get("binaries", [])
+            if item["name"] in required and not item["available"]
+        ]
+        payload["returncode"] = 0 if not missing else 1
+        payload["status"] = "ok" if not missing else "degraded"
+    else:
+        payload["returncode"] = 0
+        payload["status"] = "ok"
     return payload
 
 
@@ -56,22 +61,22 @@ def taskmaster_sync(spec: str, config: dict[str, Any]) -> dict[str, Any]:
     if import_file:
         input_path = ROOT / import_file if not Path(import_file).is_absolute() else Path(import_file)
         if input_path.exists():
-            result = autoflow_json("import-taskmaster", "--spec", spec, "--input", str(input_path))
+            result = taskmaster_import(spec, str(input_path))
             payload["import"] = result
         else:
             payload["import"] = {"missing": str(input_path)}
     export_file = tm_cfg.get("export_file", "")
     if export_file:
         output_path = ROOT / export_file if not Path(export_file).is_absolute() else Path(export_file)
-        run(["python3", "scripts/autoflow.py", "export-taskmaster", "--spec", spec, "--output", str(output_path)])
+        taskmaster_export(spec, str(output_path))
         payload["export_file"] = str(output_path)
     return payload
 
 
 def coordination_brief(spec: str, continuous_config: str, config: dict[str, Any]) -> dict[str, Any]:
     ci_config = load_config(continuous_config)
-    workflow = autoflow_json("workflow-state", "--spec", spec)
-    strategy = autoflow_json("show-strategy", "--spec", spec)
+    workflow = get_workflow_state(spec)
+    strategy = get_strategy_summary(spec)
     health = health_report(config.get("monitoring", {}).get("required_binaries", []))
     agents_catalog = load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
     discovered = load_json(DISCOVERED_AGENTS_FILE, default={}).get("agents", [])
@@ -121,27 +126,19 @@ def run_tick(
             "blocked": "binary_healthcheck_failed",
         }
 
-    cmd = [
-        "python3",
-        "scripts/continuous_iteration.py",
-        "--spec",
-        spec,
-        "--config",
-        continuous_config,
-    ]
-    if dispatch:
-        cmd.append("--dispatch")
+    # Load continuous iteration config and run iteration
+    ci_cfg = continuous_iteration.load_config(continuous_config)
+    result: dict[str, Any] = {"spec": spec}
+    initial_state = continuous_iteration.workflow_state(spec)
     if commit_if_dirty:
-        cmd.append("--commit-if-dirty")
-    if push:
-        cmd.append("--push")
-    iteration = json.loads(run(cmd).stdout)
+        result["commit"] = continuous_iteration.auto_commit(ci_cfg, spec, push, initial_state)
+    result["dispatch"] = continuous_iteration.dispatch_next(ci_cfg, spec, dispatch)
 
     return {
         "spec": spec,
         "taskmaster": taskmaster,
         "coordination_brief": brief,
-        "iteration": iteration,
+        "iteration": result,
     }
 
 
