@@ -32,24 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
-from autoflow.utils import load_json, now_stamp, run_cmd
-
-
-def load_config_from_path(root: Path, config_path: str) -> dict[str, Any]:
-    """
-    Load configuration from a path relative to root.
-
-    Args:
-        root: Project root directory
-        config_path: Path to config file (relative or absolute)
-
-    Returns:
-        Parsed JSON configuration
-    """
-    path = (
-        root / config_path if not Path(config_path).is_absolute() else Path(config_path)
-    )
-    return json.loads(path.read_text(encoding="utf-8"))
+from autoflow.utils import load_config_from_path, load_json, now_stamp, run_cmd
 
 
 def probe_binary(name: str) -> dict[str, Any]:
