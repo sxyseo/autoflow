@@ -1,0 +1,21 @@
+{
+  "task": "T1",
+  "result": "needs_changes",
+  "summary": "Structured findings available.",
+  "created_at": "20260316T003309Z",
+  "finding_count": 1,
+  "findings": [
+    {
+      "id": "F-1",
+      "title": "Missing test coverage",
+      "body": "Add a regression test for the retry gate.",
+      "file": "tests/test_phase4d.py",
+      "line": 10,
+      "end_line": null,
+      "severity": "high",
+      "category": "tests",
+      "suggested_fix": "",
+      "source_run": ""
+    }
+  ]
+}

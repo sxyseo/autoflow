@@ -3,23 +3,23 @@
   "spec": "109-replace-dynamic-module-loading-in-tests-with-prope",
   "state": "building",
   "subtasks": {
-    "completed": 2,
+    "completed": 6,
     "total": 21,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Add Configuration System",
+    "current": "Migrate Tests to Proper Imports",
     "id": null,
-    "total": 5
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
+    "number": 8,
     "started_at": "2026-03-16T08:23:58.435813"
   },
-  "last_update": "2026-03-16T08:28:52.932147"
+  "last_update": "2026-03-16T08:34:25.091725"
 }

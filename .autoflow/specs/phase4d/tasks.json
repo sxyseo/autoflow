@@ -1,0 +1,17 @@
+{
+  "spec_slug": "phase4d",
+  "updated_at": "20260316T003404Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Define workflow for Phase 4D",
+      "status": "needs_changes",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "Initial task created"
+      ],
+      "notes": []
+    }
+  ]
+}

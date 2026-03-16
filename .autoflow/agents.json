@@ -1,56 +1,10 @@
 {
-  "defaults": {
-    "workspace": ".",
-    "shell": "bash"
-  },
   "agents": {
-    "codex-spec": {
-      "command": "codex",
+    "dummy": {
+      "command": "echo",
       "args": [
-        "--full-auto"
+        "agent"
       ],
-      "supports_write": true,
-      "supports_background": true
-    },
-    "codex-impl": {
-      "command": "codex",
-      "args": [
-        "--full-auto"
-      ],
-      "supports_write": true,
-      "supports_background": true
-    },
-    "claude-review": {
-      "command": "claude",
-      "args": [],
-      "supports_write": true,
-      "supports_background": true
-    },
-    "codex": {
-      "protocol": "cli",
-      "command": "codex",
-      "args": [],
-      "resume": {
-        "mode": "subcommand",
-        "subcommand": "resume",
-        "args": [
-          "--last"
-        ]
-      },
-      "memory_scopes": [
-        "spec"
-      ]
-    },
-    "claude": {
-      "protocol": "cli",
-      "command": "claude",
-      "args": [],
-      "resume": {
-        "mode": "args",
-        "args": [
-          "--continue"
-        ]
-      },
       "memory_scopes": [
         "spec"
       ]

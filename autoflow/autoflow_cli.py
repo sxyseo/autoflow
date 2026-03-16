@@ -135,6 +135,9 @@ class AutoflowCLI:
         # Make shutil available for testing
         self.shutil = shutil
 
+        # Initialize prompt context cache for performance optimization
+        self._prompt_context_cache = {}
+
     @property
     def specs_dir(self) -> Path:
         """Path to specs directory."""
@@ -1660,13 +1663,30 @@ class AutoflowCLI:
             if hasattr(self, "review_status_summary")
             else {}
         )
-        fix_request = self.load_fix_request(spec_slug)
-        fix_request_data = self.load_fix_request_data(spec_slug)
-        memory_context = (
-            self.load_memory_context(spec_slug, agent.memory_scopes)
-            if agent.memory_scopes
-            else ""
-        )
+
+        # Load and cache fix request
+        cache_key_fix_request = (spec_slug, "fix_request")
+        if cache_key_fix_request not in self._prompt_context_cache:
+            self._prompt_context_cache[cache_key_fix_request] = self.load_fix_request(spec_slug)
+        fix_request = self._prompt_context_cache[cache_key_fix_request]
+
+        # Load and cache fix request data
+        cache_key_fix_request_data = (spec_slug, "fix_request_data")
+        if cache_key_fix_request_data not in self._prompt_context_cache:
+            self._prompt_context_cache[cache_key_fix_request_data] = self.load_fix_request_data(spec_slug)
+        fix_request_data = self._prompt_context_cache[cache_key_fix_request_data]
+
+        # Load and cache memory context
+        if agent.memory_scopes:
+            import hashlib
+            scopes_hash = hashlib.sha256(str(sorted(agent.memory_scopes)).encode()).hexdigest()[:8]
+            cache_key_memory = (spec_slug, "memory_context", scopes_hash)
+            if cache_key_memory not in self._prompt_context_cache:
+                self._prompt_context_cache[cache_key_memory] = self.load_memory_context(spec_slug, agent.memory_scopes)
+            memory_context = self._prompt_context_cache[cache_key_memory]
+        else:
+            memory_context = ""
+
         strategy_context = ""  # Simplified
         worktree_context_val = (
             f"Worktree: {files['worktree']}"
