@@ -219,7 +219,9 @@ class HealingConfig:
             project_root=project_root,
             learning_enabled=data.get("learning_enabled", True),
             min_learning_samples=data.get("min_learning_samples", 5),
-            learning_confidence_threshold=data.get("learning_confidence_threshold", 0.7),
+            learning_confidence_threshold=data.get(
+                "learning_confidence_threshold", 0.7
+            ),
         )
 
     def validate(self) -> list[str]:

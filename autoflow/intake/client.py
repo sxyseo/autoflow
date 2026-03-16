@@ -509,7 +509,9 @@ async def make_http_request(
         import json
         import urllib.request
 
-        def sync_request() -> tuple[Optional[dict[str, Any]], Optional[str], Optional[int]]:
+        def sync_request() -> tuple[
+            Optional[dict[str, Any]], Optional[str], Optional[int]
+        ]:
             req = urllib.request.Request(
                 url,
                 data=json.dumps(data).encode() if data else None,

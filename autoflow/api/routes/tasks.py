@@ -454,9 +454,7 @@ async def list_tasks(
     # 3. Apply filters (status, agent)
     # 4. Return paginated results
 
-    logger.info(
-        f"User {current_user_id} listing tasks: status={status}, agent={agent}"
-    )
+    logger.info(f"User {current_user_id} listing tasks: status={status}, agent={agent}")
 
     # Placeholder: Return empty list
     return TaskListResponse(

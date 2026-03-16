@@ -27,7 +27,13 @@ import asyncio
 import json
 from typing import Optional, Set
 
-from fastapi import FastAPI, HTTPException, status as http_status, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    status as http_status,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from autoflow import __version__
 from autoflow.core.config import Config, load_config, get_state_dir
@@ -577,11 +583,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     try:
         # Send initial connection confirmation
-        await websocket.send_json({
-            "type": "connection",
-            "status": "connected",
-            "message": "Connected to Autoflow real-time updates",
-        })
+        await websocket.send_json(
+            {
+                "type": "connection",
+                "status": "connected",
+                "message": "Connected to Autoflow real-time updates",
+            }
+        )
 
         # Keep connection alive and listen for incoming messages
         while True:
@@ -598,10 +606,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         await websocket.send_json({"type": "pong"})
                 except json.JSONDecodeError:
                     # Invalid JSON, send error
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Invalid JSON format",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Invalid JSON format",
+                        }
+                    )
 
             except WebSocketDisconnect:
                 # Client disconnected
@@ -609,10 +619,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             except Exception as e:
                 # Error receiving message, send error response
                 try:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Error processing message: {e}",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": f"Error processing message: {e}",
+                        }
+                    )
                 except Exception:
                     # Connection may be closed
                     break
@@ -620,10 +632,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except Exception as e:
         # Error in connection handling
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Connection error: {e}",
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"Connection error: {e}",
+                }
+            )
         except Exception:
             # Connection may be closed
             pass

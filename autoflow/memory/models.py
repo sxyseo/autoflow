@@ -154,7 +154,9 @@ class EnhancedMemory(BaseModel):
             "embedding": self.embedding,
             "importance": self.importance,
             "access_count": self.access_count,
-            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "last_accessed_at": self.last_accessed_at.isoformat()
+            if self.last_accessed_at
+            else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
@@ -176,14 +178,38 @@ class EnhancedMemory(BaseModel):
             EnhancedMemory instance
         """
         # Handle datetime fields
-        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC)
-        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(UTC)
-        expires_at = datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None
-        last_accessed_at = datetime.fromisoformat(data["last_accessed_at"]) if data.get("last_accessed_at") else None
+        created_at = (
+            datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else datetime.now(UTC)
+        )
+        updated_at = (
+            datetime.fromisoformat(data["updated_at"])
+            if data.get("updated_at")
+            else datetime.now(UTC)
+        )
+        expires_at = (
+            datetime.fromisoformat(data["expires_at"])
+            if data.get("expires_at")
+            else None
+        )
+        last_accessed_at = (
+            datetime.fromisoformat(data["last_accessed_at"])
+            if data.get("last_accessed_at")
+            else None
+        )
 
         # Handle enum fields
-        memory_type = MemoryType(data["memory_type"]) if isinstance(data.get("memory_type"), str) else data.get("memory_type")
-        scope = MemoryScope(data["scope"]) if isinstance(data.get("scope"), str) else data.get("scope")
+        memory_type = (
+            MemoryType(data["memory_type"])
+            if isinstance(data.get("memory_type"), str)
+            else data.get("memory_type")
+        )
+        scope = (
+            MemoryScope(data["scope"])
+            if isinstance(data.get("scope"), str)
+            else data.get("scope")
+        )
 
         return cls(
             id=data["id"],
@@ -238,7 +264,9 @@ class EnhancedMemory(BaseModel):
             ValueError: If importance is not between 0.0 and 1.0
         """
         if not 0.0 <= importance <= 1.0:
-            raise ValueError(f"Importance must be between 0.0 and 1.0, got {importance}")
+            raise ValueError(
+                f"Importance must be between 0.0 and 1.0, got {importance}"
+            )
         self.importance = importance
         self.touch()
 
@@ -356,10 +384,26 @@ class Pattern(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Pattern":
         """Create from dictionary for JSON deserialization."""
-        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC)
-        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(UTC)
-        pattern_type = PatternType(data["pattern_type"]) if isinstance(data.get("pattern_type"), str) else data.get("pattern_type")
-        scope = MemoryScope(data["scope"]) if isinstance(data.get("scope"), str) else data.get("scope")
+        created_at = (
+            datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else datetime.now(UTC)
+        )
+        updated_at = (
+            datetime.fromisoformat(data["updated_at"])
+            if data.get("updated_at")
+            else datetime.now(UTC)
+        )
+        pattern_type = (
+            PatternType(data["pattern_type"])
+            if isinstance(data.get("pattern_type"), str)
+            else data.get("pattern_type")
+        )
+        scope = (
+            MemoryScope(data["scope"])
+            if isinstance(data.get("scope"), str)
+            else data.get("scope")
+        )
 
         return cls(
             id=data["id"],
@@ -454,9 +498,21 @@ class Convention(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Convention":
         """Create from dictionary for JSON deserialization."""
-        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(UTC)
-        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(UTC)
-        scope = MemoryScope(data["scope"]) if isinstance(data.get("scope"), str) else data.get("scope")
+        created_at = (
+            datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else datetime.now(UTC)
+        )
+        updated_at = (
+            datetime.fromisoformat(data["updated_at"])
+            if data.get("updated_at")
+            else datetime.now(UTC)
+        )
+        scope = (
+            MemoryScope(data["scope"])
+            if isinstance(data.get("scope"), str)
+            else data.get("scope")
+        )
 
         return cls(
             id=data["id"],
@@ -559,7 +615,9 @@ class ConsolidationRecord(BaseModel):
             "patterns_identified": self.patterns_identified,
             "conventions_detected": self.conventions_detected,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
             "duration_seconds": self.duration_seconds,
             "error": self.error,
             "metadata": self.metadata,
@@ -568,8 +626,16 @@ class ConsolidationRecord(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ConsolidationRecord":
         """Create from dictionary for JSON deserialization."""
-        started_at = datetime.fromisoformat(data["started_at"]) if data.get("started_at") else datetime.now(UTC)
-        completed_at = datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None
+        started_at = (
+            datetime.fromisoformat(data["started_at"])
+            if data.get("started_at")
+            else datetime.now(UTC)
+        )
+        completed_at = (
+            datetime.fromisoformat(data["completed_at"])
+            if data.get("completed_at")
+            else None
+        )
 
         return cls(
             id=data["id"],

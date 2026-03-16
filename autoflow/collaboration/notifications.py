@@ -300,7 +300,7 @@ class NotificationManager:
 
         # Save to file
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.model_dump(mode='json'))
+        self._write_json(notification_path, notification.model_dump(mode="json"))
 
         return notification
 
@@ -328,7 +328,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.model_dump(mode='json'))
+        self._write_json(notification_path, notification.model_dump(mode="json"))
 
         return notification
 
@@ -356,7 +356,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.model_dump(mode='json'))
+        self._write_json(notification_path, notification.model_dump(mode="json"))
 
         return notification
 
@@ -384,7 +384,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.model_dump(mode='json'))
+        self._write_json(notification_path, notification.model_dump(mode="json"))
 
         return notification
 
@@ -412,7 +412,7 @@ class NotificationManager:
 
         # Save updated status
         notification_path = self._get_notification_path(notification_id, user_id)
-        self._write_json(notification_path, notification.model_dump(mode='json'))
+        self._write_json(notification_path, notification.model_dump(mode="json"))
 
         return notification
 
@@ -491,7 +491,10 @@ class NotificationManager:
                     continue
 
                 # Filter by type
-                if notification_type and notification.notification_type != notification_type:
+                if (
+                    notification_type
+                    and notification.notification_type != notification_type
+                ):
                     continue
 
                 # Filter expired
@@ -945,7 +948,9 @@ class NotificationManager:
             Role Changed
         """
         context = f"workspace {workspace_id}" if workspace_id else f"team {team_id}"
-        message = f"Your role in {context} has been changed to '{new_role}' by {changed_by}"
+        message = (
+            f"Your role in {context} has been changed to '{new_role}' by {changed_by}"
+        )
 
         notification = self.create_notification(
             user_id=user_id,

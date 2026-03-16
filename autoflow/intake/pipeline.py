@@ -119,9 +119,7 @@ class IngestionResult:
         if error:
             self.errors.append(error)
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 @dataclass
@@ -164,9 +162,7 @@ class PipelineResult:
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
         # Aggregate totals from source results
         for result in self.source_results:
@@ -412,9 +408,7 @@ class IntakePipeline:
 
             # Run ingestion tasks
             tasks = [
-                ingest_with_semaphore(source)
-                for source in sources
-                if source.enabled
+                ingest_with_semaphore(source) for source in sources if source.enabled
             ]
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -746,7 +740,9 @@ class IntakePipeline:
 
             # Skip if label filter is configured and labels don't match
             if self._config.filter_labels:
-                if not any(label in issue.labels for label in self._config.filter_labels):
+                if not any(
+                    label in issue.labels for label in self._config.filter_labels
+                ):
                     return
 
             # Skip dry run

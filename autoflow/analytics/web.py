@@ -79,9 +79,7 @@ def get_velocity_tracker() -> VelocityTracker:
     """
     global _velocity_tracker
     if _velocity_tracker is None:
-        _velocity_tracker = VelocityTracker(
-            metrics_collector=get_metrics_collector()
-        )
+        _velocity_tracker = VelocityTracker(metrics_collector=get_metrics_collector())
     return _velocity_tracker
 
 
@@ -198,7 +196,9 @@ async def api_info() -> dict[str, Any]:
 # Metrics endpoints
 @app.get("/api/metrics")
 async def get_metrics(
-    limit: int = Query(100, description="Maximum number of readings to return", ge=1, le=1000),
+    limit: int = Query(
+        100, description="Maximum number of readings to return", ge=1, le=1000
+    ),
     metric_name: str | None = Query(None, description="Filter by metric name"),
 ) -> dict[str, Any]:
     """Get metrics data.
@@ -235,7 +235,9 @@ async def get_metrics(
 @app.get("/api/metrics/{metric_name}")
 async def get_metric_details(
     metric_name: str,
-    limit: int = Query(100, description="Maximum number of readings to return", ge=1, le=1000),
+    limit: int = Query(
+        100, description="Maximum number of readings to return", ge=1, le=1000
+    ),
 ) -> dict[str, Any]:
     """Get details for a specific metric.
 
@@ -252,8 +254,7 @@ async def get_metric_details(
         # Check if metric exists
         if metric_name not in collector.get_metric_names():
             raise HTTPException(
-                status_code=404,
-                detail=f"Metric not found: {metric_name}"
+                status_code=404, detail=f"Metric not found: {metric_name}"
             )
 
         # Get readings
@@ -440,7 +441,9 @@ async def get_quality_summary() -> dict[str, Any]:
 # Agent performance endpoints
 @app.get("/api/agents")
 async def get_agents(
-    limit: int = Query(10, description="Maximum number of executions to return", ge=1, le=100),
+    limit: int = Query(
+        10, description="Maximum number of executions to return", ge=1, le=100
+    ),
 ) -> dict[str, Any]:
     """Get agent performance data.
 
@@ -496,7 +499,9 @@ async def get_agent_summary(
 
 @app.get("/api/agents/compare")
 async def compare_agents(
-    agents: str = Query(..., description="Comma-separated list of agent names to compare"),
+    agents: str = Query(
+        ..., description="Comma-separated list of agent names to compare"
+    ),
 ) -> dict[str, Any]:
     """Compare performance across multiple agents.
 
@@ -521,7 +526,9 @@ async def compare_agents(
 @app.get("/api/roi")
 async def get_roi_metrics(
     period_days: int = Query(30, description="Number of days to analyze", ge=1, le=365),
-    hourly_rate_usd: float | None = Query(None, description="Hourly rate for cost calculation", ge=0),
+    hourly_rate_usd: float | None = Query(
+        None, description="Hourly rate for cost calculation", ge=0
+    ),
 ) -> dict[str, Any]:
     """Get ROI metrics.
 

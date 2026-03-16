@@ -603,14 +603,18 @@ class VelocityTracker:
                 ):
                     baseline_completed += 1
 
-            self._baseline_throughput = baseline_completed / period_days if period_days > 0 else 0.0
+            self._baseline_throughput = (
+                baseline_completed / period_days if period_days > 0 else 0.0
+            )
 
         # If no baseline, can't determine trend
         if self._baseline_throughput is None or self._baseline_throughput == 0:
             return VelocityTrend.UNKNOWN
 
         # Calculate change rate
-        change_rate = (recent_throughput - self._baseline_throughput) / self._baseline_throughput
+        change_rate = (
+            recent_throughput - self._baseline_throughput
+        ) / self._baseline_throughput
 
         # Determine trend based on change rate
         if change_rate > 0.15:  # 15% improvement
@@ -685,15 +689,9 @@ class VelocityTracker:
                     lead_times.append(task.lead_time)
 
         # Calculate metrics
-        completion_rate = (
-            tasks_completed / tasks_started if tasks_started > 0 else 0.0
-        )
-        avg_cycle_time = (
-            statistics.mean(cycle_times) if cycle_times else 0.0
-        )
-        avg_lead_time = (
-            statistics.mean(lead_times) if lead_times else 0.0
-        )
+        completion_rate = tasks_completed / tasks_started if tasks_started > 0 else 0.0
+        avg_cycle_time = statistics.mean(cycle_times) if cycle_times else 0.0
+        avg_lead_time = statistics.mean(lead_times) if lead_times else 0.0
         throughput = tasks_completed / period_days if period_days > 0 else 0.0
 
         # Detect trend
@@ -763,7 +761,9 @@ class VelocityTracker:
         if self._baseline_throughput is None or self._baseline_throughput == 0:
             return None
 
-        change_rate = (recent_throughput - self._baseline_throughput) / self._baseline_throughput
+        change_rate = (
+            recent_throughput - self._baseline_throughput
+        ) / self._baseline_throughput
 
         # Determine severity
         severity = "info"
@@ -840,8 +840,8 @@ class VelocityTracker:
                 confidence=confidence,
                 description=(
                     f"Cycle time {direction} by {abs(change_rate) * 100:.1f}%. "
-                    f"Current: {recent_cycle_time/3600:.2f} hours, "
-                    f"Baseline: {self._baseline_cycle_time/3600:.2f} hours"
+                    f"Current: {recent_cycle_time / 3600:.2f} hours, "
+                    f"Baseline: {self._baseline_cycle_time / 3600:.2f} hours"
                 ),
             )
 
@@ -904,8 +904,8 @@ class VelocityTracker:
                 confidence=confidence,
                 description=(
                     f"Completion rate {direction} by {abs(change_rate) * 100:.1f}%. "
-                    f"Current: {recent_rate*100:.1f}%, "
-                    f"Historical: {historical_rate*100:.1f}%"
+                    f"Current: {recent_rate * 100:.1f}%, "
+                    f"Historical: {historical_rate * 100:.1f}%"
                 ),
             )
 
@@ -941,14 +941,12 @@ class VelocityTracker:
             "in_progress_tasks": status_counts[TaskStatus.IN_PROGRESS],
             "completed_tasks": status_counts[TaskStatus.COMPLETED],
             "cancelled_tasks": status_counts[TaskStatus.CANCELLED],
-            "avg_cycle_time": (
-                statistics.mean(cycle_times) if cycle_times else 0.0
-            ),
-            "avg_lead_time": (
-                statistics.mean(lead_times) if lead_times else 0.0
-            ),
+            "avg_cycle_time": (statistics.mean(cycle_times) if cycle_times else 0.0),
+            "avg_lead_time": (statistics.mean(lead_times) if lead_times else 0.0),
             "window_size": self.window_size,
-            "window_utilization": total_tasks / self.window_size if self.window_size > 0 else 0.0,
+            "window_utilization": total_tasks / self.window_size
+            if self.window_size > 0
+            else 0.0,
         }
 
     def reset(self) -> None:

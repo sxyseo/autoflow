@@ -110,12 +110,14 @@ def run(
         state_manager.save_task(task_id, task_data)
 
         if ctx.obj.get("output_json"):
-            _print_json({
-                "status": "started",
-                "task_id": task_id,
-                "agent": agent,
-                "skill": skill,
-            })
+            _print_json(
+                {
+                    "status": "started",
+                    "task_id": task_id,
+                    "agent": agent,
+                    "skill": skill,
+                }
+            )
         else:
             click.echo(f"Started task: {task_id}")
             click.echo(f"  Agent: {agent}")

@@ -56,7 +56,9 @@ class MemoryConsolidator:
     # Default consolidation file path
     DEFAULT_CONSOLIDATION_PATH = Path(".autoflow/consolidation.json")
 
-    def __init__(self, consolidation_path: Optional[Path] = None, root_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self, consolidation_path: Optional[Path] = None, root_dir: Optional[Path] = None
+    ) -> None:
         """
         Initialize the memory consolidator.
 
@@ -122,11 +124,15 @@ class MemoryConsolidator:
 
         try:
             # Extract memories from execution data
-            memories = self._extract_memories(execution_data, scope, spec_id, project_id)
+            memories = self._extract_memories(
+                execution_data, scope, spec_id, project_id
+            )
             record.memories_created = len(memories)
 
             # Identify patterns
-            patterns = self._identify_patterns(execution_data, scope, spec_id, project_id)
+            patterns = self._identify_patterns(
+                execution_data, scope, spec_id, project_id
+            )
             record.patterns_identified = len(patterns)
 
             # Detect conventions
@@ -219,7 +225,11 @@ class MemoryConsolidator:
                     project_id=project_id if scope == MemoryScope.PROJECT else None,
                     importance=0.7,
                     source="consolidation",
-                    metadata={"error_type": type(error).__name__ if hasattr(error, "__class__") else "unknown"},
+                    metadata={
+                        "error_type": type(error).__name__
+                        if hasattr(error, "__class__")
+                        else "unknown"
+                    },
                 )
                 memories.append(memory)
 
@@ -408,7 +418,9 @@ class MemoryConsolidator:
                     confidence=0.6,
                     scope=scope,
                     project_id=project_id,
-                    evidence=[f"Detected in run {execution_data.get('run_id', 'unknown')}"],
+                    evidence=[
+                        f"Detected in run {execution_data.get('run_id', 'unknown')}"
+                    ],
                 )
                 conventions.append(convention)
 
@@ -605,8 +617,7 @@ class MemoryConsolidator:
         """
         # Convert objects to dictionaries
         memories_data = {
-            memory_id: memory.to_dict()
-            for memory_id, memory in self.memories.items()
+            memory_id: memory.to_dict() for memory_id, memory in self.memories.items()
         }
 
         patterns_data = {
@@ -620,8 +631,7 @@ class MemoryConsolidator:
         }
 
         records_data = {
-            record_id: record.to_dict()
-            for record_id, record in self.records.items()
+            record_id: record.to_dict() for record_id, record in self.records.items()
         }
 
         # Build consolidation structure
@@ -642,10 +652,14 @@ class MemoryConsolidator:
         # Write to file with atomic update
         temp_path = self.consolidation_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(consolidation_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(consolidation_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(self.consolidation_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write consolidation to {self.consolidation_path}: {e}") from e
+            raise IOError(
+                f"Failed to write consolidation to {self.consolidation_path}: {e}"
+            ) from e

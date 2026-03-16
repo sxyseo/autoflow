@@ -294,7 +294,9 @@ class SkillBuilder:
             Validated skill name in UPPER_SNAKE_CASE
         """
         while True:
-            name = input("\nSkill name (UPPER_SNAKE_CASE, e.g., MY_CUSTOM_SKILL): ").strip()
+            name = input(
+                "\nSkill name (UPPER_SNAKE_CASE, e.g., MY_CUSTOM_SKILL): "
+            ).strip()
 
             if not name:
                 print("❌ Name cannot be empty")

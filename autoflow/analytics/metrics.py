@@ -298,7 +298,9 @@ class MetricsCollector:
         if start_time or end_time:
             filtered = []
             for reading in readings:
-                reading_time = datetime.fromisoformat(reading.timestamp.replace("Z", "+00:00"))
+                reading_time = datetime.fromisoformat(
+                    reading.timestamp.replace("Z", "+00:00")
+                )
                 if start_time and reading_time < start_time:
                     continue
                 if end_time and reading_time > end_time:
@@ -348,8 +350,16 @@ class MetricsCollector:
             percentile_50=p50,
             percentile_95=p95,
             percentile_99=p99,
-            start_time=start_time.isoformat() if start_time else window.window_start.isoformat() if window.window_start else None,
-            end_time=end_time.isoformat() if end_time else window.window_end.isoformat() if window.window_end else None,
+            start_time=start_time.isoformat()
+            if start_time
+            else window.window_start.isoformat()
+            if window.window_start
+            else None,
+            end_time=end_time.isoformat()
+            if end_time
+            else window.window_end.isoformat()
+            if window.window_end
+            else None,
         )
 
     def get_metric_names(self) -> list[str]:
@@ -419,7 +429,9 @@ class MetricsCollector:
                         continue
 
                 # Filter by time range
-                reading_time = datetime.fromisoformat(reading.timestamp.replace("Z", "+00:00"))
+                reading_time = datetime.fromisoformat(
+                    reading.timestamp.replace("Z", "+00:00")
+                )
                 if start_time and reading_time < start_time:
                     continue
                 if end_time and reading_time > end_time:

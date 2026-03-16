@@ -253,11 +253,13 @@ def init_db(
 
     if drop_tables:
         from autoflow.db.models import Base
+
         Base.metadata.drop_all(bind=manager.engine)
 
     # Import and create all tables
     try:
         from autoflow.db.models import Base
+
         Base.metadata.create_all(bind=manager.engine)
     except ImportError:
         # No models defined yet, skip table creation

@@ -139,7 +139,9 @@ def memory_set(ctx: click.Context, key: str, value: str, category: str) -> None:
     state_manager.save_memory(key, value, category=category)
 
     if ctx.obj.get("output_json"):
-        _print_json({"key": key, "value": value, "category": category, "status": "saved"})
+        _print_json(
+            {"key": key, "value": value, "category": category, "status": "saved"}
+        )
     else:
         click.echo(f"Saved: {key} = {value}")
 

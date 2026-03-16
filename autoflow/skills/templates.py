@@ -85,8 +85,7 @@ class SkillTemplate(BaseModel):
         for var in v:
             if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", var):
                 raise ValueError(
-                    f"Invalid variable name '{var}'. "
-                    "Must be a valid Python identifier."
+                    f"Invalid variable name '{var}'. Must be a valid Python identifier."
                 )
         return v
 
@@ -350,9 +349,7 @@ class TemplateLoader:
             TemplateLoaderError: If template already exists
         """
         if template.name in self._templates:
-            raise TemplateLoaderError(
-                f"Template '{template.name}' already exists"
-            )
+            raise TemplateLoaderError(f"Template '{template.name}' already exists")
 
         self._templates[template.name] = template
 

@@ -51,15 +51,26 @@ class Base(DeclarativeBase):
 user_role_association = Table(
     "user_roles",
     Base.metadata,
-    Column("user_id", String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-    Column("role_id", String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "user_id", String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    ),
+    Column(
+        "role_id", String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
+    ),
 )
 
 role_permission_association = Table(
     "role_permissions",
     Base.metadata,
-    Column("role_id", String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
-    Column("permission_id", String, ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "role_id", String, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
+    ),
+    Column(
+        "permission_id",
+        String,
+        ForeignKey("permissions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -281,7 +292,9 @@ class Role(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
 
     # Role information
-    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(
+        String(100), unique=True, index=True, nullable=False
+    )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # System roles are protected from deletion
@@ -329,9 +342,9 @@ class Role(Base):
             >>> role.grant_permission(session, "specs:write")
             >>> session.commit()
         """
-        permission = session.query(Permission).filter(
-            Permission.name == permission_name
-        ).first()
+        permission = (
+            session.query(Permission).filter(Permission.name == permission_name).first()
+        )
         if not permission:
             raise ValueError(f"Permission '{permission_name}' not found")
 
@@ -351,9 +364,9 @@ class Role(Base):
             >>> role.revoke_permission(session, "runs:delete")
             >>> session.commit()
         """
-        permission = session.query(Permission).filter(
-            Permission.name == permission_name
-        ).first()
+        permission = (
+            session.query(Permission).filter(Permission.name == permission_name).first()
+        )
         if permission and permission in self.permissions:
             self.permissions.remove(permission)
             self.touch()
@@ -397,7 +410,9 @@ class Permission(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
 
     # Permission information
-    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(
+        String(100), unique=True, index=True, nullable=False
+    )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     resource: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)

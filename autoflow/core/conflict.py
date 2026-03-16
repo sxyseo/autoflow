@@ -239,9 +239,7 @@ def detect_file_conflicts(
                     )
 
     has_conflicts = len(conflicts) > 0
-    safe_to_run = not any(
-        c.severity == ConflictSeverity.HIGH for c in conflicts
-    )
+    safe_to_run = not any(c.severity == ConflictSeverity.HIGH for c in conflicts)
 
     return ConflictReport(
         has_conflicts=has_conflicts,
@@ -368,9 +366,7 @@ def detect_task_conflicts(
             )
 
     has_conflicts = len(conflicts) > 0
-    safe_to_run = not any(
-        c.severity == ConflictSeverity.HIGH for c in conflicts
-    )
+    safe_to_run = not any(c.severity == ConflictSeverity.HIGH for c in conflicts)
 
     return ConflictReport(
         has_conflicts=has_conflicts,
@@ -453,8 +449,7 @@ def _determine_resource_conflict_severity(resource: str) -> ConflictSeverity:
 
     # Medium severity: APIs, external services
     if any(
-        keyword in resource_lower
-        for keyword in ["api", "http", "https", "service"]
+        keyword in resource_lower for keyword in ["api", "http", "https", "service"]
     ):
         return ConflictSeverity.MEDIUM
 

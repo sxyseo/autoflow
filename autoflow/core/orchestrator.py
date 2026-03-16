@@ -75,7 +75,12 @@ try:
     from autoflow.healing.config import HealingConfig
     from autoflow.healing.monitor import WorkflowHealthMonitor
     from autoflow.healing.diagnostic import RootCauseAnalyzer, StrategySelector
-    from autoflow.healing.actions import ActionRegistry, RollbackManager, get_global_registry
+    from autoflow.healing.actions import (
+        ActionRegistry,
+        RollbackManager,
+        get_global_registry,
+    )
+
     HEALING_AVAILABLE = True
 except ImportError:
     HEALING_AVAILABLE = False
@@ -153,9 +158,7 @@ class CycleResult:
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class OrchestratorStats(BaseModel):
@@ -699,7 +702,9 @@ class AutoflowOrchestrator:
             return None
 
         try:
-            monitor = self.healing_orchestrator.monitor if self.healing_orchestrator else None
+            monitor = (
+                self.healing_orchestrator.monitor if self.healing_orchestrator else None
+            )
             if not monitor:
                 return None
 
@@ -847,10 +852,15 @@ class AutoflowOrchestrator:
             if HEALING_AVAILABLE and self.healing_orchestrator:
                 try:
                     health_assessment = await self.check_workflow_health()
-                    if health_assessment and health_assessment.status.value != "healthy":
+                    if (
+                        health_assessment
+                        and health_assessment.status.value != "healthy"
+                    ):
                         # Log degraded health but continue with cycle
                         # (healing can be triggered manually if needed)
-                        cycle.metadata["health_assessment"] = health_assessment.status.value
+                        cycle.metadata["health_assessment"] = (
+                            health_assessment.status.value
+                        )
                 except Exception:
                     # Health checks are non-blocking, continue on error
                     pass
@@ -1023,7 +1033,9 @@ class AutoflowOrchestrator:
 
             # Stage all changes
             stage_process = await asyncio.create_subprocess_exec(
-                "git", "add", "-A",
+                "git",
+                "add",
+                "-A",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -1032,7 +1044,9 @@ class AutoflowOrchestrator:
 
             # Check if there are changes to commit
             status_process = await asyncio.create_subprocess_exec(
-                "git", "status", "--porcelain",
+                "git",
+                "status",
+                "--porcelain",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -1048,7 +1062,10 @@ class AutoflowOrchestrator:
 
             # Commit
             commit_process = await asyncio.create_subprocess_exec(
-                "git", "commit", "-m", f"autoflow: {message}",
+                "git",
+                "commit",
+                "-m",
+                f"autoflow: {message}",
                 cwd=str(workdir_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -1084,8 +1101,8 @@ class AutoflowOrchestrator:
         total = self._stats.total_cycles
         current_avg = self._stats.average_cycle_duration
         self._stats.average_cycle_duration = (
-            (current_avg * (total - 1) + duration) / total
-        )
+            current_avg * (total - 1) + duration
+        ) / total
 
     async def start_continuous_iteration(
         self,
@@ -1259,14 +1276,12 @@ class AutoflowOrchestrator:
             "orchestrator": {
                 "status": self._status.value,
                 "running": self._running,
-                "current_task": (
-                    self._current_task.id if self._current_task else None
-                ),
+                "current_task": (self._current_task.id if self._current_task else None),
                 "current_phase": (
-                    self._current_cycle.phase.value
-                    if self._current_cycle else None
+                    self._current_cycle.phase.value if self._current_cycle else None
                 ),
-                "healing_enabled": HEALING_AVAILABLE and self.healing_orchestrator is not None,
+                "healing_enabled": HEALING_AVAILABLE
+                and self.healing_orchestrator is not None,
             },
             "stats": self._stats.model_dump(),
             "state": state_status,

@@ -485,8 +485,7 @@ class IssueTransformer(BaseModel):
         }
 
         priority = linear_priority_mapping.get(
-            linear_priority,
-            IssuePriority.NO_PRIORITY
+            linear_priority, IssuePriority.NO_PRIORITY
         )
 
         # Override with label mapping if available

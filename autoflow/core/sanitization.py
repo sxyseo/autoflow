@@ -23,6 +23,7 @@ from typing import Any, Optional, Set, Union
 try:
     from pydantic import BaseModel, Field
 except ModuleNotFoundError:
+
     class _FieldDefault:
         """Minimal Field replacement when pydantic is unavailable."""
 
@@ -30,11 +31,9 @@ except ModuleNotFoundError:
             self.default = default
             self.default_factory = default_factory
 
-
     def Field(*, default: Any = None, default_factory: Any = None) -> _FieldDefault:
         """Mirror the subset of pydantic.Field used in this module."""
         return _FieldDefault(default=default, default_factory=default_factory)
-
 
     class BaseModel:
         """Minimal BaseModel replacement for lightweight import contexts."""
@@ -92,8 +91,7 @@ SENSITIVE_PATTERNS = [
 
 # Compiled regex patterns for matching sensitive field names (case-insensitive)
 _SENSITIVE_REGEX = re.compile(
-    "|".join(f"(?:{pattern})" for pattern in SENSITIVE_PATTERNS),
-    re.IGNORECASE
+    "|".join(f"(?:{pattern})" for pattern in SENSITIVE_PATTERNS), re.IGNORECASE
 )
 
 # Fields that should be partially redacted (show first/last few chars)
@@ -282,8 +280,10 @@ def sanitize_dict(
         # Handle lists (recursively sanitize items)
         elif isinstance(value, list) and config.recursive:
             result[key] = [
-                sanitize_dict(item, config, current_context) if isinstance(item, dict)
-                else _sanitize_string_value(item, key, config) if isinstance(item, str)
+                sanitize_dict(item, config, current_context)
+                if isinstance(item, dict)
+                else _sanitize_string_value(item, key, config)
+                if isinstance(item, str)
                 else item
                 for item in value
             ]
@@ -337,10 +337,7 @@ def sanitize_value(
 
     # Handle lists
     if isinstance(value, list) and config.recursive:
-        return [
-            sanitize_value(item, field_name, config)
-            for item in value
-        ]
+        return [sanitize_value(item, field_name, config) for item in value]
 
     # Handle strings
     if isinstance(value, str) and field_name:

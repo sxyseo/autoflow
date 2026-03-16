@@ -205,9 +205,7 @@ class SymphonyBridgeResult:
         self.execution_result = execution_result
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -439,9 +437,7 @@ class SymphonyBridge:
         """
         # Validate workflow name format (should be valid skill name)
         if not workflow_name or not isinstance(workflow_name, str):
-            raise SymphonyBridgeError(
-                f"Invalid workflow name: {workflow_name!r}"
-            )
+            raise SymphonyBridgeError(f"Invalid workflow name: {workflow_name!r}")
 
         # Convert workflow name to skill name format
         # e.g., "multi-agent-analysis" -> "MULTI_AGENT_ANALYSIS"
@@ -483,9 +479,7 @@ class SymphonyBridge:
         # Add workflow invocation template
         content_parts.append("\n## Workflow Invocation\n")
         content_parts.append(f"**Workflow Name:** {workflow_name}\n")
-        content_parts.append(
-            "**Agent Type:** symphony\n"
-        )
+        content_parts.append("**Agent Type:** symphony\n")
 
         content = "".join(content_parts)
 
@@ -747,8 +741,7 @@ class SymphonyBridge:
 
             result.mark_complete(
                 status=status_map.get(
-                    execution_result.status,
-                    SymphonyBridgeStatus.ERROR
+                    execution_result.status, SymphonyBridgeStatus.ERROR
                 ),
                 execution_result=execution_result,
                 error=execution_result.error,
@@ -865,10 +858,7 @@ class SymphonyBridge:
             }
 
             result.mark_complete(
-                status=status_map.get(
-                    skill_result.status,
-                    SymphonyBridgeStatus.ERROR
-                ),
+                status=status_map.get(skill_result.status, SymphonyBridgeStatus.ERROR),
                 execution_result=skill_result,
                 error=skill_result.error,
             )
@@ -880,9 +870,7 @@ class SymphonyBridge:
                 status=SymphonyBridgeStatus.ERROR,
                 error=f"Workflow skill execution failed: {str(e)}",
             )
-            raise SymphonyBridgeError(
-                f"Workflow skill execution failed: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Workflow skill execution failed: {e}") from e
 
         return result
 
@@ -964,10 +952,7 @@ class SymphonyBridge:
             }
 
             result.mark_complete(
-                status=status_map.get(
-                    skill_result.status,
-                    SymphonyBridgeStatus.ERROR
-                ),
+                status=status_map.get(skill_result.status, SymphonyBridgeStatus.ERROR),
                 execution_result=skill_result,
                 error=skill_result.error,
             )
@@ -980,9 +965,7 @@ class SymphonyBridge:
                 status=SymphonyBridgeStatus.ERROR,
                 error=f"Skill execution in workflow failed: {str(e)}",
             )
-            raise SymphonyBridgeError(
-                f"Skill execution in workflow failed: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Skill execution in workflow failed: {e}") from e
 
         return result
 
@@ -1124,9 +1107,7 @@ class SymphonyBridge:
             return True
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to sync checkpoint to run: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to sync checkpoint to run: {e}") from e
 
     def sync_run_to_checkpoint(
         self,
@@ -1194,9 +1175,7 @@ class SymphonyBridge:
         except SymphonyBridgeError:
             raise
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to sync run to checkpoint: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to sync run to checkpoint: {e}") from e
 
     def get_run_from_checkpoint(
         self,
@@ -1238,9 +1217,7 @@ class SymphonyBridge:
             return None
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to find run from checkpoint: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to find run from checkpoint: {e}") from e
 
     def get_checkpoint_from_run(
         self,
@@ -1283,9 +1260,7 @@ class SymphonyBridge:
             return checkpoint_info
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to get checkpoint from run: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to get checkpoint from run: {e}") from e
 
     def _save_checkpoint_state(
         self,
@@ -1335,9 +1310,7 @@ class SymphonyBridge:
         except SymphonyBridgeError:
             raise
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to save checkpoint state: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to save checkpoint state: {e}") from e
 
     def _load_checkpoint_state(
         self,
@@ -1376,9 +1349,7 @@ class SymphonyBridge:
             return checkpoint_state_info
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to load checkpoint state: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to load checkpoint state: {e}") from e
 
     # === Review Gate Checkpoint Integration ===
 
@@ -1468,9 +1439,7 @@ class SymphonyBridge:
             return checkpoint_id
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to create gate checkpoint: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to create gate checkpoint: {e}") from e
 
     def get_gate_checkpoint_status(
         self,
@@ -1506,7 +1475,9 @@ class SymphonyBridge:
                 raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
 
             # Extract checkpoint info
-            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+            checkpoint_info = run_data.get("metadata", {}).get(
+                "symphony_checkpoint", {}
+            )
 
             return {
                 "checkpoint_id": checkpoint_id,
@@ -1519,15 +1490,15 @@ class SymphonyBridge:
                 "rejected_at": checkpoint_info.get("rejected_at"),
                 "approver": checkpoint_info.get("approver"),
                 "rejecter": checkpoint_info.get("rejecter"),
-                "metadata": checkpoint_info.get("metadata", {}),  # Include verification data
+                "metadata": checkpoint_info.get(
+                    "metadata", {}
+                ),  # Include verification data
             }
 
         except SymphonyBridgeError:
             raise
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to get checkpoint status: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to get checkpoint status: {e}") from e
 
     def approve_gate_checkpoint(
         self,
@@ -1570,7 +1541,9 @@ class SymphonyBridge:
                 raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
 
             # Update checkpoint status
-            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+            checkpoint_info = run_data.get("metadata", {}).get(
+                "symphony_checkpoint", {}
+            )
             checkpoint_info["status"] = "approved"
             checkpoint_info["approved_at"] = datetime.utcnow().isoformat()
 
@@ -1590,9 +1563,7 @@ class SymphonyBridge:
         except SymphonyBridgeError:
             raise
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to approve checkpoint: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to approve checkpoint: {e}") from e
 
     def reject_gate_checkpoint(
         self,
@@ -1635,7 +1606,9 @@ class SymphonyBridge:
                 raise SymphonyBridgeError(f"Checkpoint not found: {checkpoint_id}")
 
             # Update checkpoint status
-            checkpoint_info = run_data.get("metadata", {}).get("symphony_checkpoint", {})
+            checkpoint_info = run_data.get("metadata", {}).get(
+                "symphony_checkpoint", {}
+            )
             checkpoint_info["status"] = "rejected"
             checkpoint_info["rejected_at"] = datetime.utcnow().isoformat()
             checkpoint_info["rejection_reason"] = reason
@@ -1653,9 +1626,7 @@ class SymphonyBridge:
         except SymphonyBridgeError:
             raise
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to reject checkpoint: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to reject checkpoint: {e}") from e
 
     def wait_for_gate_checkpoint_approval(
         self,
@@ -1781,23 +1752,23 @@ class SymphonyBridge:
                     continue
 
                 # Add checkpoint info to results
-                checkpoints.append({
-                    "checkpoint_id": checkpoint_info.get("checkpoint_id"),
-                    "checkpoint_name": checkpoint_info.get("checkpoint_name"),
-                    "gate_name": checkpoint_info.get("gate_name"),
-                    "gate_type": checkpoint_info.get("gate_type"),
-                    "status": checkpoint_info.get("status"),
-                    "require_approval": checkpoint_info.get("require_approval"),
-                    "created_at": checkpoint_info.get("created_at"),
-                    "run_id": run.get("id"),
-                })
+                checkpoints.append(
+                    {
+                        "checkpoint_id": checkpoint_info.get("checkpoint_id"),
+                        "checkpoint_name": checkpoint_info.get("checkpoint_name"),
+                        "gate_name": checkpoint_info.get("gate_name"),
+                        "gate_type": checkpoint_info.get("gate_type"),
+                        "status": checkpoint_info.get("status"),
+                        "require_approval": checkpoint_info.get("require_approval"),
+                        "created_at": checkpoint_info.get("created_at"),
+                        "run_id": run.get("id"),
+                    }
+                )
 
             return checkpoints
 
         except Exception as e:
-            raise SymphonyBridgeError(
-                f"Failed to list gate checkpoints: {e}"
-            ) from e
+            raise SymphonyBridgeError(f"Failed to list gate checkpoints: {e}") from e
 
     def __repr__(self) -> str:
         """Return string representation."""

@@ -90,7 +90,9 @@ def task_list(
 
     for task_data in tasks:
         status_val = task_data.get("status", "unknown")
-        click.echo(f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}")
+        click.echo(
+            f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}"
+        )
         click.echo(f"  Status: {status_val}")
         if task_data.get("assigned_agent"):
             click.echo(f"  Agent: {task_data['assigned_agent']}")

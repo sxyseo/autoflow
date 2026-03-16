@@ -206,7 +206,9 @@ class TaskmasterConfig(BaseModel):
             return v.rstrip("/")
         return v
 
-    @field_validator("timeout_seconds", "retry_attempts", "retry_delay_seconds", mode="before")
+    @field_validator(
+        "timeout_seconds", "retry_attempts", "retry_delay_seconds", mode="before"
+    )
     @classmethod
     def validate_positive_int(cls, v: int) -> int:
         """
@@ -514,7 +516,7 @@ class TaskmasterAPIClient:
             >>>
             >>> # Fetch tasks for a specific project
             >>> project_tasks = await client.fetch_tasks(project_id="proj-123")
-            """
+        """
         # Build the endpoint path
         if self.config.workspace_id:
             endpoint = f"/workspaces/{self.config.workspace_id}/tasks"
@@ -982,9 +984,7 @@ class ConflictResolver:
             # Convert to Autoflow format
             from autoflow.agents.taskmaster import TaskmasterAdapter
 
-            adapter = TaskmasterAdapter(
-                TaskmasterConfig(enabled=True, api_key="dummy")
-            )
+            adapter = TaskmasterAdapter(TaskmasterConfig(enabled=True, api_key="dummy"))
             resolved_task = adapter._map_taskmaster_to_autoflow(taskmaster_task)
             conflict.resolve(
                 ConflictResolutionStrategy.LAST_WRITE_WINS,
@@ -1060,7 +1060,9 @@ class ConflictResolver:
         Returns:
             The Autoflow task unchanged
         """
-        conflict.resolve(ConflictResolutionStrategy.AUTOFLOW_WINS, conflict.autoflow_value)
+        conflict.resolve(
+            ConflictResolutionStrategy.AUTOFLOW_WINS, conflict.autoflow_value
+        )
         return autoflow_task
 
     def _resolve_taskmaster_wins(
@@ -1434,7 +1436,8 @@ class TaskmasterAdapter:
         metadata = {
             k: v
             for k, v in autoflow_task.metadata.items()
-            if k not in ("taskmaster_id", "project_id", "parent_task_id", "completed_at")
+            if k
+            not in ("taskmaster_id", "project_id", "parent_task_id", "completed_at")
         }
 
         # Create the TaskmasterTask
@@ -1686,8 +1689,7 @@ class TaskmasterAdapter:
                     # Create the task via API
                     created_task = await client.create_task(
                         title=taskmaster_task_data.title,
-                        description=taskmaster_task_data.description
-                        or None,
+                        description=taskmaster_task_data.description or None,
                         status=taskmaster_task_data.status,
                         priority=taskmaster_task_data.priority,
                         assigned_to=taskmaster_task_data.assigned_to,

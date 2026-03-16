@@ -122,7 +122,13 @@ class AuthConfig(BaseModel):
     query_param: str = "token"
     require_auth_by_default: bool = False
     allow_anonymous_paths: list[str] = Field(
-        default_factory=lambda: ["/health", "/api/v1/info", "/docs", "/redoc", "/openapi.json"]
+        default_factory=lambda: [
+            "/health",
+            "/api/v1/info",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+        ]
     )
     auto_refresh: bool = True
     audit_events: bool = True
@@ -328,10 +334,15 @@ class AuthMiddleware:
                 logger.debug(f"Extracted token from cookie: {self.config.cookie_name}")
 
         # Try query parameter (for testing only)
-        if not token and self.config.auth_scheme in [AuthScheme.QUERY, AuthScheme.QUERY]:
+        if not token and self.config.auth_scheme in [
+            AuthScheme.QUERY,
+            AuthScheme.QUERY,
+        ]:
             token = request.query_params.get(self.config.query_param)
             if token:
-                logger.debug(f"Extracted token from query param: {self.config.query_param}")
+                logger.debug(
+                    f"Extracted token from query param: {self.config.query_param}"
+                )
 
         return token
 
@@ -418,7 +429,9 @@ class AuthMiddleware:
         except Exception as e:
             logger.error(f"Error refreshing session: {e}", exc_info=True)
 
-    async def _log_auth_event(self, request: Request, auth_context: AuthContext) -> None:
+    async def _log_auth_event(
+        self, request: Request, auth_context: AuthContext
+    ) -> None:
         """
         Log authentication event to audit log.
 

@@ -191,18 +191,10 @@ def get_app(
     # Register routers
     from autoflow.api.routes import auth, specs, tasks, users
 
-    app.include_router(
-        auth.router, prefix="/api/v1/auth", tags=["Authentication"]
-    )
-    app.include_router(
-        users.router, prefix="/api/v1/users", tags=["User Management"]
-    )
-    app.include_router(
-        specs.router, prefix="/api/v1/specs", tags=["Specifications"]
-    )
-    app.include_router(
-        tasks.router, prefix="/api/v1/tasks", tags=["Tasks and Runs"]
-    )
+    app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+    app.include_router(users.router, prefix="/api/v1/users", tags=["User Management"])
+    app.include_router(specs.router, prefix="/api/v1/specs", tags=["Specifications"])
+    app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["Tasks and Runs"])
 
     return app
 

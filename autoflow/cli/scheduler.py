@@ -61,12 +61,14 @@ def scheduler_start(ctx: click.Context, daemon: bool, port: int) -> None:
         ctx.exit(1)
 
     if ctx.obj.get("output_json"):
-        _print_json({
-            "status": "starting",
-            "daemon": daemon,
-            "port": port,
-            "jobs_count": len(config.scheduler.jobs),
-        })
+        _print_json(
+            {
+                "status": "starting",
+                "daemon": daemon,
+                "port": port,
+                "jobs_count": len(config.scheduler.jobs),
+            }
+        )
     else:
         click.echo("Starting scheduler daemon...")
         click.echo(f"  Port: {port}")
@@ -112,7 +114,12 @@ def scheduler_status(ctx: click.Context) -> None:
     status_data = {
         "enabled": config.scheduler.enabled,
         "jobs": [
-            {"id": job.id, "cron": job.cron, "handler": job.handler, "enabled": job.enabled}
+            {
+                "id": job.id,
+                "cron": job.cron,
+                "handler": job.handler,
+                "enabled": job.enabled,
+            }
             for job in config.scheduler.jobs
         ],
     }

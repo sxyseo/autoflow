@@ -374,7 +374,9 @@ class SkillPackager:
                         raise PackageError(f"Output path already exists: {output_path}")
                     output_path.mkdir(parents=True)
                     self._copy_directory(temp_path, output_path)
-                    size = sum(f.stat().st_size for f in output_path.rglob("*") if f.is_file())
+                    size = sum(
+                        f.stat().st_size for f in output_path.rglob("*") if f.is_file()
+                    )
 
                 else:
                     # Export as archive
@@ -595,7 +597,9 @@ class SkillImporter:
         self,
         package_path: Union[str, Path],
         target_dir: Union[str, Path],
-        conflict_resolution: Union[str, ImportConflictResolution] = ImportConflictResolution.ERROR,
+        conflict_resolution: Union[
+            str, ImportConflictResolution
+        ] = ImportConflictResolution.ERROR,
         registry: Optional[SkillRegistry] = None,
     ) -> ImportResult:
         """
@@ -639,9 +643,7 @@ class SkillImporter:
                 # Load manifest
                 manifest_path = temp_path / self.MANIFEST_FILE
                 if not manifest_path.exists():
-                    raise PackageError(
-                        f"Invalid package: missing {self.MANIFEST_FILE}"
-                    )
+                    raise PackageError(f"Invalid package: missing {self.MANIFEST_FILE}")
 
                 metadata = self._load_manifest(manifest_path)
 
@@ -703,6 +705,7 @@ class SkillImporter:
                 return "skipped"
 
             import yaml
+
             yaml_content = yaml.safe_load(match.group(1))
             skill_name = yaml_content.get("name", skill_dir.name.upper())
         except Exception:
@@ -760,7 +763,10 @@ class SkillImporter:
             PackageError: If extraction fails
         """
         try:
-            if archive_path.suffixes == [".tar", ".gz"] or archive_path.suffix == ".tgz":
+            if (
+                archive_path.suffixes == [".tar", ".gz"]
+                or archive_path.suffix == ".tgz"
+            ):
                 mode = "r:gz"
             elif archive_path.suffix == ".tar":
                 mode = "r"
@@ -858,7 +864,9 @@ class VersionHistoryEntry:
             "installed_at": self.installed_at,
             "file_path": str(self.file_path),
             "package_path": str(self.package_path) if self.package_path else None,
-            "action": self.action.value if isinstance(self.action, VersionAction) else self.action,
+            "action": self.action.value
+            if isinstance(self.action, VersionAction)
+            else self.action,
             "metadata": self.metadata,
         }
 
@@ -1397,7 +1405,9 @@ class VersionManager:
         except Exception:
             return None
 
-    def restore_backup(self, skill_name: str, backup_path: Union[str, Path]) -> VersionChangeResult:
+    def restore_backup(
+        self, skill_name: str, backup_path: Union[str, Path]
+    ) -> VersionChangeResult:
         """
         Restore a skill from a backup.
 
@@ -1483,7 +1493,10 @@ class VersionManager:
         """
         # Try to extract from backup name first
         # Format: skillname_version_timestamp.bak
-        match = re.match(rf"{re.escape(skill_name.lower())}_(.+?)_\d+{{8}}_\d+{{6}}", backup_path.stem)
+        match = re.match(
+            rf"{re.escape(skill_name.lower())}_(.+?)_\d+{{8}}_\d+{{6}}",
+            backup_path.stem,
+        )
         if match:
             return match.group(1)
 
@@ -1495,6 +1508,7 @@ class VersionManager:
                 match = SkillRegistry.FRONTMATTER_PATTERN.match(content)
                 if match:
                     import yaml
+
                     metadata = yaml.safe_load(match.group(1))
                     if isinstance(metadata, dict) and "version" in metadata:
                         return str(metadata["version"])

@@ -244,8 +244,7 @@ class SkillValidator:
         if missing:
             for section in missing:
                 result.add_error(
-                    f"Required section '{section}' is missing",
-                    section=section
+                    f"Required section '{section}' is missing", section=section
                 )
 
         # Validate section structure
@@ -255,10 +254,13 @@ class SkillValidator:
         # Check for unknown sections (warning only)
         for section_name in sections.keys():
             normalized = section_name
-            if normalized not in self.required_sections and normalized not in self.optional_sections:
+            if (
+                normalized not in self.required_sections
+                and normalized not in self.optional_sections
+            ):
                 result.add_warning(
                     f"Unknown section '{section_name}' - may be a typo",
-                    section=section_name
+                    section=section_name,
                 )
 
         return result
@@ -378,14 +380,14 @@ class SkillValidator:
                 if number != expected_number:
                     result.add_warning(
                         f"Workflow step numbers should be sequential (expected {expected_number}, found {number})",
-                        section="## Workflow"
+                        section="## Workflow",
                     )
                 expected_number = number + 1
 
         if not has_numbered_list:
             result.add_warning(
                 "Workflow should use numbered list format (1. Step, 2. Step, ...)",
-                section="## Workflow"
+                section="## Workflow",
             )
 
         return result
@@ -440,13 +442,11 @@ class SkillValidator:
             # Workflow section shouldn't be empty
             if section_name in self.required_sections:
                 result.add_error(
-                    f"Section '{section_name}' is empty",
-                    section=section_name
+                    f"Section '{section_name}' is empty", section=section_name
                 )
             else:
                 result.add_warning(
-                    f"Section '{section_name}' is empty",
-                    section=section_name
+                    f"Section '{section_name}' is empty", section=section_name
                 )
 
         # Section-specific validation

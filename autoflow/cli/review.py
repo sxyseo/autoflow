@@ -57,12 +57,14 @@ def review_run(
         autoflow review run --agent claude-code --agent codex
     """
     if ctx.obj.get("output_json"):
-        _print_json({
-            "status": "placeholder",
-            "agents": list(agents),
-            "strategy": strategy,
-            "message": "Code review requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "agents": list(agents),
+                "strategy": strategy,
+                "message": "Code review requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("Code Review")
         click.echo("=" * 60)

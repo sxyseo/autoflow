@@ -116,9 +116,7 @@ class Run(BaseModel):
         """Mark the run as completed."""
         self.status = status
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
         self.exit_code = exit_code
         self.output = output
         self.error = error
@@ -582,9 +580,7 @@ class StateManager:
 
     # === Parallel Group Operations ===
 
-    def save_parallel_group(
-        self, group_id: str, group_data: dict[str, Any]
-    ) -> Path:
+    def save_parallel_group(self, group_id: str, group_data: dict[str, Any]) -> Path:
         """
         Save a parallel task group to the state.
 
@@ -610,9 +606,7 @@ class StateManager:
         file_path = self.parallel_dir / f"{group_id}.json"
         return self.write_json(file_path, group_data)
 
-    def load_parallel_group(
-        self, group_id: str
-    ) -> Optional[dict[str, Any]]:
+    def load_parallel_group(self, group_id: str) -> Optional[dict[str, Any]]:
         """
         Load a parallel task group from the state.
 
@@ -884,7 +878,9 @@ class StateManager:
 
         return True
 
-    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_archived_specs(
+        self, tags: Optional[list[str]] = None
+    ) -> list[dict[str, Any]]:
         """
         List archived specifications, optionally filtered by tags.
 
@@ -951,9 +947,7 @@ class StateManager:
 
         if expires_in_seconds is not None:
             expires_at = datetime.utcnow().timestamp() + expires_in_seconds
-            memory_data["expires_at"] = datetime.fromtimestamp(
-                expires_at
-            ).isoformat()
+            memory_data["expires_at"] = datetime.fromtimestamp(expires_at).isoformat()
 
         file_path = self.memory_dir / f"{memory_id}.json"
         return self.write_json(file_path, memory_data)
@@ -1079,9 +1073,7 @@ class StateManager:
                 "total": len(list(self.parallel_dir.glob("*.json")))
                 if self.parallel_dir.exists()
                 else 0,
-                "by_status": self._count_by_status(
-                    self.parallel_dir, "status"
-                ),
+                "by_status": self._count_by_status(self.parallel_dir, "status"),
             },
             "workspaces": {
                 "total": len(list(self.workspaces_dir.glob("*.json")))
@@ -1100,9 +1092,7 @@ class StateManager:
             },
         }
 
-    def _count_by_status(
-        self, directory: Path, status_field: str
-    ) -> dict[str, int]:
+    def _count_by_status(self, directory: Path, status_field: str) -> dict[str, int]:
         """Count items by status field."""
         counts: dict[str, int] = {}
         if not directory.exists():
@@ -1167,6 +1157,7 @@ class StateManager:
 
 
 # === Module-level convenience functions ===
+
 
 def read_json(
     file_path: Union[str, Path],

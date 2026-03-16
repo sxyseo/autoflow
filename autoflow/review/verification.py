@@ -189,7 +189,8 @@ class VerificationOrchestrator:
             )
 
             runner = unittest.TextTestRunner(
-                stream=open(os.devnull, "w"), verbosity=0  # Suppress output
+                stream=open(os.devnull, "w"),
+                verbosity=0,  # Suppress output
             )
 
             result = runner.run(suite)

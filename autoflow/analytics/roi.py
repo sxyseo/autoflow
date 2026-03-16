@@ -272,9 +272,13 @@ class ROICalculator:
             IOError: If unable to write ROI data to disk
         """
         if autoflow_time_seconds <= 0:
-            raise ValueError(f"autoflow_time_seconds must be positive, got {autoflow_time_seconds}")
+            raise ValueError(
+                f"autoflow_time_seconds must be positive, got {autoflow_time_seconds}"
+            )
         if estimated_manual_time_seconds <= 0:
-            raise ValueError(f"estimated_manual_time_seconds must be positive, got {estimated_manual_time_seconds}")
+            raise ValueError(
+                f"estimated_manual_time_seconds must be positive, got {estimated_manual_time_seconds}"
+            )
 
         # Normalize complexity to enum
         if isinstance(task_complexity, str):
@@ -328,7 +332,9 @@ class ROICalculator:
         if start_time or end_time:
             filtered = []
             for record in records:
-                record_time = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
+                record_time = datetime.fromisoformat(
+                    record.timestamp.replace("Z", "+00:00")
+                )
                 if start_time and record_time < start_time:
                     continue
                 if end_time and record_time > end_time:
@@ -354,7 +360,11 @@ class ROICalculator:
 
         # Calculate ROI percentage: (time saved / autoflow time) * 100
         # This represents how much value we get relative to the investment
-        roi_percentage = (total_time_saved / total_autoflow_time * 100) if total_autoflow_time > 0 else 0.0
+        roi_percentage = (
+            (total_time_saved / total_autoflow_time * 100)
+            if total_autoflow_time > 0
+            else 0.0
+        )
 
         # Calculate cost savings if hourly rate provided
         cost_savings = None
@@ -369,16 +379,20 @@ class ROICalculator:
             complexity = record.task_complexity.value
             tasks_by_complexity[complexity] = tasks_by_complexity.get(complexity, 0) + 1
             time_saved_by_complexity[complexity] = (
-                time_saved_by_complexity.get(complexity, 0.0) + record.time_saved_seconds
+                time_saved_by_complexity.get(complexity, 0.0)
+                + record.time_saved_seconds
             )
 
         # Determine period bounds
-        timestamps = [datetime.fromisoformat(r.timestamp.replace("Z", "+00:00")) for r in records]
+        timestamps = [
+            datetime.fromisoformat(r.timestamp.replace("Z", "+00:00")) for r in records
+        ]
         period_start = min(timestamps).isoformat() if timestamps else None
         period_end = max(timestamps).isoformat() if timestamps else None
 
         return ROIMetrics(
-            period_start=period_start or (start_time.isoformat() if start_time else None),
+            period_start=period_start
+            or (start_time.isoformat() if start_time else None),
             period_end=period_end or (end_time.isoformat() if end_time else None),
             total_tasks=total_tasks,
             total_autoflow_time_seconds=total_autoflow_time,
@@ -499,7 +513,9 @@ class ROICalculator:
         if start_time or end_time:
             filtered = []
             for record in records:
-                record_time = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
+                record_time = datetime.fromisoformat(
+                    record.timestamp.replace("Z", "+00:00")
+                )
                 if start_time and record_time < start_time:
                     continue
                 if end_time and record_time > end_time:

@@ -282,9 +282,7 @@ class DependencyTracker:
                 continue
 
         # Sort by source_repo_id, then target_repo_id
-        dependencies.sort(
-            key=lambda d: (d.source_repo_id, d.target_repo_id)
-        )
+        dependencies.sort(key=lambda d: (d.source_repo_id, d.target_repo_id))
         return dependencies
 
     # === Dependency Analysis ===
@@ -582,7 +580,11 @@ class DependencyTracker:
 
         for dep in dependencies:
             # Convert enum to string value
-            dep_type = dep.dependency_type.value if hasattr(dep.dependency_type, 'value') else str(dep.dependency_type)
+            dep_type = (
+                dep.dependency_type.value
+                if hasattr(dep.dependency_type, "value")
+                else str(dep.dependency_type)
+            )
             counts[dep_type] += 1
 
         return dict(counts)

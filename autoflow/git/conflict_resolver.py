@@ -168,11 +168,7 @@ class ConflictResolver:
     CONFLICT_SEPARATOR = re.compile(r"^=======\s*$")
     CONFLICT_END = re.compile(r"^>>>>>>>")
 
-    def __init__(
-        self,
-        repo_path: Optional[Path | str] = None,
-        verbose: bool = False
-    ):
+    def __init__(self, repo_path: Optional[Path | str] = None, verbose: bool = False):
         """
         Initialize conflict resolver.
 
@@ -254,10 +250,7 @@ class ConflictResolver:
 
         # Check using git rev-parse
         try:
-            result = self._run_git(
-                ["rev-parse", "--is-inside-work-tree"],
-                check=False
-            )
+            result = self._run_git(["rev-parse", "--is-inside-work-tree"], check=False)
             return result.stdout.strip() == "true"
         except Exception:
             return False
@@ -337,7 +330,7 @@ class ConflictResolver:
         current_section = None  # 'ours' or 'theirs'
 
         try:
-            with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 for line_num, line in enumerate(f, start=1):
                     # Check for conflict start
                     if self.CONFLICT_START.match(line):
@@ -346,12 +339,12 @@ class ConflictResolver:
                             start_line=line_num,
                             end_line=line_num,
                         )
-                        current_section = 'ours'
+                        current_section = "ours"
                         continue
 
                     # Check for conflict separator
                     if current_marker and self.CONFLICT_SEPARATOR.match(line):
-                        current_section = 'theirs'
+                        current_section = "theirs"
                         continue
 
                     # Check for conflict end
@@ -364,9 +357,9 @@ class ConflictResolver:
 
                     # Collect content for current section
                     if current_marker and current_section:
-                        if current_section == 'ours':
+                        if current_section == "ours":
                             current_marker.ours_content.append(line)
-                        elif current_section == 'theirs':
+                        elif current_section == "theirs":
                             current_marker.theirs_content.append(line)
 
         except (IOError, UnicodeDecodeError):
@@ -408,7 +401,9 @@ class ConflictResolver:
             return result
 
         if self.verbose:
-            print(f"[resolver] Attempting {strategy.value} for {len(conflicted_files)} files")
+            print(
+                f"[resolver] Attempting {strategy.value} for {len(conflicted_files)} files"
+            )
 
         try:
             if strategy == ConflictResolutionType.THEIRS_FULL:
@@ -422,10 +417,7 @@ class ConflictResolver:
                 resolved = []
 
             result.resolved_files = resolved
-            result.conflicted_files = [
-                f for f in conflicted_files
-                if f not in resolved
-            ]
+            result.conflicted_files = [f for f in conflicted_files if f not in resolved]
 
             # Check if all conflicts were resolved
             result.success = len(result.conflicted_files) == 0
@@ -558,11 +550,7 @@ class ConflictResolver:
 
         return resolved
 
-    def _try_resolve_marker(
-        self,
-        file_path: Path,
-        marker: ConflictMarker
-    ) -> bool:
+    def _try_resolve_marker(self, file_path: Path, marker: ConflictMarker) -> bool:
         """
         Attempt to resolve a single conflict marker.
 
@@ -579,7 +567,9 @@ class ConflictResolver:
 
         # Strategy: if one side is only whitespace, accept the other
         ours_stripped = [line.strip() for line in marker.ours_content if line.strip()]
-        theirs_stripped = [line.strip() for line in marker.theirs_content if line.strip()]
+        theirs_stripped = [
+            line.strip() for line in marker.theirs_content if line.strip()
+        ]
 
         if not ours_stripped and theirs_stripped:
             return True  # Accept theirs (ours is empty)
@@ -623,13 +613,15 @@ class ConflictResolver:
             # Convert markers to dict for JSON serialization
             marker_dicts = []
             for marker in markers:
-                marker_dicts.append({
-                    "file_path": marker.file_path,
-                    "start_line": marker.start_line,
-                    "end_line": marker.end_line,
-                    "ours_preview": self._preview_content(marker.ours_content),
-                    "theirs_preview": self._preview_content(marker.theirs_content),
-                })
+                marker_dicts.append(
+                    {
+                        "file_path": marker.file_path,
+                        "start_line": marker.start_line,
+                        "end_line": marker.end_line,
+                        "ours_preview": self._preview_content(marker.ours_content),
+                        "theirs_preview": self._preview_content(marker.theirs_content),
+                    }
+                )
 
             file_details[file_path] = marker_dicts
             total_conflicts += len(markers)
@@ -675,8 +667,7 @@ class ConflictResolver:
 
 
 def create_conflict_resolver(
-    repo_path: Optional[Path | str] = None,
-    verbose: bool = False
+    repo_path: Optional[Path | str] = None, verbose: bool = False
 ) -> ConflictResolver:
     """
     Factory function to create a ConflictResolver instance.

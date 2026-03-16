@@ -66,11 +66,13 @@ def skill_list(ctx: click.Context, skills_dir: Path | None) -> None:
             if skill_folder.is_dir():
                 skill_file = skill_folder / "SKILL.md"
                 if skill_file.exists():
-                    skills.append({
-                        "name": skill_folder.name,
-                        "path": str(skill_file),
-                        "directory": str(skill_folder),
-                    })
+                    skills.append(
+                        {
+                            "name": skill_folder.name,
+                            "path": str(skill_file),
+                            "directory": str(skill_folder),
+                        }
+                    )
 
     if ctx.obj.get("output_json"):
         _print_json({"skills": skills, "count": len(skills)})
@@ -127,11 +129,13 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Path | None) -> None:
             content = skill_path.read_text()
 
             if ctx.obj.get("output_json"):
-                _print_json({
-                    "name": name,
-                    "path": str(skill_path),
-                    "content": content,
-                })
+                _print_json(
+                    {
+                        "name": name,
+                        "path": str(skill_path),
+                        "content": content,
+                    }
+                )
             else:
                 click.echo(f"Skill: {name}")
                 click.echo(f"Path: {skill_path}")

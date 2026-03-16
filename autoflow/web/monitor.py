@@ -71,7 +71,9 @@ class WebSocketConnectionManager:
         async with self._lock:
             self.active_connections.discard(websocket)
 
-    async def send_personal_message(self, message: dict[str, object], websocket: WebSocket) -> None:
+    async def send_personal_message(
+        self, message: dict[str, object], websocket: WebSocket
+    ) -> None:
         """
         Send a message to a specific WebSocket connection.
 

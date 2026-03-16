@@ -104,6 +104,7 @@ class CIConfig(BaseModel):
     gates: list[CIGateConfig] = Field(default_factory=list)
     require_all: bool = True
 
+
 class HealingConfig(BaseModel):
     """Self-healing workflow configuration."""
 
@@ -115,6 +116,7 @@ class HealingConfig(BaseModel):
         default_factory=lambda: ["retry", "fallback", "recovery"]
     )
     analysis_timeout_seconds: int = 300
+
 
 class IssueSourceConfig(BaseModel):
     """Configuration for a single issue source."""
@@ -160,12 +162,14 @@ class IntakeConfig(BaseModel):
     default_priority: str = "no_priority"
     default_category: Optional[str] = None
 
+
 class ParallelConfig(BaseModel):
     """Parallel execution configuration."""
 
     enabled: bool = False
     max_concurrent_tasks: int = 3
     timeout_seconds: int = 300
+
 
 class TeamMemberConfig(BaseModel):
     """Configuration for a team member."""
@@ -447,11 +451,7 @@ def merge_configs(
     result = base.copy()
 
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = merge_configs(result[key], value)
         else:
             result[key] = value

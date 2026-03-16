@@ -202,7 +202,7 @@ class TmuxSession:
 
             if check and process.returncode != 0:
                 raise TmuxSessionError(
-                    f"tmux command failed: {' '.join(args)}\n" f"stderr: {stderr_str}",
+                    f"tmux command failed: {' '.join(args)}\nstderr: {stderr_str}",
                 )
 
             return process.returncode or 0, stdout_str, stderr_str

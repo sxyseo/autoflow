@@ -56,8 +56,7 @@ class SeverityLevel(Enum):
         except ValueError:
             valid = [s.value for s in cls]
             raise ValueError(
-                f"Invalid severity level '{value}'. "
-                f"Must be one of: {', '.join(valid)}"
+                f"Invalid severity level '{value}'. Must be one of: {', '.join(valid)}"
             ) from None
 
 

@@ -547,7 +547,7 @@ class QualityTrends:
         review_approval_rate = self.calculate_review_approval_rate(since=since)
 
         # Weighted average (tests are slightly more important)
-        return (test_pass_rate * 0.6 + review_approval_rate * 0.4)
+        return test_pass_rate * 0.6 + review_approval_rate * 0.4
 
     def get_quality_metrics(
         self,
@@ -606,7 +606,9 @@ class QualityTrends:
             for r in self.review_records
             if datetime.fromisoformat(r.timestamp) >= period_start
         )
-        defect_density = (failed_tests + needed_changes) / total_lines if total_lines > 0 else 0.0
+        defect_density = (
+            (failed_tests + needed_changes) / total_lines if total_lines > 0 else 0.0
+        )
 
         return QualityMetrics(
             period_start=period_start.isoformat(),
@@ -641,9 +643,7 @@ class QualityTrends:
 
         # Count total defects
         total_defects = sum(r.failed for r in self.test_results) + sum(
-            1
-            for r in self.review_records
-            if r.outcome == ReviewOutcome.NEEDS_CHANGES
+            1 for r in self.review_records if r.outcome == ReviewOutcome.NEEDS_CHANGES
         )
 
         # Get current trend and score
@@ -754,13 +754,17 @@ class QualityTrends:
         # Write to file with atomic update
         temp_path = self.quality_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(quality_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(quality_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(self.quality_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write quality data to {self.quality_path}: {e}") from e
+            raise IOError(
+                f"Failed to write quality data to {self.quality_path}: {e}"
+            ) from e
 
     def clear_old_data(self, keep_days: int = 30) -> int:
         """Remove old quality data to manage storage.
@@ -781,7 +785,11 @@ class QualityTrends:
         # Filter test results
         initial_tests = len(self.test_results)
         filtered_tests = deque(
-            (r for r in self.test_results if datetime.fromisoformat(r.timestamp) >= cutoff),
+            (
+                r
+                for r in self.test_results
+                if datetime.fromisoformat(r.timestamp) >= cutoff
+            ),
             maxlen=self.max_results,
         )
         self.test_results = filtered_tests
@@ -790,7 +798,11 @@ class QualityTrends:
         # Filter review records
         initial_reviews = len(self.review_records)
         filtered_reviews = deque(
-            (r for r in self.review_records if datetime.fromisoformat(r.timestamp) >= cutoff),
+            (
+                r
+                for r in self.review_records
+                if datetime.fromisoformat(r.timestamp) >= cutoff
+            ),
             maxlen=self.max_reviews,
         )
         self.review_records = filtered_reviews

@@ -158,8 +158,7 @@ def _review_state_default() -> dict[str, Any]:
 def _load_review_state(spec_slug: str) -> dict[str, Any]:
     """Load review state for a spec."""
     result: dict[str, Any] = _read_json_or_default(
-        _spec_files(spec_slug)["review_state"],
-        _review_state_default()
+        _spec_files(spec_slug)["review_state"], _review_state_default()
     )
     return result
 
@@ -171,10 +170,14 @@ def _save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
 
 
-def _sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
+def _sync_review_state(
+    spec_slug: str, reason: str = "planning_artifacts_changed"
+) -> dict[str, Any]:
     """Sync review state, invalidating if spec has changed."""
     state = _load_review_state(spec_slug)
-    if state.get("approved") and state.get("spec_hash") != _compute_spec_hash(spec_slug):
+    if state.get("approved") and state.get("spec_hash") != _compute_spec_hash(
+        spec_slug
+    ):
         state["approved"] = False
         state["invalidated_at"] = ""  # Would use now_stamp() in CLI
         state["invalidated_reason"] = reason
@@ -193,7 +196,8 @@ def _review_status_summary(spec_slug: str) -> dict[str, Any]:
         "approved_at": state.get("approved_at", ""),
         "review_count": state.get("review_count", 0),
         "feedback_count": len(state.get("feedback", [])),
-        "spec_changed": bool(state.get("spec_hash")) and state.get("spec_hash") != current_hash,
+        "spec_changed": bool(state.get("spec_hash"))
+        and state.get("spec_hash") != current_hash,
         "invalidated_at": state.get("invalidated_at", ""),
         "invalidated_reason": state.get("invalidated_reason", ""),
     }
@@ -268,8 +272,7 @@ def _strategy_memory_default() -> dict[str, Any]:
 def _load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
     """Load strategy memory."""
     result: dict[str, Any] = _read_json_or_default(
-        _strategy_memory_file(scope, spec_slug),
-        _strategy_memory_default()
+        _strategy_memory_file(scope, spec_slug), _strategy_memory_default()
     )
     return result
 
@@ -303,12 +306,22 @@ def _now_stamp() -> str:
 def _write_json(path: Path, data: Any) -> None:
     """Write data to JSON file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8"
+    )
 
 
 def _ensure_state() -> None:
     """Ensure state directories exist."""
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
+    for path in [
+        STATE_DIR,
+        SPECS_DIR,
+        TASKS_DIR,
+        RUNS_DIR,
+        LOGS_DIR,
+        MEMORY_DIR,
+        STRATEGY_MEMORY_DIR,
+    ]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -348,9 +361,7 @@ def _system_config_default() -> dict[str, Any]:
                 "claude-review": ["Read", "Bash(git:*)"],
             }
         },
-        "registry": {
-            "acp_agents": []
-        },
+        "registry": {"acp_agents": []},
     }
 
 
@@ -441,7 +452,9 @@ def _discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
     if agent.get("protocol") == "acp":
         return {
             "protocol": "acp",
-            "command": agent.get("transport", {}).get("command", agent.get("name", "acp-agent")),
+            "command": agent.get("transport", {}).get(
+                "command", agent.get("name", "acp-agent")
+            ),
             "args": [],
             "transport": agent.get("transport", {}),
             "memory_scopes": ["spec"],
@@ -484,7 +497,9 @@ def _record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> N
 def _normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
     """Normalize a task entry from Taskmaster format."""
     depends = entry.get("depends_on", entry.get("dependencies", [])) or []
-    criteria = entry.get("acceptance_criteria", entry.get("acceptanceCriteria", [])) or []
+    criteria = (
+        entry.get("acceptance_criteria", entry.get("acceptanceCriteria", [])) or []
+    )
     status = entry.get("status", "todo")
     if status not in VALID_TASK_STATUSES:
         status = "todo"
@@ -493,7 +508,9 @@ def _normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any
         "title": entry.get("title", entry.get("name", f"Task {index}")),
         "status": status,
         "depends_on": depends,
-        "owner_role": entry.get("owner_role", entry.get("role", "implementation-runner")),
+        "owner_role": entry.get(
+            "owner_role", entry.get("role", "implementation-runner")
+        ),
         "acceptance_criteria": criteria,
         "notes": entry.get("notes", []),
     }
@@ -588,7 +605,9 @@ def get_workflow_state(spec_slug: str) -> dict[str, Any]:
     return {
         "spec": spec_slug,
         "review_status": review_summary,
-        "worktree": _read_json_or_default(_spec_files(spec_slug)["metadata"], {}).get("worktree", {}),
+        "worktree": _read_json_or_default(_spec_files(spec_slug)["metadata"], {}).get(
+            "worktree", {}
+        ),
         "fix_request_present": bool(_load_fix_request(spec_slug)),
         "fix_request": _load_fix_request_data(spec_slug),
         "strategy_summary": _strategy_summary(spec_slug),
@@ -600,7 +619,9 @@ def get_workflow_state(spec_slug: str) -> dict[str, Any]:
     }
 
 
-def get_task_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+def get_task_history(
+    spec_slug: str, task_id: str, limit: int = 5
+) -> list[dict[str, Any]]:
     """
     Get run history for a specific task.
 
@@ -685,7 +706,9 @@ def get_strategy_summary(spec_slug: str) -> dict[str, Any]:
     return _strategy_summary(spec_slug)
 
 
-def taskmaster_export(spec_slug: str, output: str | None = None) -> dict[str, Any] | Path:
+def taskmaster_export(
+    spec_slug: str, output: str | None = None
+) -> dict[str, Any] | Path:
     """
     Export tasks to Taskmaster format.
 
@@ -736,7 +759,11 @@ def taskmaster_import(spec_slug: str, input: str) -> dict[str, Any]:
     }
     _write_json(_task_file(spec_slug), data)
     _sync_review_state(spec_slug, reason="taskmaster_import")
-    _record_event(spec_slug, "taskmaster.imported", {"task_count": len(normalized), "source": str(input_path)})
+    _record_event(
+        spec_slug,
+        "taskmaster.imported",
+        {"task_count": len(normalized), "source": str(input_path)},
+    )
     return {"spec": spec_slug, "task_count": len(normalized)}
 
 

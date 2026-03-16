@@ -386,7 +386,9 @@ class WorkspaceManager:
 
         # Check if user is already a member
         if self.get_member_role(workspace_id, user_id) is not None:
-            raise ValueError(f"User {user_id} is already a member of workspace {workspace_id}")
+            raise ValueError(
+                f"User {user_id} is already a member of workspace {workspace_id}"
+            )
 
         # Create role
         role = Role(

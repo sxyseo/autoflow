@@ -329,9 +329,7 @@ async def list_specs(
     # 3. Apply filters (tags)
     # 4. Return paginated results
 
-    logger.info(
-        f"User {current_user_id} listing specs: tags={tags}"
-    )
+    logger.info(f"User {current_user_id} listing specs: tags={tags}")
 
     # Placeholder: Return empty list
     return SpecListResponse(

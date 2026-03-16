@@ -255,6 +255,7 @@ def main(
 
 # === Init Command ===
 
+
 @main.command()
 @click.option(
     "--force",
@@ -285,11 +286,13 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo(f"State directory already exists: {state_manager.state_dir}")
             click.echo("Use --force to re-initialize.")
         else:
-            _print_json({
-                "status": "exists",
-                "state_dir": str(state_manager.state_dir),
-                "message": "State directory already exists. Use --force to re-initialize.",
-            })
+            _print_json(
+                {
+                    "status": "exists",
+                    "state_dir": str(state_manager.state_dir),
+                    "message": "State directory already exists. Use --force to re-initialize.",
+                }
+            )
         ctx.exit(1)
 
     try:
@@ -306,23 +309,26 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo(f"    memory/   - Persistent memory")
             click.echo(f"    backups/  - Backup files")
         else:
-            _print_json({
-                "status": "initialized",
-                "state_dir": str(state_manager.state_dir),
-                "directories": [
-                    str(state_manager.specs_dir),
-                    str(state_manager.tasks_dir),
-                    str(state_manager.runs_dir),
-                    str(state_manager.memory_dir),
-                    str(state_manager.backup_dir),
-                ],
-            })
+            _print_json(
+                {
+                    "status": "initialized",
+                    "state_dir": str(state_manager.state_dir),
+                    "directories": [
+                        str(state_manager.specs_dir),
+                        str(state_manager.tasks_dir),
+                        str(state_manager.runs_dir),
+                        str(state_manager.memory_dir),
+                        str(state_manager.backup_dir),
+                    ],
+                }
+            )
     except Exception as e:
         click.echo(f"Error initializing: {e}", err=True)
         ctx.exit(1)
 
 
 # === Status Command ===
+
 
 @main.command()
 @click.option(
@@ -397,6 +403,7 @@ def status(ctx: click.Context, detailed: bool) -> None:
 
 
 # === Run Command ===
+
 
 @main.command()
 @click.argument("task", required=False)
@@ -486,12 +493,14 @@ def run(
         state_manager.save_task(task_id, task_data)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "started",
-                "task_id": task_id,
-                "agent": agent,
-                "skill": skill,
-            })
+            _print_json(
+                {
+                    "status": "started",
+                    "task_id": task_id,
+                    "agent": agent,
+                    "skill": skill,
+                }
+            )
         else:
             click.echo(f"Started task: {task_id}")
             click.echo(f"  Agent: {agent}")
@@ -508,6 +517,7 @@ def run(
 
 
 # === Agent Commands ===
+
 
 @main.group()
 def agent() -> None:
@@ -578,11 +588,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
 
     config: Config = ctx.obj["config"]
 
-    agents_to_check = (
-        ["claude-code", "codex", "openclaw"]
-        if name == "all"
-        else [name]
-    )
+    agents_to_check = ["claude-code", "codex", "openclaw"] if name == "all" else [name]
 
     results = []
 
@@ -601,11 +607,13 @@ def agent_check(ctx: click.Context, name: str) -> None:
             available = False
             cmd = "unknown"
 
-        results.append({
-            "name": agent_name,
-            "available": available,
-            "command": cmd,
-        })
+        results.append(
+            {
+                "name": agent_name,
+                "available": available,
+                "command": cmd,
+            }
+        )
 
     if ctx.obj["output_json"]:
         _print_json({"agents": results})
@@ -617,6 +625,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
 
 
 # === Skill Commands ===
+
 
 @main.group()
 def skill() -> None:
@@ -657,11 +666,13 @@ def skill_list(ctx: click.Context, skills_dir: Optional[Path]) -> None:
             if skill_folder.is_dir():
                 skill_file = skill_folder / "SKILL.md"
                 if skill_file.exists():
-                    skills.append({
-                        "name": skill_folder.name,
-                        "path": str(skill_file),
-                        "directory": str(skill_folder),
-                    })
+                    skills.append(
+                        {
+                            "name": skill_folder.name,
+                            "path": str(skill_file),
+                            "directory": str(skill_folder),
+                        }
+                    )
 
     if ctx.obj["output_json"]:
         _print_json({"skills": skills, "count": len(skills)})
@@ -709,11 +720,13 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
             content = skill_path.read_text()
 
             if ctx.obj["output_json"]:
-                _print_json({
-                    "name": name,
-                    "path": str(skill_path),
-                    "content": content,
-                })
+                _print_json(
+                    {
+                        "name": name,
+                        "path": str(skill_path),
+                        "content": content,
+                    }
+                )
             else:
                 click.echo(f"Skill: {name}")
                 click.echo(f"Path: {skill_path}")
@@ -794,7 +807,9 @@ def skill_create(
     variables = {}
     for var in variable:
         if "=" not in var:
-            click.echo(f"Error: Invalid variable format '{var}'. Use key=value", err=True)
+            click.echo(
+                f"Error: Invalid variable format '{var}'. Use key=value", err=True
+            )
             ctx.exit(1)
         key, value = var.split("=", 1)
         variables[key] = value
@@ -812,17 +827,24 @@ def skill_create(
         if name is None:
             # Interactive mode
             if ctx.obj["output_json"]:
-                click.echo("Error: JSON output not supported in interactive mode", err=True)
+                click.echo(
+                    "Error: JSON output not supported in interactive mode", err=True
+                )
                 ctx.exit(1)
 
             if variable:
-                click.echo("Warning: --variable options are ignored in interactive mode", err=True)
+                click.echo(
+                    "Warning: --variable options are ignored in interactive mode",
+                    err=True,
+                )
 
             skill_path = builder.build_interactive(output_dir=output_dir)
         else:
             # Non-interactive mode
             if template is None:
-                click.echo("Error: --template is required in non-interactive mode", err=True)
+                click.echo(
+                    "Error: --template is required in non-interactive mode", err=True
+                )
                 ctx.exit(1)
 
             skill_path = builder.build(
@@ -833,12 +855,14 @@ def skill_create(
             )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "name": name,
-                "path": str(skill_path),
-                "template": template,
-            })
+            _print_json(
+                {
+                    "status": "created",
+                    "name": name,
+                    "path": str(skill_path),
+                    "template": template,
+                }
+            )
         else:
             click.echo(f"\n✓ Skill created successfully!")
             click.echo(f"  Name: {name if name else skill_path.name}")
@@ -846,28 +870,37 @@ def skill_create(
             click.echo(f"  Template: {template if template else 'interactive'}")
             click.echo(f"\nNext steps:")
             click.echo(f"  1. Review the skill at: {skill_path}/SKILL.md")
-            click.echo(f"  2. Test the skill: autoflow skill run {name if name else skill_path.name}")
-            click.echo(f"  3. Validate: autoflow skill validate {name if name else skill_path.name}")
+            click.echo(
+                f"  2. Test the skill: autoflow skill run {name if name else skill_path.name}"
+            )
+            click.echo(
+                f"  3. Validate: autoflow skill validate {name if name else skill_path.name}"
+            )
 
     except SkillBuilderError as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error: {e}", err=True)
         ctx.exit(1)
     except Exception as e:
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error: {e}", err=True)
         ctx.exit(1)
@@ -923,7 +956,9 @@ def skill_validate(
 
     if not skill_path:
         click.echo(f"Error: Skill '{name}' not found.", err=True)
-        click.echo(f"Searched directories: {', '.join(str(d) for d in skill_dirs)}", err=True)
+        click.echo(
+            f"Searched directories: {', '.join(str(d) for d in skill_dirs)}", err=True
+        )
         ctx.exit(1)
 
     # Read skill content
@@ -950,33 +985,35 @@ def skill_validate(
     is_valid = len(all_errors) == 0 and (not strict or len(all_warnings) == 0)
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "skill": name,
-            "path": str(skill_path),
-            "valid": is_valid,
-            "errors": [
-                {
-                    "message": e.message,
-                    "severity": e.severity.value,
-                    "section": e.section,
-                    "line": e.line_number,
-                }
-                for e in all_errors
-            ],
-            "warnings": [
-                {
-                    "message": w.message,
-                    "severity": w.severity.value,
-                    "section": w.section,
-                    "line": w.line_number,
-                }
-                for w in all_warnings
-            ],
-            "sections": {
-                "present": content_result.present_sections,
-                "missing": content_result.missing_sections,
-            },
-        })
+        _print_json(
+            {
+                "skill": name,
+                "path": str(skill_path),
+                "valid": is_valid,
+                "errors": [
+                    {
+                        "message": e.message,
+                        "severity": e.severity.value,
+                        "section": e.section,
+                        "line": e.line_number,
+                    }
+                    for e in all_errors
+                ],
+                "warnings": [
+                    {
+                        "message": w.message,
+                        "severity": w.severity.value,
+                        "section": w.section,
+                        "line": w.line_number,
+                    }
+                    for w in all_warnings
+                ],
+                "sections": {
+                    "present": content_result.present_sections,
+                    "missing": content_result.missing_sections,
+                },
+            }
+        )
         return
 
     # Human-readable output
@@ -1052,19 +1089,21 @@ def skill_template_list(ctx: click.Context, category: Optional[str]) -> None:
     templates = loader.list_templates(category=category_enum)
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "templates": [
-                {
-                    "name": t.name,
-                    "display_name": t.display_name,
-                    "description": t.description,
-                    "category": t.category.value,
-                    "variables": t.get_required_variables(),
-                }
-                for t in templates
-            ],
-            "count": len(templates),
-        })
+        _print_json(
+            {
+                "templates": [
+                    {
+                        "name": t.name,
+                        "display_name": t.display_name,
+                        "description": t.description,
+                        "category": t.category.value,
+                        "variables": t.get_required_variables(),
+                    }
+                    for t in templates
+                ],
+                "count": len(templates),
+            }
+        )
         return
 
     click.echo("Available Templates")
@@ -1112,19 +1151,23 @@ def skill_template_show(ctx: click.Context, name: str) -> None:
 
     if not template:
         click.echo(f"Error: Template '{name}' not found.", err=True)
-        click.echo("Run 'autoflow skill template list' to see available templates.", err=True)
+        click.echo(
+            "Run 'autoflow skill template list' to see available templates.", err=True
+        )
         ctx.exit(1)
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "name": template.name,
-            "display_name": template.display_name,
-            "description": template.description,
-            "category": template.category.value,
-            "variables": template.get_required_variables(),
-            "content": template.content,
-            "metadata_template": template.metadata_template,
-        })
+        _print_json(
+            {
+                "name": template.name,
+                "display_name": template.display_name,
+                "description": template.description,
+                "category": template.category.value,
+                "variables": template.get_required_variables(),
+                "content": template.content,
+                "metadata_template": template.metadata_template,
+            }
+        )
         return
 
     click.echo(f"Template: {template.display_name}")
@@ -1246,14 +1289,16 @@ def skill_export(
         )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "exported",
-                "skill": name,
-                "package": str(package.path),
-                "format": package.format.value,
-                "version": package.metadata.version,
-                "size": package.size,
-            })
+            _print_json(
+                {
+                    "status": "exported",
+                    "skill": name,
+                    "package": str(package.path),
+                    "format": package.format.value,
+                    "version": package.metadata.version,
+                    "size": package.size,
+                }
+            )
         else:
             click.echo(f"✓ Skill exported successfully")
             click.echo(f"  Name: {name}")
@@ -1267,12 +1312,14 @@ def skill_export(
         click.echo(f"Error: {e}", err=True)
         if verbose:
             import traceback
+
             click.echo(traceback.format_exc(), err=True)
         ctx.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         if verbose:
             import traceback
+
             click.echo(traceback.format_exc(), err=True)
         ctx.exit(1)
 
@@ -1344,14 +1391,18 @@ def skill_import(
         )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "imported",
-                "imported": result.imported,
-                "skipped": result.skipped,
-                "conflicts": result.conflicts,
-                "errors": result.errors,
-                "backup_paths": {str(k): str(v) for k, v in result.backup_paths.items()},
-            })
+            _print_json(
+                {
+                    "status": "imported",
+                    "imported": result.imported,
+                    "skipped": result.skipped,
+                    "conflicts": result.conflicts,
+                    "errors": result.errors,
+                    "backup_paths": {
+                        str(k): str(v) for k, v in result.backup_paths.items()
+                    },
+                }
+            )
         else:
             click.echo(f"✓ Package imported successfully")
             click.echo(f"  Package: {package}")
@@ -1380,17 +1431,20 @@ def skill_import(
         click.echo(f"Error: {e}", err=True)
         if verbose:
             import traceback
+
             click.echo(traceback.format_exc(), err=True)
         ctx.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         if verbose:
             import traceback
+
             click.echo(traceback.format_exc(), err=True)
         ctx.exit(1)
 
 
 # === Task Commands ===
+
 
 @main.group()
 def task() -> None:
@@ -1453,7 +1507,9 @@ def task_list(
 
     for task_data in tasks:
         status_val = task_data.get("status", "unknown")
-        click.echo(f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}")
+        click.echo(
+            f"\n[{task_data.get('id', 'unknown')}] {task_data.get('title', 'N/A')}"
+        )
         click.echo(f"  Status: {status_val}")
         if task_data.get("assigned_agent"):
             click.echo(f"  Agent: {task_data['assigned_agent']}")
@@ -1491,6 +1547,7 @@ def task_show(ctx: click.Context, task_id: str) -> None:
 
 # === Scheduler Commands ===
 
+
 @main.group()
 def scheduler() -> None:
     """Manage the scheduler daemon."""
@@ -1525,12 +1582,14 @@ def scheduler_start(ctx: click.Context, daemon: bool, port: int) -> None:
         ctx.exit(1)
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "starting",
-            "daemon": daemon,
-            "port": port,
-            "jobs_count": len(config.scheduler.jobs),
-        })
+        _print_json(
+            {
+                "status": "starting",
+                "daemon": daemon,
+                "port": port,
+                "jobs_count": len(config.scheduler.jobs),
+            }
+        )
     else:
         click.echo("Starting scheduler daemon...")
         click.echo(f"  Port: {port}")
@@ -1560,7 +1619,12 @@ def scheduler_status(ctx: click.Context) -> None:
     status_data = {
         "enabled": config.scheduler.enabled,
         "jobs": [
-            {"id": job.id, "cron": job.cron, "handler": job.handler, "enabled": job.enabled}
+            {
+                "id": job.id,
+                "cron": job.cron,
+                "handler": job.handler,
+                "enabled": job.enabled,
+            }
             for job in config.scheduler.jobs
         ],
     }
@@ -1582,6 +1646,7 @@ def scheduler_status(ctx: click.Context) -> None:
 
 
 # === CI Commands ===
+
 
 @main.group()
 def ci() -> None:
@@ -1646,11 +1711,13 @@ def ci_verify(
             gates_to_run.append("typecheck")
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "placeholder",
-            "gates": gates_to_run,
-            "message": "CI verification requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "gates": gates_to_run,
+                "message": "CI verification requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("CI Verification")
         click.echo("=" * 60)
@@ -1661,6 +1728,7 @@ def ci_verify(
 
 
 # === Review Commands ===
+
 
 @main.group()
 def review() -> None:
@@ -1697,12 +1765,14 @@ def review_run(
     Uses multiple AI agents to review pending changes.
     """
     if ctx.obj["output_json"]:
-        _print_json({
-            "status": "placeholder",
-            "agents": list(agents),
-            "strategy": strategy,
-            "message": "Code review requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "agents": list(agents),
+                "strategy": strategy,
+                "message": "Code review requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("Code Review")
         click.echo("=" * 60)
@@ -1714,6 +1784,7 @@ def review_run(
 
 
 # === Config Commands ===
+
 
 @main.group()
 def config_cmd() -> None:
@@ -1745,6 +1816,7 @@ def config_show(ctx: click.Context) -> None:
 
 
 # === Dashboard Command ===
+
 
 @main.command()
 @click.option(
@@ -1822,16 +1894,18 @@ def dashboard(
         import uvicorn
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "starting",
-                "host": host,
-                "port": port,
-                "reload": reload,
-                "workers": workers,
-                "log_level": log_level,
-                "dashboard_url": f"http://{host}:{port}",
-                "docs_url": f"http://{host}:{port}/docs",
-            })
+            _print_json(
+                {
+                    "status": "starting",
+                    "host": host,
+                    "port": port,
+                    "reload": reload,
+                    "workers": workers,
+                    "log_level": log_level,
+                    "dashboard_url": f"http://{host}:{port}",
+                    "docs_url": f"http://{host}:{port}/docs",
+                }
+            )
             return
 
         # Human-readable output
@@ -1859,7 +1933,9 @@ def dashboard(
             host=host,
             port=port,
             reload=reload,
-            workers=workers if not reload else 1,  # Reload only works with single worker
+            workers=workers
+            if not reload
+            else 1,  # Reload only works with single worker
             log_level=log_level,
         )
 
@@ -1867,17 +1943,20 @@ def dashboard(
         click.echo(
             f"Error: uvicorn is not installed. "
             f"Install it with: pip install uvicorn[standard]",
-            err=True
+            err=True,
         )
         ctx.exit(1)
     except Exception as e:
         click.echo(f"Error starting dashboard: {e}", err=True)
         if verbose:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
+
 # === Search Tasks Command ===
+
 
 @main.command("search-tasks")
 @click.option(
@@ -2036,16 +2115,18 @@ def search_tasks_cmd(
     limited_tasks = filtered_tasks[:limit]
 
     if ctx.obj["output_json"]:
-        _print_json({
-            "tasks": limited_tasks,
-            "count": len(limited_tasks),
-            "total_matching": len(filtered_tasks),
-            "filters": {
-                "status": status_filter,
-                "owner_role": owner_role,
-                "text": text,
-            },
-        })
+        _print_json(
+            {
+                "tasks": limited_tasks,
+                "count": len(limited_tasks),
+                "total_matching": len(filtered_tasks),
+                "filters": {
+                    "status": status_filter,
+                    "owner_role": owner_role,
+                    "text": text,
+                },
+            }
+        )
         return
 
     # Human-readable output
@@ -2075,6 +2156,7 @@ def search_tasks_cmd(
 
 
 # === Memory Commands ===
+
 
 @main.group()
 def memory() -> None:
@@ -2155,7 +2237,9 @@ def memory_set(ctx: click.Context, key: str, value: str, category: str) -> None:
     state_manager.save_memory(key, value, category=category)
 
     if ctx.obj["output_json"]:
-        _print_json({"key": key, "value": value, "category": category, "status": "saved"})
+        _print_json(
+            {"key": key, "value": value, "category": category, "status": "saved"}
+        )
     else:
         click.echo(f"Saved: {key} = {value}")
 
@@ -2179,6 +2263,7 @@ def memory_delete(ctx: click.Context, key: str) -> None:
 
 
 # === Spec Commands ===
+
 
 @main.group()
 def spec() -> None:
@@ -2258,11 +2343,13 @@ def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
 
         if spec_data is None:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "message": f"Specification '{spec_id}' not found.",
-                })
+                _print_json(
+                    {
+                        "status": "error",
+                        "spec_id": spec_id,
+                        "message": f"Specification '{spec_id}' not found.",
+                    }
+                )
             else:
                 click.echo(f"Error: Specification '{spec_id}' not found.", err=True)
             ctx.exit(1)
@@ -2270,49 +2357,63 @@ def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
         status = spec_data.get("status", "unknown")
         if status != "completed" and not force:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "current_status": status,
-                    "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
-                })
+                _print_json(
+                    {
+                        "status": "error",
+                        "spec_id": spec_id,
+                        "current_status": status,
+                        "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
+                    }
+                )
             else:
-                click.echo(f"Error: Specification is not completed (status: {status}).", err=True)
+                click.echo(
+                    f"Error: Specification is not completed (status: {status}).",
+                    err=True,
+                )
                 click.echo("Use --force to archive anyway.")
             ctx.exit(1)
 
         if state_manager.archive_spec(spec_id):
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "archived",
-                    "spec_id": spec_id,
-                })
+                _print_json(
+                    {
+                        "status": "archived",
+                        "spec_id": spec_id,
+                    }
+                )
             else:
                 click.echo(f"Archived: {spec_id}")
         else:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "message": "Failed to archive specification.",
-                })
+                _print_json(
+                    {
+                        "status": "error",
+                        "spec_id": spec_id,
+                        "message": "Failed to archive specification.",
+                    }
+                )
             else:
-                click.echo(f"Error: Failed to archive specification '{spec_id}'.", err=True)
+                click.echo(
+                    f"Error: Failed to archive specification '{spec_id}'.", err=True
+                )
             ctx.exit(1)
 
     except Exception as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "spec_id": spec_id,
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error: {e}", err=True)
         ctx.exit(1)
 
 
 # === Workspace Commands ===
+
 
 @main.group()
 def workspace() -> None:
@@ -2383,10 +2484,12 @@ def workspace_create(
         )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "workspace": workspace.model_dump(mode="json"),
-            })
+            _print_json(
+                {
+                    "status": "created",
+                    "workspace": workspace.model_dump(mode="json"),
+                }
+            )
         else:
             click.echo(f"Created workspace: {workspace.id}")
             click.echo(f"  Name: {workspace.name}")
@@ -2445,10 +2548,12 @@ def workspace_list(
         workspaces = manager.list_workspaces(team_id=team_id, limit=limit)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "workspaces": [ws.model_dump(mode="json") for ws in workspaces],
-                "count": len(workspaces),
-            })
+            _print_json(
+                {
+                    "workspaces": [ws.model_dump(mode="json") for ws in workspaces],
+                    "count": len(workspaces),
+                }
+            )
             return
 
         click.echo("Workspaces")
@@ -2565,10 +2670,12 @@ def workspace_delete(ctx: click.Context, workspace_id: str, force: bool) -> None
 
         if deleted:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "deleted",
-                    "workspace_id": workspace_id,
-                })
+                _print_json(
+                    {
+                        "status": "deleted",
+                        "workspace_id": workspace_id,
+                    }
+                )
             else:
                 click.echo(f"Deleted workspace: {workspace_id}")
         else:
@@ -2624,11 +2731,13 @@ def workspace_members(
         members = manager.list_members(workspace_id, role_type=role_enum)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "workspace_id": workspace_id,
-                "members": [m.model_dump(mode="json") for m in members],
-                "count": len(members),
-            })
+            _print_json(
+                {
+                    "workspace_id": workspace_id,
+                    "members": [m.model_dump(mode="json") for m in members],
+                    "count": len(members),
+                }
+            )
             return
 
         click.echo(f"Members of {workspace_id}")
@@ -2709,12 +2818,14 @@ def workspace_add_member(
         )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "added",
-                "workspace_id": workspace_id,
-                "user_id": user_id,
-                "role": role.model_dump(mode="json"),
-            })
+            _print_json(
+                {
+                    "status": "added",
+                    "workspace_id": workspace_id,
+                    "user_id": user_id,
+                    "role": role.model_dump(mode="json"),
+                }
+            )
         else:
             click.echo(f"Added member to workspace: {workspace_id}")
             click.echo(f"  User: {user_id}")
@@ -2763,16 +2874,21 @@ def workspace_remove_member(
 
         if removed:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "removed",
-                    "workspace_id": workspace_id,
-                    "user_id": user_id,
-                })
+                _print_json(
+                    {
+                        "status": "removed",
+                        "workspace_id": workspace_id,
+                        "user_id": user_id,
+                    }
+                )
             else:
                 click.echo(f"Removed member from workspace: {workspace_id}")
                 click.echo(f"  User: {user_id}")
         else:
-            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
+            click.echo(
+                f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.",
+                err=True,
+            )
             ctx.exit(1)
 
     except Exception as e:
@@ -2837,18 +2953,23 @@ def workspace_update_member(
 
         if role:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "updated",
-                    "workspace_id": workspace_id,
-                    "user_id": user_id,
-                    "role": role.model_dump(mode="json"),
-                })
+                _print_json(
+                    {
+                        "status": "updated",
+                        "workspace_id": workspace_id,
+                        "user_id": user_id,
+                        "role": role.model_dump(mode="json"),
+                    }
+                )
             else:
                 click.echo(f"Updated member role in workspace: {workspace_id}")
                 click.echo(f"  User: {user_id}")
                 click.echo(f"  New role: {role.role_type.value}")
         else:
-            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
+            click.echo(
+                f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.",
+                err=True,
+            )
             ctx.exit(1)
 
     except Exception as e:
@@ -2857,6 +2978,7 @@ def workspace_update_member(
 
 
 # === Team Commands ===
+
 
 @main.group()
 def team() -> None:
@@ -2912,10 +3034,12 @@ def team_create(
         )
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "team": team.model_dump(mode="json"),
-            })
+            _print_json(
+                {
+                    "status": "created",
+                    "team": team.model_dump(mode="json"),
+                }
+            )
         else:
             click.echo(f"Created team: {team.id}")
             click.echo(f"  Name: {team.name}")
@@ -2970,10 +3094,12 @@ def team_list(
         teams = manager.list_teams(limit=limit)
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "teams": [t.model_dump(mode="json") for t in teams],
-                "count": len(teams),
-            })
+            _print_json(
+                {
+                    "teams": [t.model_dump(mode="json") for t in teams],
+                    "count": len(teams),
+                }
+            )
             return
 
         if not teams:
@@ -3001,7 +3127,9 @@ def team_list(
     "--role",
     "-r",
     "role_type",
-    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
+    type=click.Choice(
+        ["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False
+    ),
     default="member",
     help="Role to assign to the user.",
 )
@@ -3047,12 +3175,14 @@ def team_add_member(
         )
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "added",
-                "team_id": team_id,
-                "user_id": user_id,
-                "role": role.model_dump(mode="json"),
-            })
+            _print_json(
+                {
+                    "status": "added",
+                    "team_id": team_id,
+                    "user_id": user_id,
+                    "role": role.model_dump(mode="json"),
+                }
+            )
         else:
             click.echo(f"Added member to team: {team_id}")
             click.echo(f"  User: {user_id}")
@@ -3117,12 +3247,14 @@ def team_set_role(
             ctx.exit(1)
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "updated",
-                "team_id": team_id,
-                "user_id": user_id,
-                "role": updated_role.model_dump(mode="json"),
-            })
+            _print_json(
+                {
+                    "status": "updated",
+                    "team_id": team_id,
+                    "user_id": user_id,
+                    "role": updated_role.model_dump(mode="json"),
+                }
+            )
         else:
             click.echo(f"Updated role in team: {team_id}")
             click.echo(f"  User: {user_id}")
@@ -3130,7 +3262,10 @@ def team_set_role(
             click.echo(f"  Updated: {_format_datetime(updated_role.granted_at)}")
 
     except KeyError:
-        click.echo(f"Error: Invalid role '{role}'. Valid roles: owner, admin, member, reviewer, viewer", err=True)
+        click.echo(
+            f"Error: Invalid role '{role}'. Valid roles: owner, admin, member, reviewer, viewer",
+            err=True,
+        )
         ctx.exit(1)
     except Exception as e:
         click.echo(f"Error setting role: {e}", err=True)
@@ -3143,7 +3278,9 @@ def team_set_role(
     "--role",
     "-r",
     "role_type",
-    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
+    type=click.Choice(
+        ["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False
+    ),
     default=None,
     help="Filter by role type.",
 )
@@ -3190,12 +3327,14 @@ def team_members(
         members = manager.list_members(team_id=team_id, role_type=role_enum)
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "team_id": team_id,
-                "team_name": team.name,
-                "members": [m.model_dump(mode="json") for m in members],
-                "count": len(members),
-            })
+            _print_json(
+                {
+                    "team_id": team_id,
+                    "team_name": team.name,
+                    "members": [m.model_dump(mode="json") for m in members],
+                    "count": len(members),
+                }
+            )
             return
 
         if not members:
@@ -3261,15 +3400,20 @@ def team_remove_member(
         )
 
         if not removed:
-            click.echo(f"Error: User '{user_id}' is not a member of team '{team_id}'.", err=True)
+            click.echo(
+                f"Error: User '{user_id}' is not a member of team '{team_id}'.",
+                err=True,
+            )
             ctx.exit(1)
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "removed",
-                "team_id": team_id,
-                "user_id": user_id,
-            })
+            _print_json(
+                {
+                    "status": "removed",
+                    "team_id": team_id,
+                    "user_id": user_id,
+                }
+            )
         else:
             click.echo(f"Removed member from team: {team_id}")
             click.echo(f"  User: {user_id}")
@@ -3280,6 +3424,7 @@ def team_remove_member(
 
 
 # === Activity Commands ===
+
 
 @main.group()
 def activity() -> None:
@@ -3388,10 +3533,12 @@ def activity_list(
             )
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "activities": [a.model_dump(mode="json") for a in activities],
-                "count": len(activities),
-            })
+            _print_json(
+                {
+                    "activities": [a.model_dump(mode="json") for a in activities],
+                    "count": len(activities),
+                }
+            )
         else:
             if not activities:
                 click.echo("No activities found.")
@@ -3490,10 +3637,14 @@ def notifications_list(
             )
 
         if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "notifications": [n.model_dump(mode="json") for n in notifications_list],
-                "count": len(notifications_list),
-            })
+            _print_json(
+                {
+                    "notifications": [
+                        n.model_dump(mode="json") for n in notifications_list
+                    ],
+                    "count": len(notifications_list),
+                }
+            )
         else:
             if not notifications_list:
                 if unread:
@@ -3503,7 +3654,9 @@ def notifications_list(
                 return
 
             if unread:
-                click.echo(f"Unread notifications for {user_id} ({len(notifications_list)}):")
+                click.echo(
+                    f"Unread notifications for {user_id} ({len(notifications_list)}):"
+                )
             else:
                 click.echo(f"Notifications for {user_id} ({len(notifications_list)}):")
 
@@ -3531,6 +3684,7 @@ main.add_command(analytics)
 
 
 # === Intake Commands ===
+
 
 @main.group()
 def intake() -> None:
@@ -3593,13 +3747,17 @@ def intake_import(
 
     if not config.intake.sources:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "No intake sources configured. Add sources to your config file.",
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": "No intake sources configured. Add sources to your config file.",
+                }
+            )
         else:
             click.echo("Error: No intake sources configured.", err=True)
-            click.echo("Add sources to your config file (see config/intake.example.json5)")
+            click.echo(
+                "Add sources to your config file (see config/intake.example.json5)"
+            )
         ctx.exit(1)
 
     try:
@@ -3612,10 +3770,12 @@ def intake_import(
 
         if not sources:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "message": f"Source '{source}' not found.",
-                })
+                _print_json(
+                    {
+                        "status": "error",
+                        "message": f"Source '{source}' not found.",
+                    }
+                )
             else:
                 click.echo(f"Error: Source '{source}' not found.", err=True)
             ctx.exit(1)
@@ -3646,14 +3806,16 @@ def intake_import(
         result = _run_async(run_import())
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "success",
-                "imported": result.stats.issues_processed,
-                "specs_created": result.stats.specs_created,
-                "tasks_created": result.stats.tasks_created,
-                "errors": len(result.errors),
-                "dry_run": dry_run,
-            })
+            _print_json(
+                {
+                    "status": "success",
+                    "imported": result.stats.issues_processed,
+                    "specs_created": result.stats.specs_created,
+                    "tasks_created": result.stats.tasks_created,
+                    "errors": len(result.errors),
+                    "dry_run": dry_run,
+                }
+            )
         else:
             click.echo("Issue Import")
             click.echo("=" * 60)
@@ -3673,10 +3835,12 @@ def intake_import(
 
     except Exception as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error importing issues: {e}", err=True)
         ctx.exit(1)
@@ -3729,10 +3893,12 @@ def intake_sync(
 
     if not config.intake.sources:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "No intake sources configured.",
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": "No intake sources configured.",
+                }
+            )
         else:
             click.echo("Error: No intake sources configured.", err=True)
         ctx.exit(1)
@@ -3747,10 +3913,12 @@ def intake_sync(
 
         if not sources:
             if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "message": f"Source '{source}' not found.",
-                })
+                _print_json(
+                    {
+                        "status": "error",
+                        "message": f"Source '{source}' not found.",
+                    }
+                )
             else:
                 click.echo(f"Error: Source '{source}' not found.", err=True)
             ctx.exit(1)
@@ -3779,14 +3947,16 @@ def intake_sync(
         result = _run_async(run_sync())
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "success",
-                "direction": direction,
-                "issues_updated": result.stats.issues_updated,
-                "tasks_updated": result.stats.tasks_updated,
-                "errors": len(result.errors),
-                "dry_run": dry_run,
-            })
+            _print_json(
+                {
+                    "status": "success",
+                    "direction": direction,
+                    "issues_updated": result.stats.issues_updated,
+                    "tasks_updated": result.stats.tasks_updated,
+                    "errors": len(result.errors),
+                    "dry_run": dry_run,
+                }
+            )
         else:
             click.echo("Issue Sync")
             click.echo("=" * 60)
@@ -3805,10 +3975,12 @@ def intake_sync(
 
     except Exception as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error syncing issues: {e}", err=True)
         ctx.exit(1)
@@ -3866,18 +4038,22 @@ def intake_status(
         if ctx.obj["output_json"]:
             source_data = []
             for s in sources:
-                source_data.append({
-                    "id": s.id,
-                    "type": s.type,
-                    "name": s.name,
-                    "enabled": s.enabled,
-                    "url": s.url,
-                })
-            _print_json({
-                "sources": source_data,
-                "count": len(sources),
-                "state_dir": str(config.state_dir),
-            })
+                source_data.append(
+                    {
+                        "id": s.id,
+                        "type": s.type,
+                        "name": s.name,
+                        "enabled": s.enabled,
+                        "url": s.url,
+                    }
+                )
+            _print_json(
+                {
+                    "sources": source_data,
+                    "count": len(sources),
+                    "state_dir": str(config.state_dir),
+                }
+            )
         else:
             click.echo("Issue Intake Status")
             click.echo("=" * 60)
@@ -3897,19 +4073,24 @@ def intake_status(
                     )
                     if sync_state_file.exists():
                         import json
+
                         with open(sync_state_file) as f:
                             sync_state = json.load(f)
-                        click.echo(f"  Last Sync: {sync_state.get('last_sync_at', 'Never')}")
+                        click.echo(
+                            f"  Last Sync: {sync_state.get('last_sync_at', 'Never')}"
+                        )
                         click.echo(f"  Mappings: {len(sync_state.get('mappings', []))}")
 
                 click.echo("")
 
     except Exception as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error getting status: {e}", err=True)
         ctx.exit(1)
@@ -3979,13 +4160,15 @@ def intake_webhook(
         server = WebhookServer(config=webhook_config)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "starting",
-                "host": host,
-                "port": port,
-                "path": path,
-                "verify_signatures": not no_verify,
-            })
+            _print_json(
+                {
+                    "status": "starting",
+                    "host": host,
+                    "port": port,
+                    "path": path,
+                    "verify_signatures": not no_verify,
+                }
+            )
         else:
             click.echo("Starting Webhook Server")
             click.echo("=" * 60)
@@ -4004,11 +4187,13 @@ def intake_webhook(
 
     except ImportError as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "Missing dependencies",
-                "error": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": "Missing dependencies",
+                    "error": str(e),
+                }
+            )
         else:
             click.echo("Error: Missing required dependencies.", err=True)
             click.echo("Install them with: pip install fastapi uvicorn", err=True)
@@ -4017,10 +4202,12 @@ def intake_webhook(
 
     except Exception as e:
         if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
+            _print_json(
+                {
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
         else:
             click.echo(f"Error starting webhook server: {e}", err=True)
         ctx.exit(1)

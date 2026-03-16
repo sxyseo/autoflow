@@ -122,6 +122,7 @@ def analytics(
 
 # === Velocity Command ===
 
+
 @analytics.command()
 @click.option(
     "--days",
@@ -161,22 +162,24 @@ def velocity(
         metrics = tracker.get_velocity_metrics(period_days=days)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "period": {
-                    "start": metrics.period_start.isoformat(),
-                    "end": metrics.period_end.isoformat(),
-                    "days": days,
-                },
-                "metrics": {
-                    "tasks_completed": metrics.tasks_completed,
-                    "tasks_started": metrics.tasks_started,
-                    "avg_cycle_time_seconds": metrics.avg_cycle_time,
-                    "avg_lead_time_seconds": metrics.avg_lead_time,
-                    "throughput_per_day": metrics.throughput,
-                    "completion_rate": metrics.completion_rate,
-                    "trend": metrics.trend.value,
-                },
-            })
+            _print_json(
+                {
+                    "period": {
+                        "start": metrics.period_start.isoformat(),
+                        "end": metrics.period_end.isoformat(),
+                        "days": days,
+                    },
+                    "metrics": {
+                        "tasks_completed": metrics.tasks_completed,
+                        "tasks_started": metrics.tasks_started,
+                        "avg_cycle_time_seconds": metrics.avg_cycle_time,
+                        "avg_lead_time_seconds": metrics.avg_lead_time,
+                        "throughput_per_day": metrics.throughput,
+                        "completion_rate": metrics.completion_rate,
+                        "trend": metrics.trend.value,
+                    },
+                }
+            )
             return
 
         # Human-readable output
@@ -209,11 +212,13 @@ def velocity(
         click.echo(f"Error retrieving velocity metrics: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
 
 # === Quality Command ===
+
 
 @analytics.command()
 @click.option(
@@ -255,23 +260,25 @@ def quality(
         metrics = trends.get_quality_metrics(period_days=days)
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "period": {
-                    "start": metrics.period_start,
-                    "end": metrics.period_end,
-                    "days": days,
-                },
-                "metrics": {
-                    "test_pass_rate": metrics.test_pass_rate,
-                    "test_total": metrics.test_total,
-                    "review_approval_rate": metrics.review_approval_rate,
-                    "review_first_try_rate": metrics.review_first_try_rate,
-                    "review_total": metrics.review_total,
-                    "defect_density": metrics.defect_density,
-                    "quality_score": metrics.quality_score,
-                    "trend": metrics.trend.value,
-                },
-            })
+            _print_json(
+                {
+                    "period": {
+                        "start": metrics.period_start,
+                        "end": metrics.period_end,
+                        "days": days,
+                    },
+                    "metrics": {
+                        "test_pass_rate": metrics.test_pass_rate,
+                        "test_total": metrics.test_total,
+                        "review_approval_rate": metrics.review_approval_rate,
+                        "review_first_try_rate": metrics.review_first_try_rate,
+                        "review_total": metrics.review_total,
+                        "defect_density": metrics.defect_density,
+                        "quality_score": metrics.quality_score,
+                        "trend": metrics.trend.value,
+                    },
+                }
+            )
             return
 
         # Human-readable output
@@ -279,8 +286,12 @@ def quality(
         click.echo("=" * 60)
         click.echo(f"Test Pass Rate: {_format_percentage(metrics.test_pass_rate)}")
         click.echo(f"Test Total: {metrics.test_total}")
-        click.echo(f"Review Approval Rate: {_format_percentage(metrics.review_approval_rate)}")
-        click.echo(f"Review First-Try Rate: {_format_percentage(metrics.review_first_try_rate)}")
+        click.echo(
+            f"Review Approval Rate: {_format_percentage(metrics.review_approval_rate)}"
+        )
+        click.echo(
+            f"Review First-Try Rate: {_format_percentage(metrics.review_first_try_rate)}"
+        )
         click.echo(f"Review Total: {metrics.review_total}")
         click.echo(f"Quality Score: {metrics.quality_score:.1f}/100")
         click.echo(f"Trend: {metrics.trend.value}")
@@ -304,11 +315,13 @@ def quality(
         click.echo(f"Error retrieving quality metrics: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
 
 # === Agents Command ===
+
 
 @analytics.command()
 @click.option(
@@ -364,14 +377,16 @@ def agents(
                 end_time=end_time,
             )
 
-            _print_json({
-                "period": {
-                    "start": start_time.isoformat(),
-                    "end": end_time.isoformat(),
-                    "days": days,
-                },
-                "agents": comparison,
-            })
+            _print_json(
+                {
+                    "period": {
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat(),
+                        "days": days,
+                    },
+                    "agents": comparison,
+                }
+            )
             return
 
         # Human-readable output
@@ -390,19 +405,27 @@ def agents(
             click.echo(f"  Successful: {summary.successful_executions}")
             click.echo(f"  Failed: {summary.failed_executions}")
             click.echo(f"  Success Rate: {_format_percentage(summary.success_rate)}")
-            click.echo(f"  Avg Duration: {_format_duration(summary.avg_duration_seconds)}")
-            click.echo(f"  Min Duration: {_format_duration(summary.min_duration_seconds)}")
-            click.echo(f"  Max Duration: {_format_duration(summary.max_duration_seconds)}")
+            click.echo(
+                f"  Avg Duration: {_format_duration(summary.avg_duration_seconds)}"
+            )
+            click.echo(
+                f"  Min Duration: {_format_duration(summary.min_duration_seconds)}"
+            )
+            click.echo(
+                f"  Max Duration: {_format_duration(summary.max_duration_seconds)}"
+            )
 
     except Exception as e:
         click.echo(f"Error retrieving agent performance: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
 
 # === ROI Command ===
+
 
 @analytics.command()
 @click.option(
@@ -449,21 +472,24 @@ def roi(
         )
 
         if ctx.obj["output_json"]:
-            _print_json({
-                "period": {
-                    "start": start_time.isoformat(),
-                    "end": end_time.isoformat(),
-                    "days": days,
-                },
-                "metrics": {
-                    "total_tasks": metrics.total_tasks,
-                    "total_time_saved_hours": metrics.total_time_saved_hours,
-                    "manual_hours_estimate": metrics.total_manual_time_estimate_seconds / 3600,
-                    "autoflow_hours": metrics.total_autoflow_time_seconds / 3600,
-                    "avg_efficiency_ratio": metrics.avg_efficiency_ratio,
-                    "roi_percentage": metrics.roi_percentage,
-                },
-            })
+            _print_json(
+                {
+                    "period": {
+                        "start": start_time.isoformat(),
+                        "end": end_time.isoformat(),
+                        "days": days,
+                    },
+                    "metrics": {
+                        "total_tasks": metrics.total_tasks,
+                        "total_time_saved_hours": metrics.total_time_saved_hours,
+                        "manual_hours_estimate": metrics.total_manual_time_estimate_seconds
+                        / 3600,
+                        "autoflow_hours": metrics.total_autoflow_time_seconds / 3600,
+                        "avg_efficiency_ratio": metrics.avg_efficiency_ratio,
+                        "roi_percentage": metrics.roi_percentage,
+                    },
+                }
+            )
             return
 
         # Human-readable output
@@ -471,12 +497,16 @@ def roi(
         click.echo("=" * 60)
         click.echo(f"Total Tasks: {metrics.total_tasks}")
         click.echo(f"Total Time Saved: {metrics.total_time_saved_hours:.1f}h")
-        click.echo(f"Manual Hours Estimate: {metrics.total_manual_time_estimate_seconds / 3600:.1f}h")
+        click.echo(
+            f"Manual Hours Estimate: {metrics.total_manual_time_estimate_seconds / 3600:.1f}h"
+        )
         click.echo(f"Autoflow Hours: {metrics.total_autoflow_time_seconds / 3600:.1f}h")
         click.echo(f"Avg Efficiency Ratio: {metrics.avg_efficiency_ratio:.1f}x")
         click.echo(f"ROI Percentage: {metrics.roi_percentage:.1f}%")
         if metrics.cost_savings_estimate_usd is not None:
-            click.echo(f"Cost Savings Estimate: ${metrics.cost_savings_estimate_usd:.2f}")
+            click.echo(
+                f"Cost Savings Estimate: ${metrics.cost_savings_estimate_usd:.2f}"
+            )
 
         if trend:
             click.echo("\nTrend:")
@@ -497,11 +527,13 @@ def roi(
         click.echo(f"Error retrieving ROI metrics: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
 
 # === Export Command ===
+
 
 @analytics.command()
 @click.option(
@@ -602,11 +634,13 @@ def export(
         click.echo(f"Error exporting report: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 
 
 # === Metrics Command ===
+
 
 @analytics.command()
 @click.option(
@@ -654,22 +688,24 @@ def metrics(
             )
 
             if ctx.obj["output_json"]:
-                _print_json({
-                    "metric": metric,
-                    "period": {
-                        "start": start_time.isoformat(),
-                        "end": end_time.isoformat(),
-                        "days": days,
-                    },
-                    "summary": {
-                        "count": summary.count,
-                        "mean": summary.mean,
-                        "median": summary.median,
-                        "min": summary.min,
-                        "max": summary.max,
-                        "stddev": summary.stddev,
-                    },
-                })
+                _print_json(
+                    {
+                        "metric": metric,
+                        "period": {
+                            "start": start_time.isoformat(),
+                            "end": end_time.isoformat(),
+                            "days": days,
+                        },
+                        "summary": {
+                            "count": summary.count,
+                            "mean": summary.mean,
+                            "median": summary.median,
+                            "min": summary.min,
+                            "max": summary.max,
+                            "stddev": summary.stddev,
+                        },
+                    }
+                )
                 return
 
             click.echo(f"Metric: {metric}")
@@ -686,14 +722,16 @@ def metrics(
             all_metrics = collector.get_metric_names()
 
             if ctx.obj["output_json"]:
-                _print_json({
-                    "period": {
-                        "start": start_time.isoformat(),
-                        "end": end_time.isoformat(),
-                        "days": days,
-                    },
-                    "metrics": all_metrics,
-                })
+                _print_json(
+                    {
+                        "period": {
+                            "start": start_time.isoformat(),
+                            "end": end_time.isoformat(),
+                            "days": days,
+                        },
+                        "metrics": all_metrics,
+                    }
+                )
                 return
 
             click.echo(f"Available Metrics (Last {days} days)")
@@ -717,6 +755,7 @@ def metrics(
         click.echo(f"Error retrieving metrics: {e}", err=True)
         if ctx.obj["verbose"]:
             import traceback
+
             traceback.print_exc()
         ctx.exit(1)
 

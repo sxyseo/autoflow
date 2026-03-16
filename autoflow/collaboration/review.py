@@ -119,7 +119,9 @@ class ReviewerAssignment:
             "role": self.role.value,
             "status": self.status.value,
             "assigned_at": self.assigned_at.isoformat(),
-            "responded_at": self.responded_at.isoformat() if self.responded_at else None,
+            "responded_at": self.responded_at.isoformat()
+            if self.responded_at
+            else None,
             "findings": [f.to_dict() for f in self.findings],
             "approved": self.approved,
             "comments": self.comments,
@@ -448,9 +450,7 @@ class CollaborativeReview:
             raise ValueError("Role weight must be non-negative")
         self._role_weights[role] = weight
 
-    def get_review(
-        self, review_id: str
-    ) -> Optional[CollaborativeReviewResult]:
+    def get_review(self, review_id: str) -> Optional[CollaborativeReviewResult]:
         """
         Get a review by ID.
 
@@ -529,9 +529,7 @@ class CollaborativeReview:
             elif isinstance(change, dict):
                 normalized_changes.append(CodeChange(**change))
             else:
-                raise CollaborativeReviewError(
-                    f"Invalid change type: {type(change)}"
-                )
+                raise CollaborativeReviewError(f"Invalid change type: {type(change)}")
 
         # Create request
         request = CollaborativeReviewRequest(
@@ -559,9 +557,7 @@ class CollaborativeReview:
         # Set expiration
         from datetime import timedelta
 
-        result.expires_at = datetime.utcnow() + timedelta(
-            hours=request.timeout_hours
-        )
+        result.expires_at = datetime.utcnow() + timedelta(hours=request.timeout_hours)
 
         # Store and return
         self._active_reviews[result.review_id] = result
@@ -815,7 +811,9 @@ class CollaborativeReview:
         # Check for blocking issues
         if result.blocking_issues:
             result.mark_complete(CollaborativeReviewStatus.CHANGES_REQUESTED)
-            await self._notify_review_completed(result, approved=False, changes_needed=True)
+            await self._notify_review_completed(
+                result, approved=False, changes_needed=True
+            )
             return
 
         # Determine approval based on strategy
@@ -863,7 +861,9 @@ class CollaborativeReview:
                         user_id=result.author_id,
                         reviewer_id=reviewer_id,
                         task_id=result.review_id,
-                        task_title=result.request.title if result.request else result.review_id,
+                        task_title=result.request.title
+                        if result.request
+                        else result.review_id,
                         workspace_id=result.workspace_id,
                         team_id=result.metadata.get("team_id"),
                     )
@@ -876,9 +876,13 @@ class CollaborativeReview:
 
                 self._notification_manager.notify_review_rejected(
                     user_id=result.author_id,
-                    reviewer_id=completed_reviewers[0] if completed_reviewers else "system",
+                    reviewer_id=completed_reviewers[0]
+                    if completed_reviewers
+                    else "system",
                     task_id=result.review_id,
-                    task_title=result.request.title if result.request else result.review_id,
+                    task_title=result.request.title
+                    if result.request
+                    else result.review_id,
                     reason=reason,
                     workspace_id=result.workspace_id,
                     team_id=result.metadata.get("team_id"),
@@ -910,7 +914,9 @@ class CollaborativeReview:
         finding_groups: dict[str, list[ReviewFinding]] = {}
         for finding in all_findings:
             # Create a key based on file, line, and message
-            key = f"{finding.file_path}:{finding.line_start or 0}:{finding.message[:50]}"
+            key = (
+                f"{finding.file_path}:{finding.line_start or 0}:{finding.message[:50]}"
+            )
             if key not in finding_groups:
                 finding_groups[key] = []
             finding_groups[key].append(finding)
@@ -924,7 +930,9 @@ class CollaborativeReview:
                 # Merge findings, using highest severity and average confidence
                 best = max(group, key=lambda f: f.severity.value)
                 avg_confidence = sum(f.confidence for f in group) / len(group)
-                best.confidence = min(avg_confidence * 1.1, 1.0)  # Boost for corroboration
+                best.confidence = min(
+                    avg_confidence * 1.1, 1.0
+                )  # Boost for corroboration
                 aggregated.append(best)
 
         # Sort by severity
@@ -958,8 +966,7 @@ class CollaborativeReview:
 
         # Only count completed reviews with non-zero weight
         completed = [
-            a for a in assignments
-            if a.is_complete and self.get_role_weight(a.role) > 0
+            a for a in assignments if a.is_complete and self.get_role_weight(a.role) > 0
         ]
         if not completed:
             return 0.0
@@ -971,8 +978,7 @@ class CollaborativeReview:
             if a.has_approved
         )
         weighted_total = sum(
-            self.get_role_weight(a.role) * a.confidence
-            for a in completed
+            self.get_role_weight(a.role) * a.confidence for a in completed
         )
 
         if weighted_total == 0:
@@ -1012,8 +1018,7 @@ class CollaborativeReview:
 
         # Filter to completed reviews with non-zero weight
         completed = [
-            a for a in assignments
-            if a.is_complete and self.get_role_weight(a.role) > 0
+            a for a in assignments if a.is_complete and self.get_role_weight(a.role) > 0
         ]
         if not completed:
             return False
@@ -1045,10 +1050,11 @@ class CollaborativeReview:
                 if a.has_approved
             )
             weighted_total = sum(
-                self.get_role_weight(a.role) * a.confidence
-                for a in completed
+                self.get_role_weight(a.role) * a.confidence for a in completed
             )
-            return weighted_approvals > weighted_total / 2 if weighted_total > 0 else False
+            return (
+                weighted_approvals > weighted_total / 2 if weighted_total > 0 else False
+            )
 
         return False
 

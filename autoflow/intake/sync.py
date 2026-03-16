@@ -120,7 +120,9 @@ class TaskIssueMapping:
             "source_type": self.source_type.value,
             "issue_id": self.issue_id,
             "source_url": self.source_url,
-            "last_sync_at": self.last_sync_at.isoformat() if self.last_sync_at else None,
+            "last_sync_at": self.last_sync_at.isoformat()
+            if self.last_sync_at
+            else None,
             "last_sync_status": self.last_sync_status.value,
             "sync_count": self.sync_count,
             "created_at": self.created_at.isoformat(),
@@ -140,7 +142,9 @@ class TaskIssueMapping:
                 if data.get("last_sync_at")
                 else None
             ),
-            last_sync_status=SyncStatus(data.get("last_sync_status", SyncStatus.PENDING)),
+            last_sync_status=SyncStatus(
+                data.get("last_sync_status", SyncStatus.PENDING)
+            ),
             sync_count=data.get("sync_count", 0),
             created_at=datetime.fromisoformat(data["created_at"]),
             metadata=data.get("metadata", {}),
@@ -196,9 +200,7 @@ class SyncResult:
         if error:
             self.errors.append(error)
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class SyncStats(BaseModel):
@@ -672,9 +674,7 @@ class SyncManager:
             if comment_result.success:
                 result.comments_added += 1
             else:
-                result.errors.append(
-                    f"Failed to add comment: {comment_result.error}"
-                )
+                result.errors.append(f"Failed to add comment: {comment_result.error}")
 
     async def _pull_updates(
         self,

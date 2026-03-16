@@ -329,7 +329,9 @@ class AgentPerformance:
         # Filter by time range
         filtered_records = []
         for record in records:
-            record_time = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
+            record_time = datetime.fromisoformat(
+                record.timestamp.replace("Z", "+00:00")
+            )
             if start_time and record_time < start_time:
                 continue
             if end_time and record_time > end_time:

@@ -318,9 +318,11 @@ def seed_roles_and_permissions(
 
             # Associate permissions with role
             for perm_name in role_data.get("permissions", []):
-                permission = session.query(Permission).filter(
-                    Permission.name == perm_name
-                ).first()
+                permission = (
+                    session.query(Permission)
+                    .filter(Permission.name == perm_name)
+                    .first()
+                )
                 if permission:
                     role.permissions.append(permission)
 
@@ -351,10 +353,9 @@ def ensure_default_permissions(session: Session) -> bool:
     try:
         result = seed_roles_and_permissions(session, skip_existing=True)
         session.commit()
-        return (
-            result["permissions_created"] == 0
-            and result["permissions_existing"] == len(DEFAULT_PERMISSIONS)
-        )
+        return result["permissions_created"] == 0 and result[
+            "permissions_existing"
+        ] == len(DEFAULT_PERMISSIONS)
     except Exception:
         session.rollback()
         return False

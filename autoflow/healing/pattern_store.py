@@ -52,7 +52,9 @@ class PatternStore:
     # Default store file path
     DEFAULT_STORE_PATH = Path(".autoflow/recovery_patterns.json")
 
-    def __init__(self, store_path: Optional[Path] = None, root_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self, store_path: Optional[Path] = None, root_dir: Optional[Path] = None
+    ) -> None:
         """Initialize the pattern store.
 
         Args:
@@ -203,7 +205,8 @@ class PatternStore:
 
         # Find all attempts for this pattern
         pattern_attempts = [
-            attempt for attempt in self.attempts.values()
+            attempt
+            for attempt in self.attempts.values()
             if attempt.pattern_id == pattern_id
         ]
 
@@ -240,7 +243,11 @@ class PatternStore:
         """
         return list(self.attempts.values())
 
-    def get_recommended_strategies(self, error_signature: str, min_confidence: PatternConfidence = PatternConfidence.MEDIUM) -> list[LearnedStrategy]:
+    def get_recommended_strategies(
+        self,
+        error_signature: str,
+        min_confidence: PatternConfidence = PatternConfidence.MEDIUM,
+    ) -> list[LearnedStrategy]:
         """Get recommended strategies for an error pattern.
 
         Args:
@@ -256,7 +263,8 @@ class PatternStore:
         recommended = [
             strategy
             for strategy in strategies
-            if strategy.is_recommended() and strategy.confidence.value >= min_confidence.value
+            if strategy.is_recommended()
+            and strategy.confidence.value >= min_confidence.value
         ]
 
         return recommended
@@ -272,13 +280,27 @@ class PatternStore:
         total_strategies = len(self.strategies)
 
         # Calculate overall success rate
-        successful_attempts = sum(1 for attempt in self.attempts.values() if attempt.success)
-        overall_success_rate = successful_attempts / total_attempts if total_attempts > 0 else 0.0
+        successful_attempts = sum(
+            1 for attempt in self.attempts.values() if attempt.success
+        )
+        overall_success_rate = (
+            successful_attempts / total_attempts if total_attempts > 0 else 0.0
+        )
 
         # Count strategies by confidence
-        high_confidence = sum(1 for s in self.strategies.values() if s.confidence == PatternConfidence.HIGH)
-        medium_confidence = sum(1 for s in self.strategies.values() if s.confidence == PatternConfidence.MEDIUM)
-        low_confidence = sum(1 for s in self.strategies.values() if s.confidence == PatternConfidence.LOW)
+        high_confidence = sum(
+            1
+            for s in self.strategies.values()
+            if s.confidence == PatternConfidence.HIGH
+        )
+        medium_confidence = sum(
+            1
+            for s in self.strategies.values()
+            if s.confidence == PatternConfidence.MEDIUM
+        )
+        low_confidence = sum(
+            1 for s in self.strategies.values() if s.confidence == PatternConfidence.LOW
+        )
 
         return {
             "total_patterns": total_patterns,
@@ -291,7 +313,9 @@ class PatternStore:
             "last_updated": datetime.now(UTC).isoformat(),
         }
 
-    def clear_old_data(self, keep_recent_patterns: int = 100, keep_recent_attempts: int = 1000) -> dict[str, int]:
+    def clear_old_data(
+        self, keep_recent_patterns: int = 100, keep_recent_attempts: int = 1000
+    ) -> dict[str, int]:
         """Remove old patterns and attempts to manage storage.
 
         Keeps the most recent N patterns and attempts, removing older ones.
@@ -426,10 +450,14 @@ class PatternStore:
         # Write to file with atomic update
         temp_path = self.store_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(store_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(store_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(self.store_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write pattern store to {self.store_path}: {e}") from e
+            raise IOError(
+                f"Failed to write pattern store to {self.store_path}: {e}"
+            ) from e

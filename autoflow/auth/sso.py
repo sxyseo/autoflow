@@ -259,9 +259,7 @@ class SAMLProvider(BaseModel):
 
         return attributes
 
-    def create_logout_request(
-        self, session_index: str, name_id: str
-    ) -> dict[str, str]:
+    def create_logout_request(self, session_index: str, name_id: str) -> dict[str, str]:
         """
         Create a SAML logout request.
 
@@ -331,7 +329,9 @@ class SAMLProvider(BaseModel):
     def _build_authn_request(self) -> str:
         """Build a SAML AuthNRequest XML document."""
         now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        expire = (datetime.utcnow() + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        expire = (datetime.utcnow() + timedelta(minutes=5)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
         authn_request = f"""<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
                           ID="{self._request_id}"

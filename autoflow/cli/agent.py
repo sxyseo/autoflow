@@ -104,11 +104,7 @@ def agent_check(ctx: click.Context, name: str) -> None:
         click.echo("Error: Configuration not loaded.", err=True)
         ctx.exit(1)
 
-    agents_to_check = (
-        ["claude-code", "codex", "openclaw"]
-        if name == "all"
-        else [name]
-    )
+    agents_to_check = ["claude-code", "codex", "openclaw"] if name == "all" else [name]
 
     results = []
 
@@ -127,11 +123,13 @@ def agent_check(ctx: click.Context, name: str) -> None:
             available = False
             cmd = "unknown"
 
-        results.append({
-            "name": agent_name,
-            "available": available,
-            "command": cmd,
-        })
+        results.append(
+            {
+                "name": agent_name,
+                "available": available,
+                "command": cmd,
+            }
+        )
 
     if ctx.obj.get("output_json"):
         _print_json({"agents": results})

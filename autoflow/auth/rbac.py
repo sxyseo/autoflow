@@ -274,8 +274,7 @@ class Role(BaseModel):
             'developer'
         """
         permissions = [
-            Permission.from_db_permission(perm)
-            for perm in db_role.permissions
+            Permission.from_db_permission(perm) for perm in db_role.permissions
         ]
 
         return cls(
@@ -370,9 +369,17 @@ class PolicyCondition(BaseModel):
         elif self.operator == "ne":
             return context_value != self.value
         elif self.operator == "in":
-            return context_value in self.value if isinstance(self.value, (list, set)) else False
+            return (
+                context_value in self.value
+                if isinstance(self.value, (list, set))
+                else False
+            )
         elif self.operator == "not_in":
-            return context_value not in self.value if isinstance(self.value, (list, set)) else True
+            return (
+                context_value not in self.value
+                if isinstance(self.value, (list, set))
+                else True
+            )
         elif self.operator == "exists":
             return self.key in context
         elif self.operator == "not_exists":
@@ -447,7 +454,9 @@ class Policy(BaseModel):
         """
         for pattern in v:
             if not isinstance(pattern, str) or not pattern:
-                raise ValueError(f"Invalid pattern '{pattern}'. Must be a non-empty string")
+                raise ValueError(
+                    f"Invalid pattern '{pattern}'. Must be a non-empty string"
+                )
         return v
 
     def matches_resource(self, resource: str) -> bool:
@@ -829,7 +838,8 @@ class PermissionChecker:
 
         # Find applicable policies
         applicable_policies = [
-            policy for policy in sorted_policies
+            policy
+            for policy in sorted_policies
             if policy.applies_to(resource, action, ctx)
         ]
 

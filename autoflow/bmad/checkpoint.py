@@ -171,9 +171,7 @@ class BMADCheckpoint:
             BMADCheckpoint instance.
         """
         # Convert artifact dictionaries to ArtifactSpec objects
-        artifacts = [
-            ArtifactSpec.from_dict(a) for a in data.get("artifacts", [])
-        ]
+        artifacts = [ArtifactSpec.from_dict(a) for a in data.get("artifacts", [])]
 
         return cls(
             from_role=data["from_role"],

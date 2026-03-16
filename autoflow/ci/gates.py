@@ -53,6 +53,7 @@ from autoflow.ci.verifier import (
 # Optional Symphony integration
 try:
     from autoflow.skills.symphony_bridge import SymphonyBridge
+
     SYMPHONY_AVAILABLE = True
 except ImportError:
     SYMPHONY_AVAILABLE = False
@@ -803,7 +804,11 @@ class SymphonyCheckpointGate(BaseGate):
             result.passed = wrapped_result.passed
 
             # Wait for approval if configured
-            if self.is_symphony_enabled and self._require_approval and self._checkpoint_id:
+            if (
+                self.is_symphony_enabled
+                and self._require_approval
+                and self._checkpoint_id
+            ):
                 await self._wait_for_approval(cwd)
 
             # Determine final status
@@ -845,7 +850,9 @@ class SymphonyCheckpointGate(BaseGate):
             RuntimeError: If Symphony bridge is not available
         """
         if not self.is_symphony_enabled or self._symphony_bridge is None:
-            raise RuntimeError("Symphony bridge is not available for checkpoint creation")
+            raise RuntimeError(
+                "Symphony bridge is not available for checkpoint creation"
+            )
 
         # Create checkpoint via Symphony bridge
         checkpoint_id = self._symphony_bridge.create_gate_checkpoint(
@@ -912,7 +919,11 @@ class SymphonyCheckpointGate(BaseGate):
             approver: Optional identifier for the approver
             notes: Optional approval notes
         """
-        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+        if (
+            self.is_symphony_enabled
+            and self._symphony_bridge is not None
+            and self._checkpoint_id
+        ):
             self._symphony_bridge.approve_gate_checkpoint(
                 checkpoint_id=self._checkpoint_id,
                 approver=approver,
@@ -935,7 +946,11 @@ class SymphonyCheckpointGate(BaseGate):
             reason: Reason for rejection
             rejecter: Optional identifier for the rejecter
         """
-        if self.is_symphony_enabled and self._symphony_bridge is not None and self._checkpoint_id:
+        if (
+            self.is_symphony_enabled
+            and self._symphony_bridge is not None
+            and self._checkpoint_id
+        ):
             self._symphony_bridge.reject_gate_checkpoint(
                 checkpoint_id=self._checkpoint_id,
                 reason=reason,

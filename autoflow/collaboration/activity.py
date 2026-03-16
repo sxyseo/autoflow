@@ -303,7 +303,7 @@ class ActivityTracker:
 
         # Save event to file
         event_path = self._get_event_path(event_id, created_at)
-        self._write_json(event_path, event.model_dump(mode='json'))
+        self._write_json(event_path, event.model_dump(mode="json"))
 
         return event
 

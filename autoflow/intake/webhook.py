@@ -88,7 +88,9 @@ def verify_signature(
         elif source_type == WebhookSourceType.LINEAR:
             # Linear uses HMAC-SHA256 without prefix
             # Format: <hex_digest>
-            expected_signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+            expected_signature = hmac.new(
+                secret.encode(), payload, hashlib.sha256
+            ).hexdigest()
             return hmac.compare_digest(expected_signature, signature)
 
         return False
@@ -426,9 +428,11 @@ class WebhookServer:
 
             # Verify signature if required
             if self.config.verify_signatures:
-                signature = headers.get("x-hub-signature-256") or headers.get(
-                    "x-gitlab-token"
-                ) or headers.get("linear-signature")
+                signature = (
+                    headers.get("x-hub-signature-256")
+                    or headers.get("x-gitlab-token")
+                    or headers.get("linear-signature")
+                )
 
                 if not signature:
                     return JSONResponse(
@@ -440,7 +444,9 @@ class WebhookServer:
                 if not secret:
                     return JSONResponse(
                         status_code=500,
-                        content={"error": "No secret configured for signature verification"},
+                        content={
+                            "error": "No secret configured for signature verification"
+                        },
                     )
 
                 if not await self._verify_signature(
@@ -453,9 +459,11 @@ class WebhookServer:
 
             # Parse event
             event = self._parse_event(source_type, payload, headers)
-            event.signature = headers.get(
-                "x-hub-signature-256"
-            ) or headers.get("x-gitlab-token") or headers.get("linear-signature")
+            event.signature = (
+                headers.get("x-hub-signature-256")
+                or headers.get("x-gitlab-token")
+                or headers.get("linear-signature")
+            )
 
             # Process event
             result = await self._process_event(event)

@@ -324,10 +324,7 @@ async def cleanup_sync_state(
                 continue
 
             # Check if mapping is very old and never successfully synced
-            if (
-                mapping.sync_count == 0
-                and mapping.created_at.timestamp() < cutoff_time
-            ):
+            if mapping.sync_count == 0 and mapping.created_at.timestamp() < cutoff_time:
                 stale_mappings.append(task_id)
 
         # Remove stale mappings
@@ -341,8 +338,7 @@ async def cleanup_sync_state(
         memory_cleaned = state.cleanup_expired()
 
         output = (
-            f"Cleaned: {mappings_cleaned} mappings, "
-            f"{memory_cleaned} history entries"
+            f"Cleaned: {mappings_cleaned} mappings, {memory_cleaned} history entries"
         )
 
         result.mark_complete(success=True, output=output)
@@ -439,7 +435,8 @@ async def sync_health_check(
             # Check if mapping is active (synced within last 24 hours)
             if (
                 mapping.last_sync_at
-                and (now - mapping.last_sync_at).total_seconds() < stale_threshold_seconds
+                and (now - mapping.last_sync_at).total_seconds()
+                < stale_threshold_seconds
                 and mapping.last_sync_status == SyncStatus.SUCCESS
             ):
                 health_status["active_mappings"] += 1

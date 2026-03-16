@@ -42,6 +42,7 @@ from autoflow.memory.models import (
 # Memory consolidation (created in phase 2)
 try:
     from autoflow.memory.consolidation import MemoryConsolidator
+
     _has_consolidation = True
 except ImportError:
     _has_consolidation = False
@@ -49,6 +50,7 @@ except ImportError:
 # Pattern recognition (created in phase 3)
 try:
     from autoflow.memory.patterns import PatternRecognizer
+
     _has_patterns = True
 except ImportError:
     _has_patterns = False
@@ -56,6 +58,7 @@ except ImportError:
 # Convention capture (created in phase 4)
 try:
     from autoflow.memory.conventions import ConventionCapture
+
     _has_conventions = True
 except ImportError:
     _has_conventions = False
@@ -63,6 +66,7 @@ except ImportError:
 # Memory search (created in phase 5)
 try:
     from autoflow.memory.search import MemorySearch
+
     _has_search = True
 except ImportError:
     _has_search = False
@@ -70,6 +74,7 @@ except ImportError:
 # Scope isolation (created in phase 6)
 try:
     from autoflow.memory.isolation import MemoryIsolation
+
     _has_isolation = True
 except ImportError:
     _has_isolation = False
@@ -77,6 +82,7 @@ except ImportError:
 # Memory manager (created in phase 7)
 try:
     from autoflow.memory.manager import MemoryManager
+
     _has_manager = True
 except ImportError:
     _has_manager = False

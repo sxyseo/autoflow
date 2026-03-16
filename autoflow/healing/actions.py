@@ -187,7 +187,9 @@ class HealingAction:
             "action_type": self.action_type.value,
             "name": self.name,
             "description": self.description,
-            "severity": self.severity.value if hasattr(self.severity, 'value') else self.severity,
+            "severity": self.severity.value
+            if hasattr(self.severity, "value")
+            else self.severity,
             "parameters": self.parameters,
             "preconditions": self.preconditions,
             "expected_outcome": self.expected_outcome,

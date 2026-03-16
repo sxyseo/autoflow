@@ -119,14 +119,19 @@ class AdaptiveRetryExecutor:
                     strategy_used="adaptive_retry",
                     action_type="RETRY",
                     parameters=action.parameters,
-                    outcome=RecoveryOutcome.SUCCESS if result.success else RecoveryOutcome.FAILED,
+                    outcome=RecoveryOutcome.SUCCESS
+                    if result.success
+                    else RecoveryOutcome.FAILED,
                     success=result.success,
                     execution_time=result.execution_time,
                     error=result.error,
                     changes_made=result.changes_made,
                     verification_passed=result.verification_passed,
                     outcome_details=result.message,
-                    metadata={"root_cause": root_cause.to_dict(), "context": context or {}},
+                    metadata={
+                        "root_cause": root_cause.to_dict(),
+                        "context": context or {},
+                    },
                 )
             except Exception as e:
                 # Don't fail the retry if learning recording fails
@@ -134,7 +139,9 @@ class AdaptiveRetryExecutor:
 
         # Fallback to learned strategies if default retry failed
         if not result.success and self._learner and root_cause:
-            logger.info("Default retry failed, attempting fallback to learned strategies")
+            logger.info(
+                "Default retry failed, attempting fallback to learned strategies"
+            )
             fallback_result = await self.try_learned_strategy(
                 action=action,
                 root_cause=root_cause,
@@ -320,7 +327,9 @@ class AdaptiveRetryExecutor:
                 strategy_used=strategy["strategy_name"],
                 action_type=strategy["strategy_type"],
                 parameters=strategy["optimal_parameters"],
-                outcome=RecoveryOutcome.SUCCESS if result.success else RecoveryOutcome.FAILED,
+                outcome=RecoveryOutcome.SUCCESS
+                if result.success
+                else RecoveryOutcome.FAILED,
                 success=result.success,
                 execution_time=result.execution_time,
                 error=result.error,

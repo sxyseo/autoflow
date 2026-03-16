@@ -171,9 +171,7 @@ def load_bmad_schema(root: Path | str | None = None) -> dict[str, Any]:
     schema_path = get_schema_path(root)
 
     if not schema_path.exists():
-        raise FileNotFoundError(
-            f"BMAD schema not found at {schema_path}"
-        )
+        raise FileNotFoundError(f"BMAD schema not found at {schema_path}")
 
     return read_json(schema_path)
 
@@ -197,11 +195,7 @@ def list_bmad_templates(root: Path | str | None = None) -> list[str]:
     if not templates_dir.exists():
         return []
 
-    return [
-        path.stem
-        for path in templates_dir.glob("*.md")
-        if path.is_file()
-    ]
+    return [path.stem for path in templates_dir.glob("*.md") if path.is_file()]
 
 
 def validate_bmad_config(

@@ -85,11 +85,13 @@ def ci_verify(
             gates_to_run.append("typecheck")
 
     if ctx.obj.get("output_json"):
-        _print_json({
-            "status": "placeholder",
-            "gates": gates_to_run,
-            "message": "CI verification requires async execution. This is a placeholder.",
-        })
+        _print_json(
+            {
+                "status": "placeholder",
+                "gates": gates_to_run,
+                "message": "CI verification requires async execution. This is a placeholder.",
+            }
+        )
     else:
         click.echo("CI Verification")
         click.echo("=" * 60)

@@ -37,22 +37,38 @@ class PatternConfidence(Enum):
     # Define ordering for comparison
     def __ge__(self, other: "PatternConfidence") -> bool:
         """Greater than or equal comparison."""
-        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        order = {
+            PatternConfidence.LOW: 0,
+            PatternConfidence.MEDIUM: 1,
+            PatternConfidence.HIGH: 2,
+        }
         return order[self] >= order[other]
 
     def __gt__(self, other: "PatternConfidence") -> bool:
         """Greater than comparison."""
-        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        order = {
+            PatternConfidence.LOW: 0,
+            PatternConfidence.MEDIUM: 1,
+            PatternConfidence.HIGH: 2,
+        }
         return order[self] > order[other]
 
     def __le__(self, other: "PatternConfidence") -> bool:
         """Less than or equal comparison."""
-        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        order = {
+            PatternConfidence.LOW: 0,
+            PatternConfidence.MEDIUM: 1,
+            PatternConfidence.HIGH: 2,
+        }
         return order[self] <= order[other]
 
     def __lt__(self, other: "PatternConfidence") -> bool:
         """Less than comparison."""
-        order = {PatternConfidence.LOW: 0, PatternConfidence.MEDIUM: 1, PatternConfidence.HIGH: 2}
+        order = {
+            PatternConfidence.LOW: 0,
+            PatternConfidence.MEDIUM: 1,
+            PatternConfidence.HIGH: 2,
+        }
         return order[self] < order[other]
 
 
@@ -325,9 +341,13 @@ class LearnedStrategy:
             "confidence": self.confidence.value,
             "first_learned": self.first_learned.isoformat(),
             "last_successful_use": (
-                self.last_successful_use.isoformat() if self.last_successful_use else None
+                self.last_successful_use.isoformat()
+                if self.last_successful_use
+                else None
             ),
-            "last_attempt": self.last_attempt.isoformat() if self.last_attempt else None,
+            "last_attempt": self.last_attempt.isoformat()
+            if self.last_attempt
+            else None,
             "effectiveness_score": self.effectiveness_score,
             "metadata": self.metadata,
         }
@@ -425,9 +445,8 @@ class LearnedStrategy:
         # Update average execution time using moving average
         if self.avg_execution_time > 0:
             self.avg_execution_time = (
-                (self.avg_execution_time * (self.total_attempts - 1) + execution_time)
-                / self.total_attempts
-            )
+                self.avg_execution_time * (self.total_attempts - 1) + execution_time
+            ) / self.total_attempts
         else:
             self.avg_execution_time = execution_time
 
@@ -596,9 +615,7 @@ class RecoveryLearner:
                 error_category=metadata.get("error_category", "unknown")
                 if metadata
                 else "unknown",
-                error_signature=metadata.get("error_signature", "")
-                if metadata
-                else "",
+                error_signature=metadata.get("error_signature", "") if metadata else "",
                 features=metadata.get("features", {}) if metadata else {},
             )
 
@@ -707,7 +724,9 @@ class RecoveryLearner:
         }
 
     def get_best_strategy(
-        self, pattern_id: str, min_confidence: PatternConfidence = PatternConfidence.MEDIUM
+        self,
+        pattern_id: str,
+        min_confidence: PatternConfidence = PatternConfidence.MEDIUM,
     ) -> LearnedStrategy | None:
         """Get the best learned strategy for a given pattern.
 
@@ -774,7 +793,9 @@ class RecoveryLearner:
 
         # Count strategies by confidence
         high_confidence = sum(
-            1 for s in self._learned_strategies.values() if s.confidence == PatternConfidence.HIGH
+            1
+            for s in self._learned_strategies.values()
+            if s.confidence == PatternConfidence.HIGH
         )
         medium_confidence = sum(
             1
@@ -782,14 +803,18 @@ class RecoveryLearner:
             if s.confidence == PatternConfidence.MEDIUM
         )
         low_confidence = sum(
-            1 for s in self._learned_strategies.values() if s.confidence == PatternConfidence.LOW
+            1
+            for s in self._learned_strategies.values()
+            if s.confidence == PatternConfidence.LOW
         )
 
         return {
             "total_attempts": total_attempts,
             "successful_attempts": successful_attempts,
             "failed_attempts": failed_attempts,
-            "overall_success_rate": successful_attempts / total_attempts if total_attempts > 0 else 0.0,
+            "overall_success_rate": successful_attempts / total_attempts
+            if total_attempts > 0
+            else 0.0,
             "total_patterns": total_patterns,
             "total_learned_strategies": total_strategies,
             "strategies_by_confidence": {
@@ -834,7 +859,9 @@ class RecoveryLearner:
         """
         # Input validation
         if not 0.0 <= success_rate <= 1.0:
-            raise ValueError(f"success_rate must be between 0.0 and 1.0, got {success_rate}")
+            raise ValueError(
+                f"success_rate must be between 0.0 and 1.0, got {success_rate}"
+            )
         if sample_size < 0:
             raise ValueError(f"sample_size must be non-negative, got {sample_size}")
 
@@ -945,7 +972,9 @@ class RecoveryLearner:
                     related_strategies=p.get("related_strategies", []),
                     success_count=p.get("success_count", 0),
                     failure_count=p.get("failure_count", 0),
-                    confidence=PatternConfidence(p.get("confidence", PatternConfidence.LOW.value)),
+                    confidence=PatternConfidence(
+                        p.get("confidence", PatternConfidence.LOW.value)
+                    ),
                     metadata=p.get("metadata", {}),
                 )
                 for pattern_id, p in patterns_data.items()
@@ -1002,13 +1031,17 @@ class RecoveryLearner:
         # Write to file with atomic update
         temp_path = self.learning_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(learning_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(learning_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(self.learning_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write learning data to {self.learning_path}: {e}") from e
+            raise IOError(
+                f"Failed to write learning data to {self.learning_path}: {e}"
+            ) from e
 
     def extract_pattern(
         self,
@@ -1185,7 +1218,7 @@ class RecoveryLearner:
         normalized = re.sub(r"\s+", " ", normalized)
 
         # Remove specific values (numbers, quotes)
-        normalized = re.sub(r'\b\d+\b', "<num>", normalized)
+        normalized = re.sub(r"\b\d+\b", "<num>", normalized)
         normalized = re.sub(r'["\'].*?["\']', "<value>", normalized)
 
         # Remove common filler words
@@ -1264,7 +1297,9 @@ class RecoveryLearner:
         error_message = context.get("error_message", "")
         if error_message:
             features["error_message_length"] = len(error_message)
-            features["error_has_file_path"] = "/" in error_message or "\\" in error_message
+            features["error_has_file_path"] = (
+                "/" in error_message or "\\" in error_message
+            )
             features["error_has_line_number"] = bool(re.search(r":\d+", error_message))
 
         # Add description features
@@ -1343,11 +1378,17 @@ class RecoveryLearner:
         ]
 
         if best_strategy.effectiveness_score > 0.8:
-            rationale_parts.append("High effectiveness score indicates this strategy is reliable.")
+            rationale_parts.append(
+                "High effectiveness score indicates this strategy is reliable."
+            )
         elif best_strategy.effectiveness_score > 0.6:
-            rationale_parts.append("Moderate effectiveness score suggests this strategy is reasonably effective.")
+            rationale_parts.append(
+                "Moderate effectiveness score suggests this strategy is reasonably effective."
+            )
         else:
-            rationale_parts.append("Lower effectiveness score suggests this strategy may require monitoring.")
+            rationale_parts.append(
+                "Lower effectiveness score suggests this strategy may require monitoring."
+            )
 
         if best_strategy.avg_execution_time > 0:
             rationale_parts.append(

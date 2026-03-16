@@ -109,7 +109,9 @@ def _create_conflict_fix_task(
             "total_conflicts": total_conflicts,
             "conflicted_files": conflicted_files,
             "file_details": conflict_context.get("file_details", {}),
-            "suggested_approach": conflict_context.get("suggested_approach", "standard_manual"),
+            "suggested_approach": conflict_context.get(
+                "suggested_approach", "standard_manual"
+            ),
         },
         "actions": [
             {
@@ -300,7 +302,9 @@ async def refresh_prs(
 
                                 # Extract conflict context for fix task
                                 try:
-                                    conflict_context = resolver.extract_conflict_context()
+                                    conflict_context = (
+                                        resolver.extract_conflict_context()
+                                    )
                                     task_id = _generate_conflict_task_id(pr_number)
                                     task = _create_conflict_fix_task(
                                         pr_number=pr_number,
@@ -311,7 +315,9 @@ async def refresh_prs(
                                     )
 
                                     # Save fix task
-                                    state = StateManager(state_dir or Path(config.state_dir))
+                                    state = StateManager(
+                                        state_dir or Path(config.state_dir)
+                                    )
                                     state.save_task(task_id, task)
                                     fix_tasks_created += 1
 
@@ -361,7 +367,9 @@ async def refresh_prs(
                                 )
 
                                 # Save fix task
-                                state = StateManager(state_dir or Path(config.state_dir))
+                                state = StateManager(
+                                    state_dir or Path(config.state_dir)
+                                )
                                 state.save_task(task_id, task)
                                 fix_tasks_created += 1
 

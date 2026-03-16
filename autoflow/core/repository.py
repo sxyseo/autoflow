@@ -120,9 +120,7 @@ class RepositoryDependency(BaseModel):
     """Additional metadata about the dependency."""
 
     def is_satisfied_by(
-        self,
-        target_repo: Repository,
-        target_branch: Optional[str] = None
+        self, target_repo: Repository, target_branch: Optional[str] = None
     ) -> bool:
         """
         Check if a target repository and branch satisfies this dependency.
@@ -491,9 +489,7 @@ class RepositoryManager:
 
         # Check if repository path exists
         if not repo_path.exists():
-            errors.append(
-                f"Repository '{repo_id}' path does not exist: {repo_path}"
-            )
+            errors.append(f"Repository '{repo_id}' path does not exist: {repo_path}")
             return errors
 
         if not repo_path.is_dir():
@@ -556,18 +552,15 @@ class RepositoryManager:
             )
         except subprocess.TimeoutExpired:
             errors.append(
-                f"Repository '{repo_id}' is not accessible: "
-                f"git command timed out"
+                f"Repository '{repo_id}' is not accessible: git command timed out"
             )
         except PermissionError:
             errors.append(
-                f"Repository '{repo_id}' is not accessible: "
-                f"permission denied"
+                f"Repository '{repo_id}' is not accessible: permission denied"
             )
         except Exception as e:
             errors.append(
-                f"Repository '{repo_id}' is not accessible: "
-                f"{type(e).__name__}: {e}"
+                f"Repository '{repo_id}' is not accessible: {type(e).__name__}: {e}"
             )
 
         return errors
@@ -677,7 +670,10 @@ class RepositoryManager:
                     continue
                 if target_repo_id and dep.get("target_repo_id") != target_repo_id:
                     continue
-                if dependency_type and dep.get("dependency_type") != dependency_type.value:
+                if (
+                    dependency_type
+                    and dep.get("dependency_type") != dependency_type.value
+                ):
                     continue
                 dependencies.append(dep)
             except (json.JSONDecodeError, KeyError):
@@ -726,10 +722,13 @@ class RepositoryManager:
                 "total": len(list(self.repositories_dir.glob("*.json")))
                 if self.repositories_dir.exists()
                 else 0,
-                "enabled": len([
-                    f for f in self.repositories_dir.glob("*.json")
-                    if self.state.read_json(f, default={}).get("enabled", True)
-                ])
+                "enabled": len(
+                    [
+                        f
+                        for f in self.repositories_dir.glob("*.json")
+                        if self.state.read_json(f, default={}).get("enabled", True)
+                    ]
+                )
                 if self.repositories_dir.exists()
                 else 0,
             },

@@ -208,7 +208,9 @@ class IssueConverter(BaseModel):
         # Build description with source link if enabled
         description = issue.description or ""
         if self.add_source_links and issue.source_url:
-            source_link = f"\n\n---\n\n**Source:** [{issue.source.name}]({issue.source_url})"
+            source_link = (
+                f"\n\n---\n\n**Source:** [{issue.source.name}]({issue.source_url})"
+            )
             if source_link not in description:
                 description = description + source_link
 

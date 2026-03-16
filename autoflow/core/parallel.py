@@ -125,9 +125,7 @@ class ParallelTaskResult:
         self.output = output
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 @dataclass
@@ -178,9 +176,7 @@ class ParallelExecutionResult:
         self.success = success
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
         # Aggregate task results
         self._aggregate_results()
@@ -213,12 +209,14 @@ class ParallelExecutionResult:
                 all_errors.append(f"[{task_id}] {result.error}")
 
         # Store aggregated data in metadata
-        self.metadata.update({
-            "all_outputs": all_outputs,
-            "all_errors": all_errors,
-            "output_summary": self._create_output_summary(),
-            "error_summary": self._create_error_summary(),
-        })
+        self.metadata.update(
+            {
+                "all_outputs": all_outputs,
+                "all_errors": all_errors,
+                "output_summary": self._create_output_summary(),
+                "error_summary": self._create_error_summary(),
+            }
+        )
 
     def _create_output_summary(self) -> str:
         """
@@ -603,7 +601,7 @@ class ParallelCoordinator:
         self._current_group = task_group
 
         # Save initial state
-        self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
+        self.state.save_parallel_group(group_id, task_group.model_dump(mode="json"))
 
         self._stats.total_groups += 1
         self._stats.total_tasks += len(tasks)
@@ -652,7 +650,7 @@ class ParallelCoordinator:
 
         finally:
             # Save final state
-            self.state.save_parallel_group(group_id, task_group.model_dump(mode='json'))
+            self.state.save_parallel_group(group_id, task_group.model_dump(mode="json"))
             self._current_group = None
             self._status = CoordinatorStatus.IDLE
             self._update_average_group_duration(result.duration_seconds or 0)
@@ -806,8 +804,8 @@ class ParallelCoordinator:
         total = self._stats.total_groups
         current_avg = self._stats.average_group_duration
         self._stats.average_group_duration = (
-            (current_avg * (total - 1) + duration) / total
-        )
+            current_avg * (total - 1) + duration
+        ) / total
 
     def get_stats_summary(self) -> dict[str, Any]:
         """
@@ -843,7 +841,9 @@ class ParallelCoordinator:
             "max_parallel": self._stats.max_parallel,
             "active_tasks": self._stats.active_tasks,
             "available_slots": self._stats.max_parallel - self._stats.active_tasks,
-            "last_execution_at": self._stats.last_execution_at.isoformat() if self._stats.last_execution_at else None,
+            "last_execution_at": self._stats.last_execution_at.isoformat()
+            if self._stats.last_execution_at
+            else None,
             "started_at": self._stats.started_at.isoformat(),
         }
 

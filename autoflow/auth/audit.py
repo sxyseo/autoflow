@@ -255,9 +255,7 @@ class AuditLogger:
         date_str = date.strftime("%Y-%m-%d")
         return self.logs_dir / f"{date_str}.jsonl"
 
-    def _write_log_atomically(
-        self, file_path: Path, log_entry: dict[str, Any]
-    ) -> None:
+    def _write_log_atomically(self, file_path: Path, log_entry: dict[str, Any]) -> None:
         """
         Write a log entry atomically to a file.
 
@@ -406,27 +404,48 @@ class AuditLogger:
                             try:
                                 log_data = json.loads(line.strip())
                                 # Apply filters
-                                if event_type and log_data.get("event_type") != event_type.value:
+                                if (
+                                    event_type
+                                    and log_data.get("event_type") != event_type.value
+                                ):
                                     continue
                                 if user_id and log_data.get("user_id") != user_id:
                                     continue
-                                if resource_type and log_data.get("resource_type") != resource_type:
+                                if (
+                                    resource_type
+                                    and log_data.get("resource_type") != resource_type
+                                ):
                                     continue
-                                if resource_id and log_data.get("resource_id") != resource_id:
+                                if (
+                                    resource_id
+                                    and log_data.get("resource_id") != resource_id
+                                ):
                                     continue
-                                if severity and log_data.get("severity") != severity.value:
+                                if (
+                                    severity
+                                    and log_data.get("severity") != severity.value
+                                ):
                                     continue
                                 if status and log_data.get("status") != status:
                                     continue
 
                                 # Parse timestamp for additional filtering
-                                log_timestamp = datetime.fromisoformat(log_data["timestamp"])
-                                if log_timestamp < start_date or log_timestamp > end_date:
+                                log_timestamp = datetime.fromisoformat(
+                                    log_data["timestamp"]
+                                )
+                                if (
+                                    log_timestamp < start_date
+                                    or log_timestamp > end_date
+                                ):
                                     continue
 
                                 # Convert to AuditLog model
-                                log_data["event_type"] = AuditEvent(log_data["event_type"])
-                                log_data["severity"] = AuditSeverity(log_data["severity"])
+                                log_data["event_type"] = AuditEvent(
+                                    log_data["event_type"]
+                                )
+                                log_data["severity"] = AuditSeverity(
+                                    log_data["severity"]
+                                )
                                 log = AuditLog(**log_data)
                                 matching_logs.append(log)
 
@@ -548,10 +567,14 @@ class AuditLogger:
                             total_events += 1
 
                             event_type = log_data.get("event_type", "unknown")
-                            events_by_type[event_type] = events_by_type.get(event_type, 0) + 1
+                            events_by_type[event_type] = (
+                                events_by_type.get(event_type, 0) + 1
+                            )
 
                             severity = log_data.get("severity", "info")
-                            events_by_severity[severity] = events_by_severity.get(severity, 0) + 1
+                            events_by_severity[severity] = (
+                                events_by_severity.get(severity, 0) + 1
+                            )
 
                             timestamp = datetime.fromisoformat(log_data["timestamp"])
                             if oldest_date is None or timestamp < oldest_date:
@@ -853,9 +876,7 @@ def track_permission_check(
         AuditLog(event_type=<AuditEvent.PERMISSION_GRANTED: 'permission_granted'>, ...)
     """
     event_type = (
-        AuditEvent.PERMISSION_GRANTED
-        if granted
-        else AuditEvent.PERMISSION_DENIED
+        AuditEvent.PERMISSION_GRANTED if granted else AuditEvent.PERMISSION_DENIED
     )
     severity = AuditSeverity.INFO if granted else AuditSeverity.WARNING
 

@@ -91,9 +91,7 @@ class BMADManager:
         self.handoffs_dir = self.root / ".autoflow" / "bmad" / "handoffs"
         self.handoffs_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_checkpoints_from_config(
-        self, config_path: Path | str
-    ) -> list[Any]:
+    def load_checkpoints_from_config(self, config_path: Path | str) -> list[Any]:
         """Load checkpoints from a JSON configuration file.
 
         Reads a JSON config file containing checkpoint definitions and

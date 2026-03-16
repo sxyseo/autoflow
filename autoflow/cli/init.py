@@ -47,11 +47,13 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo(f"State directory already exists: {state_manager.state_dir}")
             click.echo("Use --force to re-initialize.")
         else:
-            _print_json({
-                "status": "exists",
-                "state_dir": str(state_manager.state_dir),
-                "message": "State directory already exists. Use --force to re-initialize.",
-            })
+            _print_json(
+                {
+                    "status": "exists",
+                    "state_dir": str(state_manager.state_dir),
+                    "message": "State directory already exists. Use --force to re-initialize.",
+                }
+            )
         ctx.exit(1)
 
     try:
@@ -68,17 +70,19 @@ def init(ctx: click.Context, force: bool) -> None:
             click.echo("    memory/   - Persistent memory")
             click.echo("    backups/  - Backup files")
         else:
-            _print_json({
-                "status": "initialized",
-                "state_dir": str(state_manager.state_dir),
-                "directories": [
-                    str(state_manager.specs_dir),
-                    str(state_manager.tasks_dir),
-                    str(state_manager.runs_dir),
-                    str(state_manager.memory_dir),
-                    str(state_manager.backup_dir),
-                ],
-            })
+            _print_json(
+                {
+                    "status": "initialized",
+                    "state_dir": str(state_manager.state_dir),
+                    "directories": [
+                        str(state_manager.specs_dir),
+                        str(state_manager.tasks_dir),
+                        str(state_manager.runs_dir),
+                        str(state_manager.memory_dir),
+                        str(state_manager.backup_dir),
+                    ],
+                }
+            )
     except Exception as e:
         click.echo(f"Error initializing: {e}", err=True)
         ctx.exit(1)

@@ -297,9 +297,7 @@ class ArtifactCollection:
         Returns:
             ArtifactCollection instance.
         """
-        artifacts = [
-            ArtifactSpec.from_dict(a) for a in data.get("artifacts", [])
-        ]
+        artifacts = [ArtifactSpec.from_dict(a) for a in data.get("artifacts", [])]
         return cls(
             artifacts=artifacts,
             name=data.get("name", ""),

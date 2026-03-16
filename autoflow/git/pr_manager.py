@@ -208,7 +208,9 @@ class PRManager:
         self.git_ops = create_git_operations(str(self.repo_path))
         self.state = StateManager(state_dir or ".autoflow")
         self.state.initialize()
-        self.refresh_frequency = refresh_frequency if refresh_frequency is not None else 300
+        self.refresh_frequency = (
+            refresh_frequency if refresh_frequency is not None else 300
+        )
 
     def track_pr(self, pr_state: PRState) -> None:
         """
@@ -312,7 +314,10 @@ class PRManager:
                     # Apply filters
                     if status and pr_state.status != status:
                         continue
-                    if needs_refresh is not None and pr_state.needs_refresh != needs_refresh:
+                    if (
+                        needs_refresh is not None
+                        and pr_state.needs_refresh != needs_refresh
+                    ):
                         continue
                     result.append(pr_state)
 

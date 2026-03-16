@@ -26,6 +26,7 @@ class PermissionConfig:
         workspace_inheritance: Whether workspace roles inherit from team roles
         require_explicit: Whether to require explicit role assignments
     """
+
     default_allow: bool = False
     respect_expiry: bool = True
     workspace_inheritance: bool = True
@@ -37,17 +38,17 @@ class PermissionConfig:
             "default_allow": self.default_allow,
             "respect_expiry": self.respect_expiry,
             "workspace_inheritance": self.workspace_inheritance,
-            "require_explicit": self.require_explicit
+            "require_explicit": self.require_explicit,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'PermissionConfig':
+    def from_dict(cls, data: dict) -> "PermissionConfig":
         """Create config from dictionary."""
         return cls(
             default_allow=data.get("default_allow", False),
             respect_expiry=data.get("respect_expiry", True),
             workspace_inheritance=data.get("workspace_inheritance", True),
-            require_explicit=data.get("require_explicit", False)
+            require_explicit=data.get("require_explicit", False),
         )
 
 
@@ -119,10 +120,7 @@ class PermissionManager:
         },
     }
 
-    def __init__(
-        self,
-        config: Optional[PermissionConfig] = None
-    ):
+    def __init__(self, config: Optional[PermissionConfig] = None):
         """
         Initialize permission manager.
 
@@ -136,7 +134,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> List[Role]:
         """
         Get user's roles in a specific context.
@@ -169,9 +167,7 @@ class PermissionManager:
         return matching_roles
 
     def _get_effective_role_type(
-        self,
-        user_roles: List[Role],
-        workspace_id: Optional[str] = None
+        self, user_roles: List[Role], workspace_id: Optional[str] = None
     ) -> Optional[RoleType]:
         """
         Get the effective role type for a user.
@@ -228,7 +224,7 @@ class PermissionManager:
             RoleType.ADMIN,
             RoleType.MEMBER,
             RoleType.REVIEWER,
-            RoleType.VIEWER
+            RoleType.VIEWER,
         ]
 
         for role_type in priority_order:
@@ -245,7 +241,7 @@ class PermissionManager:
         permission: Permission,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user has a specific permission.
@@ -262,16 +258,12 @@ class PermissionManager:
         """
         # Get user's roles in context
         user_roles = self._get_user_roles(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            team_id=team_id,
-            roles=roles
+            user_id=user_id, workspace_id=workspace_id, team_id=team_id, roles=roles
         )
 
         # Get effective role type
         role_type = self._get_effective_role_type(
-            user_roles=user_roles,
-            workspace_id=workspace_id
+            user_roles=user_roles, workspace_id=workspace_id
         )
 
         # No role found
@@ -287,7 +279,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can dispatch tasks.
@@ -306,7 +298,7 @@ class PermissionManager:
             permission=Permission.DISPATCH_TASK,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def can_review(
@@ -314,7 +306,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can review tasks.
@@ -333,7 +325,7 @@ class PermissionManager:
             permission=Permission.REVIEW_TASK,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def can_modify_spec(
@@ -341,7 +333,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can modify specs.
@@ -360,7 +352,7 @@ class PermissionManager:
             permission=Permission.MODIFY_SPEC,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def can_approve(
@@ -368,7 +360,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can approve tasks.
@@ -387,7 +379,7 @@ class PermissionManager:
             permission=Permission.APPROVE_TASK,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def can_manage_members(
@@ -395,7 +387,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can manage team/workspace members.
@@ -414,7 +406,7 @@ class PermissionManager:
             permission=Permission.MANAGE_MEMBERS,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def can_delete_workspace(
@@ -422,7 +414,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> bool:
         """
         Check if user can delete workspace.
@@ -441,7 +433,7 @@ class PermissionManager:
             permission=Permission.DELETE_WORKSPACE,
             workspace_id=workspace_id,
             team_id=team_id,
-            roles=roles
+            roles=roles,
         )
 
     def get_user_permissions(
@@ -449,7 +441,7 @@ class PermissionManager:
         user_id: str,
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> Set[Permission]:
         """
         Get all permissions for a user in a specific context.
@@ -465,16 +457,12 @@ class PermissionManager:
         """
         # Get user's roles in context
         user_roles = self._get_user_roles(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            team_id=team_id,
-            roles=roles
+            user_id=user_id, workspace_id=workspace_id, team_id=team_id, roles=roles
         )
 
         # Get effective role type
         role_type = self._get_effective_role_type(
-            user_roles=user_roles,
-            workspace_id=workspace_id
+            user_roles=user_roles, workspace_id=workspace_id
         )
 
         # No role found
@@ -490,7 +478,7 @@ class PermissionManager:
         required_permissions: List[Permission],
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        roles: Optional[List[Role]] = None
+        roles: Optional[List[Role]] = None,
     ) -> tuple[bool, List[Permission]]:
         """
         Check if user has all required permissions.
@@ -506,15 +494,11 @@ class PermissionManager:
             Tuple of (has_all, missing_permissions)
         """
         user_permissions = self.get_user_permissions(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            team_id=team_id,
-            roles=roles
+            user_id=user_id, workspace_id=workspace_id, team_id=team_id, roles=roles
         )
 
         missing = [
-            perm for perm in required_permissions
-            if perm not in user_permissions
+            perm for perm in required_permissions if perm not in user_permissions
         ]
 
         return len(missing) == 0, missing
