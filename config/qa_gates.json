@@ -70,6 +70,7 @@
       "test_failure",
       "coverage_gap",
       "code_quality",
+      "duplication",
       "security",
       "performance",
       "style"
