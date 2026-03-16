@@ -109,14 +109,18 @@ class ReviewState(TypedDict, total=False):
     """
     Represents review state for a spec.
 
-    Tracks which implementations have been approved and provides
-    structured review data for QA gating.
+    Tracks review validity, approvals, and feedback for spec reviews.
+    Invalidated when spec artifacts change, requiring re-review.
     """
 
-    approved_hashes: list[ReviewApproval]
-    last_review_run: str
-    review_summary: str
-    needs_review: bool
+    valid: bool
+    invalidated_at: str
+    invalidated_reason: str
+    spec_hash: str
+    feedback: list[dict[str, Any]]
+    feedback_count: int
+    spec_changed: bool
+    task_approvals: dict[str, str]
 
 
 # === Strategy Memory Types ===

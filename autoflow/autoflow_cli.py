@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
-from autoflow.core.types import TaskData, TasksFile
+from autoflow.core.types import ReviewState, TaskData, TasksFile
 
 
 class TaskStatus(StrEnum):
@@ -552,7 +552,7 @@ class AutoflowCLI:
 
     # === Review State Operations ===
 
-    def load_review_state(self, spec_slug: str) -> dict[str, Any]:
+    def load_review_state(self, spec_slug: str) -> ReviewState:
         """
         Load review state for a spec.
 
@@ -567,7 +567,7 @@ class AutoflowCLI:
             files["review_state"], self.review_state_default()
         )
 
-    def save_review_state(self, spec_slug: str, state: dict[str, Any]) -> None:
+    def save_review_state(self, spec_slug: str, state: ReviewState) -> None:
         """
         Save review state for a spec.
 
@@ -578,7 +578,7 @@ class AutoflowCLI:
         files = self.spec_files(spec_slug)
         self.write_json(files["review_state"], state)
 
-    def review_state_default(self) -> dict[str, Any]:
+    def review_state_default(self) -> ReviewState:
         """
         Get default review state structure.
 
@@ -592,11 +592,13 @@ class AutoflowCLI:
             "spec_hash": "",
             "feedback": [],
             "feedback_count": 0,
+            "spec_changed": False,
+            "task_approvals": {},
         }
 
     def sync_review_state(
         self, spec_slug: str, reason: str = "planning_artifacts_changed"
-    ) -> dict[str, Any]:
+    ) -> ReviewState:
         """
         Sync review state, marking as invalidated if spec changed.
 
