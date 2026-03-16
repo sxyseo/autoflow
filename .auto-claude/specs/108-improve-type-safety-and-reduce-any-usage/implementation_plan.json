@@ -190,7 +190,9 @@
             "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.load_tasks); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
             "expected": "Return type: autoflow.core.types.TasksFile"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Updated load_tasks() and task_lookup() methods in autoflow/autoflow_cli.py to use TasksFile and TaskData types. Added import of TasksFile and TaskData from autoflow.core.types. Changed load_tasks return type to TasksFile, task_lookup parameter type to TasksFile and return type to TaskData. Also updated save_tasks parameter type to TasksFile. Verification passed - all type annotations are correct.",
+          "updated_at": "2026-03-16T05:15:00.000000+00:00"
         },
         {
           "id": "subtask-3-2",
@@ -208,7 +210,9 @@
             "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.review_state_default); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
             "expected": "Return type: autoflow.core.types.ReviewState"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Updated review_state_default(), sync_review_state(), load_review_state(), and save_review_state() methods in autoflow/autoflow_cli.py to use ReviewState type. Also updated ReviewState TypedDict in autoflow/core/types.py to match actual usage with fields: valid, invalidated_at, invalidated_reason, spec_hash, feedback, feedback_count, spec_changed, task_approvals. All type annotations verified - methods now return ReviewState instead of dict[str, Any].",
+          "updated_at": "2026-03-16T03:49:18.992716+00:00"
         },
         {
           "id": "subtask-3-3",
@@ -226,7 +230,9 @@
             "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.strategy_memory_default); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
             "expected": "Return type: autoflow.core.types.StrategyMemory"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Updated StrategyMemory TypedDict in autoflow/core/types.py to match actual usage with fields: reflections, playbook, counters, stats, updated_at. Added supporting types StrategyMemoryCounters and StrategyMemoryStats. Updated AutoflowCLI methods: strategy_memory_default() returns StrategyMemory, load_strategy_memory() returns StrategyMemory, save_strategy_memory() accepts StrategyMemory parameter. Imported StrategyMemory from autoflow.core.types. Verification passed - method returns proper StrategyMemory type instead of dict[str, Any].",
+          "updated_at": "2026-03-16T05:30:00.000000+00:00"
         }
       ]
     },
@@ -576,6 +582,6 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-16T03:43:33.566Z",
+  "updated_at": "2026-03-16T03:52:08.342Z",
   "last_updated": "2026-03-16T03:36:35.222440+00:00"
 }
