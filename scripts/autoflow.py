@@ -141,6 +141,8 @@ from scripts.cli import worktree
 from scripts.cli import memory
 # Import review CLI module
 from scripts.cli import review
+# Import agent CLI module
+from scripts.cli import agent
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -4141,19 +4143,11 @@ def build_parser() -> argparse.ArgumentParser:
     system_cmd = sub.add_parser("show-system-config", help="show system memory/model/tool config")
     system_cmd.set_defaults(func=show_system_config)
 
-    discover_cmd = sub.add_parser("discover-agents", help="probe local agents and merge ACP registry entries")
-    discover_cmd.set_defaults(func=discover_agents_cmd)
-
-    sync_cmd = sub.add_parser("sync-agents", help="merge discovered CLI/ACP agents into .autoflow/agents.json")
-    sync_cmd.add_argument("--overwrite", action="store_true")
-    sync_cmd.set_defaults(func=sync_agents_cmd)
+    # Agent commands
+    agent.add_subparser(sub)
 
     validate_cmd = sub.add_parser("validate-config", help="validate Autoflow system and agent config files")
     validate_cmd.set_defaults(func=validate_config_cmd)
-
-    test_agent = sub.add_parser("test-agent", help="test whether a configured or named agent is actually runnable")
-    test_agent.add_argument("--agent", required=True)
-    test_agent.set_defaults(func=test_agent_cmd)
 
     # Memory commands
     memory.add_subparser(sub)
