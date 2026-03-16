@@ -20,6 +20,20 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+# Import QA findings types for adapter
+try:
+    from autoflow.review.qa_findings import QAFinding, QAFindingReport, SeverityLevel
+except ImportError:
+    # If qa_findings module is not available, define stubs
+    class SeverityLevel:
+        CRITICAL = "critical"
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    QAFinding = None  # type: ignore
+    QAFindingReport = None  # type: ignore
+
 
 @dataclass
 class DuplicationThreshold:
@@ -203,6 +217,71 @@ class DuplicationFinding:
         dup_location = f"{self.duplicated_in}:{self.duplicated_line_start}-{self.duplicated_line_end}"
         return f"[{self.category}] {location} ~ {dup_location} ({self.similarity:.1%} similar)"
 
+    def to_qa_finding(self) -> "QAFinding | None":
+        """
+        Convert duplication finding to QA finding format.
+
+        Maps duplication detection results to the QA findings system
+        for unified issue tracking and reporting.
+
+        Returns:
+            QAFinding instance, or None if QAFinding class is not available
+
+        Example:
+            >>> finding = DuplicationFinding(
+            ...     file="src/module.py",
+            ...     line_start=10,
+            ...     line_end=20,
+            ...     similarity=0.85,
+            ...     duplicated_in="src/other.py",
+            ...     duplicated_line_start=30,
+            ...     duplicated_line_end=40,
+            ...     snippet="def example():\\n    pass",
+            ...     category="structural"
+            ... )
+            >>> qa_finding = finding.to_qa_finding()
+            >>> qa_finding.message
+            'Code duplication detected (85.0% similar) with src/other.py:30-40'
+        """
+        if QAFinding is None:
+            return None
+
+        # Map similarity to severity level
+        # Higher similarity = higher severity
+        if self.similarity >= 0.9:
+            severity = SeverityLevel.CRITICAL
+        elif self.similarity >= 0.8:
+            severity = SeverityLevel.HIGH
+        elif self.similarity >= 0.7:
+            severity = SeverityLevel.MEDIUM
+        else:
+            severity = SeverityLevel.LOW
+
+        # Create descriptive message
+        dup_location = f"{self.duplicated_in}:{self.duplicated_line_start}-{self.duplicated_line_end}"
+        message = (
+            f"Code duplication detected ({self.similarity:.1%} similar) "
+            f"with {dup_location}"
+        )
+
+        # Generate suggested fix
+        suggested_fix = (
+            f"Extract duplicated code to a shared function or module. "
+            f"The code in {self.file}:{self.line_start}-{self.line_end} is "
+            f"{self.similarity:.1%} similar to {dup_location}."
+        )
+
+        return QAFinding(
+            file=self.file,
+            line=self.line_start,
+            severity=severity,
+            message=message,
+            category=f"duplication-{self.category}",
+            suggested_fix=suggested_fix,
+            context=self.snippet,
+            rule_id="duplication-detector",
+        )
+
 
 @dataclass
 class DuplicationReport:
@@ -337,6 +416,40 @@ class DuplicationReport:
             files.add(finding.file)
             files.add(finding.duplicated_in)
         return sorted(files)
+
+    def to_qa_report(self) -> "QAFindingReport | None":
+        """
+        Convert duplication report to QA findings report format.
+
+        Converts all duplication findings to QA findings format
+        for unified issue tracking and reporting.
+
+        Returns:
+            QAFindingReport instance, or None if QAFindingReport class is not available
+
+        Example:
+            >>> report = DuplicationReport()
+            >>> report.findings.append(duplication_finding)
+            >>> qa_report = report.to_qa_report()
+            >>> qa_report.source
+            'duplication-detection'
+        """
+        if QAFindingReport is None:
+            return None
+
+        # Convert all findings to QA format
+        qa_findings = []
+        for finding in self.findings:
+            qa_finding = finding.to_qa_finding()
+            if qa_finding is not None:
+                qa_findings.append(qa_finding)
+
+        # Create QA report
+        return QAFindingReport(
+            findings=qa_findings,
+            timestamp=self.timestamp,
+            source="duplication-detection",
+        )
 
 
 class DuplicationDetector:
