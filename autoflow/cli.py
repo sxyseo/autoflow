@@ -29,25 +29,8 @@ from typing import Any, Optional
 import click
 
 from autoflow import __version__
-from autoflow.analytics.cli import analytics
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
-from autoflow.skills.builder import SkillBuilder, BuilderConfig, SkillBuilderError
-from autoflow.skills.validation import SkillValidator, ValidationResult
-from autoflow.skills.templates import TemplateLoader, TemplateCategory
-from autoflow.skills.sharing import (
-    SkillPackager,
-    SkillImporter,
-    SkillPackage,
-    PackageFormat,
-    ImportConflictResolution,
-    PackageError,
-)
-from autoflow.collaboration.team import TeamManager
-from autoflow.collaboration.workspace import WorkspaceManager
-from autoflow.collaboration.models import RoleType
-from autoflow.collaboration.activity import ActivityTracker
-from autoflow.collaboration.notifications import NotificationManager
 
 
 # Click context settings
@@ -62,28 +45,6 @@ def _get_state_manager(config: Optional[Config] = None) -> StateManager:
     """Get a StateManager instance."""
     state_dir = get_state_dir(config)
     return StateManager(state_dir)
-
-
-def _get_state_manager_from_ctx(ctx: click.Context) -> StateManager:
-    """Get a StateManager instance from click context.
-
-    This function respects the --state-dir CLI option if provided,
-    otherwise falls back to the config's state_dir setting.
-
-    Args:
-        ctx: Click context object
-
-    Returns:
-        StateManager instance with appropriate state directory
-    """
-    # Check if state_dir was explicitly provided via CLI option
-    state_dir_option = ctx.obj.get("state_dir")
-    if state_dir_option:
-        return StateManager(Path(state_dir_option))
-
-    # Otherwise use config's state_dir
-    config: Config = ctx.obj["config"]
-    return _get_state_manager(config)
 
 
 def _print_json(data: Any, indent: int = 2) -> None:
@@ -110,50 +71,6 @@ def _format_datetime(dt: Optional[datetime]) -> str:
     if dt is None:
         return "N/A"
     return dt.strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _load_all_tasks_from_specs(config: Optional[Config] = None) -> list[dict[str, Any]]:
-    """
-    Load all tasks from all spec task files.
-
-    Scans .autoflow/tasks/ directory and loads tasks from each spec's task file.
-    Each spec's tasks are stored in .autoflow/tasks/{spec_slug}.json
-
-    Args:
-        config: Optional config object
-
-    Returns:
-        List of all tasks with added 'spec' field indicating source spec
-    """
-    state_dir = get_state_dir(config)
-    tasks_dir = state_dir / "tasks"
-
-    all_tasks = []
-
-    if not tasks_dir.exists():
-        return all_tasks
-
-    for task_file in tasks_dir.glob("*.json"):
-        try:
-            with open(task_file, encoding="utf-8") as f:
-                data = json.load(f)
-
-            # Extract spec slug from filename
-            spec_slug = task_file.stem
-
-            # Add tasks with spec information
-            for task in data.get("tasks", []):
-                task_with_spec = task.copy()
-                task_with_spec["spec"] = spec_slug
-                all_tasks.append(task_with_spec)
-
-        except (json.JSONDecodeError, IOError):
-            # Skip invalid files
-            continue
-
-    # Sort by spec and then by task order
-    all_tasks.sort(key=lambda t: (t.get("spec", ""), t.get("id", "")))
-    return all_tasks
 
 
 @click.group(
@@ -278,7 +195,8 @@ def init(ctx: click.Context, force: bool) -> None:
         .autoflow/runs/     Execution runs
         .autoflow/memory/   Persistent memory
     """
-    state_manager = _get_state_manager_from_ctx(ctx)
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
 
     if state_manager.state_dir.exists() and not force:
         if not ctx.obj["output_json"]:
@@ -725,671 +643,6 @@ def skill_show(ctx: click.Context, name: str, skills_dir: Optional[Path]) -> Non
     ctx.exit(1)
 
 
-@skill.command("create")
-@click.option(
-    "--name",
-    "-n",
-    type=str,
-    default=None,
-    help="Skill name in UPPER_SNAKE_CASE (e.g., MY_CUSTOM_SKILL). If not provided, enters interactive mode.",
-)
-@click.option(
-    "--template",
-    "-t",
-    type=str,
-    default=None,
-    help="Template to use (e.g., planner, implementer, reviewer).",
-)
-@click.option(
-    "--output-dir",
-    "-o",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output directory for the skill.",
-)
-@click.option(
-    "--overwrite",
-    is_flag=True,
-    help="Overwrite existing skill directory.",
-)
-@click.option(
-    "--variable",
-    "-v",
-    type=str,
-    multiple=True,
-    help="Template variables as key=value pairs. Can be used multiple times.",
-)
-@click.pass_context
-def skill_create(
-    ctx: click.Context,
-    name: Optional[str],
-    template: Optional[str],
-    output_dir: Optional[Path],
-    overwrite: bool,
-    variable: tuple[str, ...],
-) -> None:
-    """
-    Create a new custom skill.
-
-    Creates a new skill from a template. Can run interactively or with explicit parameters.
-
-    \b
-    Interactive mode:
-        autoflow skill create
-
-    \b
-    Non-interactive mode:
-        autoflow skill create --name MY_SKILL --template implementer
-        autoflow skill create -n MY_SKILL -t reviewer -o ./skills --overwrite
-
-    \b
-    With template variables:
-        autoflow skill create --name MY_SKILL --template implementer \\
-            --variable description="My custom skill" \\
-            --variable version="1.0.0"
-    """
-    config: Config = ctx.obj["config"]
-
-    # Parse variables
-    variables = {}
-    for var in variable:
-        if "=" not in var:
-            click.echo(f"Error: Invalid variable format '{var}'. Use key=value", err=True)
-            ctx.exit(1)
-        key, value = var.split("=", 1)
-        variables[key] = value
-
-    # Create builder config
-    builder_config = BuilderConfig(
-        output_dir=str(output_dir) if output_dir else "skills",
-        overwrite=overwrite,
-        use_defaults=False,
-    )
-
-    builder = SkillBuilder(config=builder_config)
-
-    try:
-        if name is None:
-            # Interactive mode
-            if ctx.obj["output_json"]:
-                click.echo("Error: JSON output not supported in interactive mode", err=True)
-                ctx.exit(1)
-
-            if variable:
-                click.echo("Warning: --variable options are ignored in interactive mode", err=True)
-
-            skill_path = builder.build_interactive(output_dir=output_dir)
-        else:
-            # Non-interactive mode
-            if template is None:
-                click.echo("Error: --template is required in non-interactive mode", err=True)
-                ctx.exit(1)
-
-            skill_path = builder.build(
-                name=name,
-                template=template,
-                variables=variables,
-                output_dir=output_dir,
-            )
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "name": name,
-                "path": str(skill_path),
-                "template": template,
-            })
-        else:
-            click.echo(f"\n✓ Skill created successfully!")
-            click.echo(f"  Name: {name if name else skill_path.name}")
-            click.echo(f"  Path: {skill_path}")
-            click.echo(f"  Template: {template if template else 'interactive'}")
-            click.echo(f"\nNext steps:")
-            click.echo(f"  1. Review the skill at: {skill_path}/SKILL.md")
-            click.echo(f"  2. Test the skill: autoflow skill run {name if name else skill_path.name}")
-            click.echo(f"  3. Validate: autoflow skill validate {name if name else skill_path.name}")
-
-    except SkillBuilderError as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        if ctx.obj["verbose"]:
-            import traceback
-            traceback.print_exc()
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-
-
-@skill.command("validate")
-@click.argument("name", type=str)
-@click.option(
-    "--skills-dir",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Directory containing skill definitions.",
-)
-@click.option(
-    "--strict",
-    "-s",
-    is_flag=True,
-    help="Treat warnings as errors.",
-)
-@click.pass_context
-def skill_validate(
-    ctx: click.Context,
-    name: str,
-    skills_dir: Optional[Path],
-    strict: bool,
-) -> None:
-    """
-    Validate a skill definition.
-
-    Checks a skill for proper structure, required sections, and formatting issues.
-
-    \b
-    Examples:
-        autoflow skill validate MY_SKILL
-        autoflow skill validate MY_SKILL --strict
-        autoflow skill validate MY_SKILL --skills-dir ./custom-skills
-    """
-    config: Config = ctx.obj["config"]
-
-    # Determine skills directories
-    skill_dirs = []
-    if skills_dir:
-        skill_dirs.append(skills_dir)
-    skill_dirs.extend(config.openclaw.extra_dirs)
-
-    # Find the skill
-    skill_path = None
-    for skill_dir in skill_dirs:
-        potential_path = Path(skill_dir).expanduser() / name / "SKILL.md"
-        if potential_path.exists():
-            skill_path = potential_path
-            break
-
-    if not skill_path:
-        click.echo(f"Error: Skill '{name}' not found.", err=True)
-        click.echo(f"Searched directories: {', '.join(str(d) for d in skill_dirs)}", err=True)
-        ctx.exit(1)
-
-    # Read skill content
-    try:
-        content = skill_path.read_text(encoding="utf-8")
-    except Exception as e:
-        click.echo(f"Error reading skill file: {e}", err=True)
-        ctx.exit(1)
-
-    # Validate the skill
-    validator = SkillValidator()
-
-    # Run both content and structure validation
-    content_result = validator.validate_content(content)
-    structure_result = validator.validate_structure(content)
-
-    # Combine results
-    all_errors = content_result.errors.copy()
-    all_errors.extend(structure_result.errors)
-    all_warnings = content_result.warnings.copy()
-    all_warnings.extend(structure_result.warnings)
-
-    # Determine overall validity
-    is_valid = len(all_errors) == 0 and (not strict or len(all_warnings) == 0)
-
-    if ctx.obj["output_json"]:
-        _print_json({
-            "skill": name,
-            "path": str(skill_path),
-            "valid": is_valid,
-            "errors": [
-                {
-                    "message": e.message,
-                    "severity": e.severity.value,
-                    "section": e.section,
-                    "line": e.line_number,
-                }
-                for e in all_errors
-            ],
-            "warnings": [
-                {
-                    "message": w.message,
-                    "severity": w.severity.value,
-                    "section": w.section,
-                    "line": w.line_number,
-                }
-                for w in all_warnings
-            ],
-            "sections": {
-                "present": content_result.present_sections,
-                "missing": content_result.missing_sections,
-            },
-        })
-        return
-
-    # Human-readable output
-    click.echo(f"Validating skill: {name}")
-    click.echo(f"Path: {skill_path}")
-    click.echo("=" * 60)
-
-    if is_valid and len(all_warnings) == 0:
-        click.echo("\n✓ Skill is valid!\n")
-    elif is_valid and len(all_warnings) > 0:
-        click.echo(f"\n⚠ Skill is valid with {len(all_warnings)} warning(s)\n")
-    else:
-        click.echo(f"\n✗ Skill validation failed\n")
-
-    # Show sections
-    click.echo("Sections:")
-    click.echo(f"  Present: {', '.join(content_result.present_sections) or 'None'}")
-    if content_result.missing_sections:
-        click.echo(f"  Missing: {', '.join(content_result.missing_sections)}")
-    click.echo("")
-
-    # Show errors
-    if all_errors:
-        click.echo(f"Errors ({len(all_errors)}):")
-        for error in all_errors:
-            click.echo(f"  ✗ {error}")
-        click.echo("")
-
-    # Show warnings
-    if all_warnings:
-        click.echo(f"Warnings ({len(all_warnings)}):")
-        for warning in all_warnings:
-            click.echo(f"  ⚠ {warning}")
-        click.echo("")
-
-    # Exit with error code if validation failed
-    if not is_valid:
-        ctx.exit(1)
-
-
-@skill.group()
-def template() -> None:
-    """Manage skill templates."""
-    pass
-
-
-@template.command("list")
-@click.option(
-    "--category",
-    "-c",
-    type=click.Choice([c.value for c in TemplateCategory]),
-    default=None,
-    help="Filter by template category.",
-)
-@click.pass_context
-def skill_template_list(ctx: click.Context, category: Optional[str]) -> None:
-    """
-    List available skill templates.
-
-    Shows all templates available for creating new skills.
-    Can be filtered by category.
-
-    \b
-    Examples:
-        autoflow skill template list
-        autoflow skill template list --category workflow
-        autoflow skill template list -c planning
-    """
-    loader = TemplateLoader()
-
-    # Filter by category if specified
-    category_enum = TemplateCategory(category) if category else None
-    templates = loader.list_templates(category=category_enum)
-
-    if ctx.obj["output_json"]:
-        _print_json({
-            "templates": [
-                {
-                    "name": t.name,
-                    "display_name": t.display_name,
-                    "description": t.description,
-                    "category": t.category.value,
-                    "variables": t.get_required_variables(),
-                }
-                for t in templates
-            ],
-            "count": len(templates),
-        })
-        return
-
-    click.echo("Available Templates")
-    click.echo("=" * 60)
-
-    if not templates:
-        if category:
-            click.echo(f"No templates found in category '{category}'.")
-        else:
-            click.echo("No templates found.")
-        return
-
-    # Group by category
-    categories = {}
-    for template in templates:
-        if template.category not in categories:
-            categories[template.category] = []
-        categories[template.category].append(template)
-
-    # Display by category
-    for cat in sorted(categories.keys(), key=lambda c: c.value):
-        click.echo(f"\n{cat.value.upper()}")
-        for template in categories[cat]:
-            click.echo(f"  {template.name:12} - {template.display_name}")
-            click.echo(f"                {template.description}")
-
-
-@template.command("show")
-@click.argument("name", type=str)
-@click.pass_context
-def skill_template_show(ctx: click.Context, name: str) -> None:
-    """
-    Show details of a specific template.
-
-    Displays the full template definition including variables and content structure.
-
-    \b
-    Examples:
-        autoflow skill template show planner
-        autoflow skill template show implementer
-        autoflow skill template show reviewer
-    """
-    loader = TemplateLoader()
-    template = loader.get_template(name)
-
-    if not template:
-        click.echo(f"Error: Template '{name}' not found.", err=True)
-        click.echo("Run 'autoflow skill template list' to see available templates.", err=True)
-        ctx.exit(1)
-
-    if ctx.obj["output_json"]:
-        _print_json({
-            "name": template.name,
-            "display_name": template.display_name,
-            "description": template.description,
-            "category": template.category.value,
-            "variables": template.get_required_variables(),
-            "content": template.content,
-            "metadata_template": template.metadata_template,
-        })
-        return
-
-    click.echo(f"Template: {template.display_name}")
-    click.echo(f"Name: {template.name}")
-    click.echo(f"Category: {template.category.value}")
-    click.echo("=" * 60)
-    click.echo(f"\nDescription:\n  {template.description}")
-
-    variables = template.get_required_variables()
-    click.echo(f"\nRequired Variables:")
-    if variables:
-        for var in variables:
-            click.echo(f"  - {var}")
-    else:
-        click.echo("  (None)")
-
-    click.echo(f"\nContent Preview:")
-    click.echo("-" * 60)
-    # Show first 20 lines of content
-    lines = template.content.split("\n")[:20]
-    click.echo("\n".join(lines))
-    if len(template.content.split("\n")) > 20:
-        click.echo("\n... (content truncated)")
-
-
-@skill.command("export")
-@click.argument("name", type=str)
-@click.option(
-    "--output",
-    "-o",
-    "output_path",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Output path for the package (default: <name>-<version>.tar.gz).",
-)
-@click.option(
-    "--format",
-    "-f",
-    "package_format",
-    type=click.Choice([f.value for f in PackageFormat]),
-    default=PackageFormat.TAR_GZ.value,
-    help="Package format.",
-)
-@click.option(
-    "--version",
-    "-v",
-    type=str,
-    default=None,
-    help="Package version (default: version from skill metadata).",
-)
-@click.option(
-    "--description",
-    "-d",
-    type=str,
-    default=None,
-    help="Package description.",
-)
-@click.option(
-    "--skills-dir",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Directory containing skill definitions.",
-)
-@click.pass_context
-def skill_export(
-    ctx: click.Context,
-    name: str,
-    output_path: Optional[Path],
-    package_format: str,
-    version: Optional[str],
-    description: Optional[str],
-    skills_dir: Optional[Path],
-) -> None:
-    """
-    Export a skill to a distributable package.
-
-    Creates a distributable package containing the skill definition and metadata.
-    Packages can be shared across teams and projects.
-
-    \b
-    Examples:
-        autoflow skill export MY_SKILL
-        autoflow skill export MY_SKILL -o my-skill.tar.gz
-        autoflow skill export MY_SKILL -f dir -o ./dist/
-        autoflow skill export MY_SKILL -v 1.0.0 -d "My custom skill"
-    """
-    config: Config = ctx.obj["config"]
-    verbose = ctx.obj["verbose"]
-
-    # Determine skills directory
-    if skills_dir is None:
-        skills_dir = config.skills_dir
-
-    try:
-        # Initialize packager with registry
-        from autoflow.skills.registry import SkillRegistry
-
-        registry = SkillRegistry([skills_dir], auto_load=True)
-        packager = SkillPackager(registry)
-
-        # Generate default output path if not specified
-        if output_path is None:
-            skill = registry.get_skill(name)
-            if not skill:
-                click.echo(f"Error: Skill '{name}' not found.", err=True)
-                ctx.exit(1)
-
-            skill_version = version or skill.metadata.version or "1.0.0"
-            extension = f".{package_format}" if package_format != "dir" else ""
-            output_path = Path(f"{name.lower()}-{skill_version}{extension}")
-
-        # Export the skill
-        package = packager.export_skill(
-            skill_name=name,
-            output_path=output_path,
-            format=PackageFormat(package_format),
-            version=version,
-            description=description,
-        )
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "exported",
-                "skill": name,
-                "package": str(package.path),
-                "format": package.format.value,
-                "version": package.metadata.version,
-                "size": package.size,
-            })
-        else:
-            click.echo(f"✓ Skill exported successfully")
-            click.echo(f"  Name: {name}")
-            click.echo(f"  Package: {package.path}")
-            click.echo(f"  Format: {package.format.value}")
-            click.echo(f"  Version: {package.metadata.version}")
-            if package.size > 0:
-                click.echo(f"  Size: {package.size:,} bytes")
-
-    except PackageError as e:
-        click.echo(f"Error: {e}", err=True)
-        if verbose:
-            import traceback
-            click.echo(traceback.format_exc(), err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        if verbose:
-            import traceback
-            click.echo(traceback.format_exc(), err=True)
-        ctx.exit(1)
-
-
-@skill.command("import")
-@click.argument("package", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--target-dir",
-    "-t",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="Target directory for imported skills (default: configured skills directory).",
-)
-@click.option(
-    "--conflict-resolution",
-    "-c",
-    "conflict_resolution",
-    type=click.Choice([r.value for r in ImportConflictResolution]),
-    default=ImportConflictResolution.ERROR.value,
-    help="Strategy for handling version conflicts.",
-)
-@click.option(
-    "--force",
-    "-f",
-    is_flag=True,
-    help="Overwrite existing skills without prompting.",
-)
-@click.pass_context
-def skill_import(
-    ctx: click.Context,
-    package: Path,
-    target_dir: Optional[Path],
-    conflict_resolution: str,
-    force: bool,
-) -> None:
-    """
-    Import a skill package.
-
-    Imports a previously exported skill package into the skills directory.
-    Handles version conflicts based on the specified resolution strategy.
-
-    \b
-    Examples:
-        autoflow skill import my-skill-1.0.0.tar.gz
-        autoflow skill import my-skill-1.0.0.tar.gz -t ./custom-skills/
-        autoflow skill import my-skill.tar.gz -c overwrite
-        autoflow skill import ./my-skill-dir/ -f
-    """
-    config: Config = ctx.obj["config"]
-    verbose = ctx.obj["verbose"]
-
-    # Determine target directory
-    if target_dir is None:
-        target_dir = config.skills_dir
-
-    try:
-        # Initialize importer
-        from autoflow.skills.registry import SkillRegistry
-
-        registry = SkillRegistry([target_dir], auto_load=True)
-        importer = SkillImporter()
-
-        # Import the package
-        result = importer.import_package(
-            package_path=package,
-            target_dir=target_dir,
-            conflict_resolution=ImportConflictResolution(conflict_resolution),
-            registry=registry,
-        )
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "imported",
-                "imported": result.imported,
-                "skipped": result.skipped,
-                "conflicts": result.conflicts,
-                "errors": result.errors,
-                "backup_paths": {str(k): str(v) for k, v in result.backup_paths.items()},
-            })
-        else:
-            click.echo(f"✓ Package imported successfully")
-            click.echo(f"  Package: {package}")
-
-            if result.imported:
-                click.echo(f"\nImported Skills:")
-                for skill_name in result.imported:
-                    click.echo(f"  ✓ {skill_name}")
-
-            if result.skipped:
-                click.echo(f"\nSkipped Skills:")
-                for skill_name in result.skipped:
-                    click.echo(f"  ⊘ {skill_name}")
-
-            if result.conflicts:
-                click.echo(f"\nConflicts:")
-                for skill_name in result.conflicts:
-                    click.echo(f"  ⚠ {skill_name}")
-
-            if result.backup_paths:
-                click.echo(f"\nBackups Created:")
-                for skill_name, backup_path in result.backup_paths.items():
-                    click.echo(f"  • {skill_name}: {backup_path}")
-
-    except PackageError as e:
-        click.echo(f"Error: {e}", err=True)
-        if verbose:
-            import traceback
-            click.echo(traceback.format_exc(), err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        if verbose:
-            import traceback
-            click.echo(traceback.format_exc(), err=True)
-        ctx.exit(1)
-
-
 # === Task Commands ===
 
 @main.group()
@@ -1744,336 +997,6 @@ def config_show(ctx: click.Context) -> None:
     click.echo(f"  codex: {config.agents.codex.command}")
 
 
-# === Dashboard Command ===
-
-@main.command()
-@click.option(
-    "--host",
-    "-H",
-    type=str,
-    default="127.0.0.1",
-    help="Host to bind the dashboard server to.",
-)
-@click.option(
-    "--port",
-    "-p",
-    type=int,
-    default=8000,
-    help="Port to run the dashboard server on.",
-)
-@click.option(
-    "--reload",
-    "-r",
-    is_flag=True,
-    help="Enable auto-reload for development.",
-)
-@click.option(
-    "--workers",
-    "-w",
-    type=int,
-    default=1,
-    help="Number of worker processes.",
-)
-@click.option(
-    "--log-level",
-    "-l",
-    type=click.Choice(["critical", "error", "warning", "info", "debug"]),
-    default="info",
-    help="Log level for the server.",
-)
-@click.pass_context
-def dashboard(
-    ctx: click.Context,
-    host: str,
-    port: int,
-    reload: bool,
-    workers: int,
-    log_level: str,
-) -> None:
-    """
-    Start the web dashboard server.
-
-    Launches the FastAPI web dashboard for monitoring Autoflow tasks,
-    runs, and system status in real-time through a web interface.
-
-    \b
-    Features:
-        - Real-time task and run monitoring
-        - System status and statistics
-        - WebSocket support for live updates
-        - Interactive API documentation at /docs
-
-    \b
-    Examples:
-        autoflow dashboard
-        autoflow dashboard --host 0.0.0.0 --port 8080
-        autoflow dashboard --reload
-        autoflow dashboard --workers 4
-
-    \b
-    Access the dashboard at:
-        http://localhost:8000
-        http://localhost:8000/docs (API documentation)
-    """
-    config: Config = ctx.obj["config"]
-    verbose = ctx.obj.get("verbose", 0)
-
-    try:
-        import uvicorn
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "starting",
-                "host": host,
-                "port": port,
-                "reload": reload,
-                "workers": workers,
-                "log_level": log_level,
-                "dashboard_url": f"http://{host}:{port}",
-                "docs_url": f"http://{host}:{port}/docs",
-            })
-            return
-
-        # Human-readable output
-        click.echo("Starting Autoflow Dashboard...")
-        click.echo("")
-        click.echo(f"  Host: {host}")
-        click.echo(f"  Port: {port}")
-        click.echo(f"  Workers: {workers}")
-        click.echo(f"  Log Level: {log_level}")
-        if reload:
-            click.echo(f"  Auto-reload: enabled")
-        click.echo("")
-        click.echo(f"  Dashboard: http://{host}:{port}")
-        click.echo(f"  API Docs:  http://{host}:{port}/docs")
-        click.echo("")
-        click.echo("Press Ctrl+C to stop the server")
-        click.echo("")
-
-        # Import the FastAPI app
-        from autoflow.web.app import app
-
-        # Run uvicorn
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            reload=reload,
-            workers=workers if not reload else 1,  # Reload only works with single worker
-            log_level=log_level,
-        )
-
-    except ImportError as e:
-        click.echo(
-            f"Error: uvicorn is not installed. "
-            f"Install it with: pip install uvicorn[standard]",
-            err=True
-        )
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error starting dashboard: {e}", err=True)
-        if verbose:
-            import traceback
-            traceback.print_exc()
-        ctx.exit(1)
-
-# === Search Tasks Command ===
-
-@main.command("search-tasks")
-@click.option(
-    "--status",
-    "-s",
-    "status_filter",
-    type=str,
-    default=None,
-    help="Filter by task status (e.g., todo, in_progress, done, blocked).",
-)
-@click.option(
-    "--owner-role",
-    "-o",
-    type=str,
-    default=None,
-    help="Filter by owner role (e.g., implementation-runner, reviewer).",
-)
-@click.option(
-    "--text",
-    "-t",
-    type=str,
-    default=None,
-    help="Text search in title and notes (case-insensitive substring).",
-)
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=20,
-    help="Maximum number of tasks to show.",
-)
-@click.pass_context
-def search_tasks_cmd(
-    ctx: click.Context,
-    status_filter: Optional[str],
-    owner_role: Optional[str],
-    text: Optional[str],
-    limit: int,
-) -> None:
-    """
-    Search and filter tasks across all specs.
-
-    This command searches through all spec task files in .autoflow/tasks/ and
-    returns matching tasks. Tasks can be filtered by status, owner role, and
-    text content. Results are displayed in a human-readable format by default,
-    or JSON format with --json.
-
-    \b
-    Common Use Cases:
-        # Find all todo tasks
-        autoflow search-tasks --status todo
-
-        # Find tasks for a specific role
-        autoflow search-tasks --owner-role implementation-runner
-
-        # Search for tasks containing specific text
-        autoflow search-tasks --text "database"
-
-        # Combine multiple filters
-        autoflow search-tasks --status todo --owner-role frontend-dev
-
-    \b
-    Examples:
-        # Show first 5 todo tasks
-        autoflow search-tasks --status todo --limit 5
-
-        # Find in-progress tasks for reviewer
-        autoflow search-tasks --status in_progress --owner-role reviewer
-
-        # Search for API-related tasks
-        autoflow search-tasks --text "api" --limit 10
-
-        # Get JSON output for scripting
-        autoflow search-tasks --status done --json
-
-        # Complex search with multiple filters
-        autoflow search-tasks --status todo --text "auth" --owner-role backend-dev --limit 20
-
-    \b
-    Filter Behavior:
-        --status      Exact match on task status field
-                      Common values: todo, in_progress, done, blocked
-
-        --owner-role  Exact match on owner_role field
-                      Examples: implementation-runner, reviewer, frontend-dev, backend-dev
-
-        --text        Case-insensitive substring search
-                      Searches in: title, notes (both strings and dict values)
-
-        --limit       Maximum number of results to display
-                      Default: 20, Use 0 for unlimited
-
-        Multiple filters are combined with AND logic (all must match).
-        Results are sorted by spec name and task ID.
-
-    \b
-    Output Format (default):
-        [task-id] Task Title
-          Spec: spec-name
-          Status: status
-          Owner: owner-role
-
-    \b
-    Output Format (--json):
-        {
-          "tasks": [...],
-          "count": 10,
-          "total_matching": 42,
-          "filters": {...}
-        }
-    """
-    config: Config = ctx.obj["config"]
-
-    # Load all tasks from all specs
-    all_tasks = _load_all_tasks_from_specs(config)
-
-    # Apply filters
-    filtered_tasks = []
-    for task in all_tasks:
-        # Status filter (exact match)
-        if status_filter and task.get("status") != status_filter:
-            continue
-
-        # Owner role filter (exact match)
-        if owner_role and task.get("owner_role") != owner_role:
-            continue
-
-        # Text filter (case-insensitive substring in title and notes)
-        if text:
-            text_lower = text.lower()
-            title_match = text_lower in task.get("title", "").lower()
-
-            # Check in notes (if present)
-            notes_match = False
-            notes = task.get("notes", [])
-            if notes:
-                # Notes can be a list of strings or dict objects
-                for note in notes:
-                    if isinstance(note, str):
-                        if text_lower in note.lower():
-                            notes_match = True
-                            break
-                    elif isinstance(note, dict):
-                        # Check string values in note dict
-                        note_text = " ".join(str(v) for v in note.values())
-                        if text_lower in note_text.lower():
-                            notes_match = True
-                            break
-
-            if not title_match and not notes_match:
-                continue
-
-        filtered_tasks.append(task)
-
-    # Apply limit
-    limited_tasks = filtered_tasks[:limit]
-
-    if ctx.obj["output_json"]:
-        _print_json({
-            "tasks": limited_tasks,
-            "count": len(limited_tasks),
-            "total_matching": len(filtered_tasks),
-            "filters": {
-                "status": status_filter,
-                "owner_role": owner_role,
-                "text": text,
-            },
-        })
-        return
-
-    # Human-readable output
-    click.echo("Search Results")
-    click.echo("=" * 60)
-    click.echo(f"Found {len(filtered_tasks)} matching task(s)")
-    if len(filtered_tasks) > limit:
-        click.echo(f"Showing {len(limited_tasks)} (use --limit to see more)")
-    click.echo("")
-
-    if not limited_tasks:
-        click.echo("No tasks found matching the criteria.")
-        return
-
-    for task in limited_tasks:
-        task_id = task.get("id", "unknown")
-        title = task.get("title", "N/A")
-        status = task.get("status", "unknown")
-        owner = task.get("owner_role", "N/A")
-        spec = task.get("spec", "N/A")
-
-        click.echo(f"\n[{task_id}] {title}")
-        click.echo(f"  Spec: {spec}")
-        click.echo(f"  Status: {status}")
-        if owner != "N/A":
-            click.echo(f"  Owner: {owner}")
-
-
 # === Memory Commands ===
 
 @main.group()
@@ -2178,1852 +1101,418 @@ def memory_delete(ctx: click.Context, key: str) -> None:
         ctx.exit(1)
 
 
-# === Spec Commands ===
+# === Cluster Commands ===
 
 @main.group()
-def spec() -> None:
-    """Manage specifications."""
+def cluster() -> None:
+    """Manage distributed cluster operations."""
     pass
 
 
-@spec.command("list")
+@cluster.command("init")
 @click.option(
-    "--archived",
-    "-a",
-    is_flag=True,
-    help="Include archived specifications.",
-)
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=20,
-    help="Maximum number of specs to show.",
-)
-@click.pass_context
-def spec_list(
-    ctx: click.Context,
-    archived: bool,
-    limit: int,
-) -> None:
-    """
-    List specifications.
-
-    Shows specifications, optionally including archived ones.
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    specs = state_manager.list_specs(include_archived=archived)[:limit]
-
-    if ctx.obj["output_json"]:
-        _print_json({"specs": specs, "count": len(specs)})
-        return
-
-    click.echo("Specifications")
-    click.echo("=" * 60)
-
-    if not specs:
-        click.echo("No specifications found.")
-        return
-
-    for spec_data in specs:
-        spec_id = spec_data.get("id", "unknown")
-        spec_title = spec_data.get("title", "N/A")
-        click.echo(f"\n[{spec_id}] {spec_title}")
-        if spec_data.get("tags"):
-            tags = ", ".join(spec_data["tags"])
-            click.echo(f"  Tags: {tags}")
-
-
-@spec.command("archive")
-@click.argument("spec_id", type=str)
-@click.option(
-    "--force",
-    "-f",
-    is_flag=True,
-    help="Force archiving without confirmation.",
-)
-@click.pass_context
-def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
-    """
-    Archive a completed specification.
-
-    Moves a specification to the archive directory.
-    Requires the specification to be in a completed state.
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        spec_data = state_manager.load_spec(spec_id)
-
-        if spec_data is None:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "message": f"Specification '{spec_id}' not found.",
-                })
-            else:
-                click.echo(f"Error: Specification '{spec_id}' not found.", err=True)
-            ctx.exit(1)
-
-        status = spec_data.get("status", "unknown")
-        if status != "completed" and not force:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "current_status": status,
-                    "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
-                })
-            else:
-                click.echo(f"Error: Specification is not completed (status: {status}).", err=True)
-                click.echo("Use --force to archive anyway.")
-            ctx.exit(1)
-
-        if state_manager.archive_spec(spec_id):
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "archived",
-                    "spec_id": spec_id,
-                })
-            else:
-                click.echo(f"Archived: {spec_id}")
-        else:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "spec_id": spec_id,
-                    "message": "Failed to archive specification.",
-                })
-            else:
-                click.echo(f"Error: Failed to archive specification '{spec_id}'.", err=True)
-            ctx.exit(1)
-
-    except Exception as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "spec_id": spec_id,
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-
-
-# === Workspace Commands ===
-
-@main.group()
-def workspace() -> None:
-    """Manage workspaces for team collaboration."""
-    pass
-
-
-@workspace.command("create")
-@click.argument("workspace_id", type=str)
-@click.argument("name", type=str)
-@click.argument("team_id", type=str)
-@click.option(
-    "--description",
-    "-d",
-    type=str,
-    default="",
-    help="Workspace description.",
-)
-@click.option(
-    "--settings",
-    "-s",
+    "--cluster-id",
+    "-c",
     type=str,
     default=None,
-    help="Workspace settings as JSON string.",
-)
-@click.pass_context
-def workspace_create(
-    ctx: click.Context,
-    workspace_id: str,
-    name: str,
-    team_id: str,
-    description: str,
-    settings: Optional[str],
-) -> None:
-    """
-    Create a new workspace.
-
-    Creates a shared workspace for team collaboration with role-based access control.
-
-    \b
-    Examples:
-        autoflow workspace create workspace-001 "Project X" team-001
-        autoflow workspace create workspace-002 "Main Project" team-001 --description "Primary workspace"
-        autoflow workspace create workspace-003 "Dev Team" team-002 --settings '{"private": true}'
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Parse settings if provided
-        settings_dict = {}
-        if settings:
-            try:
-                settings_dict = json.loads(settings)
-            except json.JSONDecodeError as e:
-                click.echo(f"Error: Invalid JSON in settings: {e}", err=True)
-                ctx.exit(1)
-
-        # Create workspace
-        workspace = manager.create_workspace(
-            workspace_id=workspace_id,
-            name=name,
-            team_id=team_id,
-            description=description,
-            settings=settings_dict if settings_dict else None,
-        )
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "workspace": workspace.model_dump(mode="json"),
-            })
-        else:
-            click.echo(f"Created workspace: {workspace.id}")
-            click.echo(f"  Name: {workspace.name}")
-            click.echo(f"  Team: {workspace.team_id}")
-            if description:
-                click.echo(f"  Description: {description}")
-            click.echo(f"  Created: {_format_datetime(workspace.created_at)}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error creating workspace: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("list")
-@click.option(
-    "--team",
-    "-t",
-    "team_id",
-    type=str,
-    default=None,
-    help="Filter by team ID.",
+    help="Unique cluster identifier.",
 )
 @click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=20,
-    help="Maximum number of workspaces to show.",
-)
-@click.pass_context
-def workspace_list(
-    ctx: click.Context,
-    team_id: Optional[str],
-    limit: int,
-) -> None:
-    """
-    List workspaces.
-
-    Shows all workspaces, optionally filtered by team.
-
-    \b
-    Examples:
-        autoflow workspace list
-        autoflow workspace list --team team-001
-        autoflow workspace list --limit 50
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        workspaces = manager.list_workspaces(team_id=team_id, limit=limit)
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "workspaces": [ws.model_dump(mode="json") for ws in workspaces],
-                "count": len(workspaces),
-            })
-            return
-
-        click.echo("Workspaces")
-        click.echo("=" * 60)
-
-        if not workspaces:
-            click.echo("No workspaces found.")
-            return
-
-        for workspace in workspaces:
-            click.echo(f"\n[{workspace.id}] {workspace.name}")
-            click.echo(f"  Team: {workspace.team_id}")
-            if workspace.description:
-                click.echo(f"  Description: {workspace.description}")
-            click.echo(f"  Created: {_format_datetime(workspace.created_at)}")
-
-    except Exception as e:
-        click.echo(f"Error listing workspaces: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("show")
-@click.argument("workspace_id", type=str)
-@click.pass_context
-def workspace_show(ctx: click.Context, workspace_id: str) -> None:
-    """
-    Show details of a specific workspace.
-
-    Displays detailed information about a workspace including settings and metadata.
-
-    \b
-    Examples:
-        autoflow workspace show workspace-001
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        workspace = manager.get_workspace(workspace_id)
-
-        if not workspace:
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        if ctx.obj["output_json"]:
-            _print_json(workspace.model_dump(mode="json"))
-            return
-
-        click.echo(f"Workspace: {workspace.id}")
-        click.echo("=" * 60)
-        click.echo(f"Name: {workspace.name}")
-        click.echo(f"Team: {workspace.team_id}")
-        click.echo(f"Description: {workspace.description or 'N/A'}")
-        click.echo(f"Created: {_format_datetime(workspace.created_at)}")
-        click.echo(f"Updated: {_format_datetime(workspace.updated_at)}")
-
-        if workspace.settings:
-            click.echo("\nSettings:")
-            for key, value in workspace.settings.items():
-                click.echo(f"  {key}: {value}")
-
-        if workspace.metadata:
-            click.echo("\nMetadata:")
-            for key, value in workspace.metadata.items():
-                click.echo(f"  {key}: {value}")
-
-    except Exception as e:
-        click.echo(f"Error showing workspace: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("delete")
-@click.argument("workspace_id", type=str)
-@click.option(
-    "--force",
-    "-f",
-    is_flag=True,
-    help="Force deletion without confirmation.",
-)
-@click.pass_context
-def workspace_delete(ctx: click.Context, workspace_id: str, force: bool) -> None:
-    """
-    Delete a workspace.
-
-    Permanently deletes a workspace and all its associated data.
-
-    \b
-    Examples:
-        autoflow workspace delete workspace-001
-        autoflow workspace delete workspace-001 --force
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Check if workspace exists
-        if not manager.workspace_exists(workspace_id):
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # Confirm deletion
-        if not force:
-            click.echo(f"This will delete workspace: {workspace_id}")
-            if not click.confirm("Are you sure?"):
-                click.echo("Deletion cancelled.")
-                ctx.exit(0)
-
-        # Delete workspace
-        deleted = manager.delete_workspace(workspace_id)
-
-        if deleted:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "deleted",
-                    "workspace_id": workspace_id,
-                })
-            else:
-                click.echo(f"Deleted workspace: {workspace_id}")
-        else:
-            click.echo(f"Error: Failed to delete workspace '{workspace_id}'.", err=True)
-            ctx.exit(1)
-
-    except Exception as e:
-        click.echo(f"Error deleting workspace: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("members")
-@click.argument("workspace_id", type=str)
-@click.option(
-    "--role",
-    "-r",
-    "role_filter",
-    type=click.Choice([r.value for r in RoleType]),
-    default=None,
-    help="Filter by role type.",
-)
-@click.pass_context
-def workspace_members(
-    ctx: click.Context,
-    workspace_id: str,
-    role_filter: Optional[str],
-) -> None:
-    """
-    List members of a workspace.
-
-    Shows all members with their roles, optionally filtered by role type.
-
-    \b
-    Examples:
-        autoflow workspace members workspace-001
-        autoflow workspace members workspace-001 --role admin
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Check if workspace exists
-        if not manager.workspace_exists(workspace_id):
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # Parse role filter
-        role_enum = RoleType(role_filter) if role_filter else None
-
-        # Get members
-        members = manager.list_members(workspace_id, role_type=role_enum)
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "workspace_id": workspace_id,
-                "members": [m.model_dump(mode="json") for m in members],
-                "count": len(members),
-            })
-            return
-
-        click.echo(f"Members of {workspace_id}")
-        click.echo("=" * 60)
-
-        if not members:
-            click.echo("No members found.")
-            return
-
-        for member in members:
-            click.echo(f"\n{member.user_id}")
-            click.echo(f"  Role: {member.role_type.value}")
-            if member.granted_by:
-                click.echo(f"  Granted by: {member.granted_by}")
-            click.echo(f"  Granted: {_format_datetime(member.granted_at)}")
-            if member.expires_at:
-                click.echo(f"  Expires: {_format_datetime(member.expires_at)}")
-
-    except Exception as e:
-        click.echo(f"Error listing members: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("add-member")
-@click.argument("workspace_id", type=str)
-@click.argument("user_id", type=str)
-@click.option(
-    "--role",
-    "-r",
-    "role_type",
-    type=click.Choice([r.value for r in RoleType]),
-    default=RoleType.MEMBER.value,
-    help="Role to assign (default: member).",
-)
-@click.option(
-    "--granted-by",
-    "-g",
-    type=str,
-    default=None,
-    help="User ID who is granting this role.",
-)
-@click.pass_context
-def workspace_add_member(
-    ctx: click.Context,
-    workspace_id: str,
-    user_id: str,
-    role_type: str,
-    granted_by: Optional[str],
-) -> None:
-    """
-    Add a member to a workspace.
-
-    Adds a user to a workspace with the specified role.
-
-    \b
-    Examples:
-        autoflow workspace add-member workspace-001 user-001
-        autoflow workspace add-member workspace-001 user-002 --role admin
-        autoflow workspace add-member workspace-001 user-003 --role reviewer --granted-by user-001
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Check if workspace exists
-        if not manager.workspace_exists(workspace_id):
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # Add member
-        role = manager.add_member(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            role_type=RoleType(role_type),
-            granted_by=granted_by,
-        )
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "added",
-                "workspace_id": workspace_id,
-                "user_id": user_id,
-                "role": role.model_dump(mode="json"),
-            })
-        else:
-            click.echo(f"Added member to workspace: {workspace_id}")
-            click.echo(f"  User: {user_id}")
-            click.echo(f"  Role: {role.role_type.value}")
-            click.echo(f"  Granted: {_format_datetime(role.granted_at)}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error adding member: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("remove-member")
-@click.argument("workspace_id", type=str)
-@click.argument("user_id", type=str)
-@click.pass_context
-def workspace_remove_member(
-    ctx: click.Context,
-    workspace_id: str,
-    user_id: str,
-) -> None:
-    """
-    Remove a member from a workspace.
-
-    Removes a user's membership and all associated permissions from a workspace.
-
-    \b
-    Examples:
-        autoflow workspace remove-member workspace-001 user-001
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Check if workspace exists
-        if not manager.workspace_exists(workspace_id):
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # Remove member
-        removed = manager.remove_member(workspace_id, user_id)
-
-        if removed:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "removed",
-                    "workspace_id": workspace_id,
-                    "user_id": user_id,
-                })
-            else:
-                click.echo(f"Removed member from workspace: {workspace_id}")
-                click.echo(f"  User: {user_id}")
-        else:
-            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
-            ctx.exit(1)
-
-    except Exception as e:
-        click.echo(f"Error removing member: {e}", err=True)
-        ctx.exit(1)
-
-
-@workspace.command("update-member")
-@click.argument("workspace_id", type=str)
-@click.argument("user_id", type=str)
-@click.option(
-    "--role",
-    "-r",
-    "role_type",
-    type=click.Choice([r.value for r in RoleType]),
-    required=True,
-    help="New role type.",
-)
-@click.option(
-    "--granted-by",
-    "-g",
-    type=str,
-    default=None,
-    help="User ID who is granting this role.",
-)
-@click.pass_context
-def workspace_update_member(
-    ctx: click.Context,
-    workspace_id: str,
-    user_id: str,
-    role_type: str,
-    granted_by: Optional[str],
-) -> None:
-    """
-    Update a member's role in a workspace.
-
-    Changes the role of an existing workspace member.
-
-    \b
-    Examples:
-        autoflow workspace update-member workspace-001 user-001 --role admin
-        autoflow workspace update-member workspace-001 user-002 --role reviewer --granted-by user-001
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = WorkspaceManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Check if workspace exists
-        if not manager.workspace_exists(workspace_id):
-            click.echo(f"Error: Workspace '{workspace_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # Update member role
-        role = manager.update_member_role(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            role_type=RoleType(role_type),
-            granted_by=granted_by,
-        )
-
-        if role:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "updated",
-                    "workspace_id": workspace_id,
-                    "user_id": user_id,
-                    "role": role.model_dump(mode="json"),
-                })
-            else:
-                click.echo(f"Updated member role in workspace: {workspace_id}")
-                click.echo(f"  User: {user_id}")
-                click.echo(f"  New role: {role.role_type.value}")
-        else:
-            click.echo(f"Error: User '{user_id}' is not a member of workspace '{workspace_id}'.", err=True)
-            ctx.exit(1)
-
-    except Exception as e:
-        click.echo(f"Error updating member: {e}", err=True)
-        ctx.exit(1)
-
-
-# === Team Commands ===
-
-@main.group()
-def team() -> None:
-    """Manage teams for collaboration."""
-    pass
-
-
-@team.command("create")
-@click.argument("team_id", type=str)
-@click.argument("name", type=str)
-@click.option(
-    "--description",
-    "-d",
-    type=str,
-    default="",
-    help="Team description.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_create(
-    ctx: click.Context,
-    team_id: str,
-    name: str,
-    description: str,
-    output_json: bool,
-) -> None:
-    """
-    Create a new team.
-
-    Creates a team for organizing users and shared workspaces.
-
-    \b
-    Examples:
-        autoflow team create team-001 "Engineering"
-        autoflow team create team-002 "DevOps" --description "Operations team"
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Create team
-        team = manager.create_team(
-            team_id=team_id,
-            name=name,
-            description=description,
-        )
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "created",
-                "team": team.model_dump(mode="json"),
-            })
-        else:
-            click.echo(f"Created team: {team.id}")
-            click.echo(f"  Name: {team.name}")
-            if description:
-                click.echo(f"  Description: {description}")
-            click.echo(f"  Created: {_format_datetime(team.created_at)}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error creating team: {e}", err=True)
-        ctx.exit(1)
-
-
-@team.command("list")
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=20,
-    help="Maximum number of teams to show.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_list(
-    ctx: click.Context,
-    limit: int,
-    output_json: bool,
-) -> None:
-    """
-    List teams.
-
-    Shows all teams in the system.
-
-    \b
-    Examples:
-        autoflow team list
-        autoflow team list --limit 50
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        teams = manager.list_teams(limit=limit)
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "teams": [t.model_dump(mode="json") for t in teams],
-                "count": len(teams),
-            })
-            return
-
-        if not teams:
-            click.echo("No teams found.")
-            return
-
-        click.echo(f"Teams ({len(teams)}):")
-        for team in teams:
-            click.echo(f"\n  [{team.id}]")
-            click.echo(f"  Name: {team.name}")
-            if team.description:
-                click.echo(f"  Description: {team.description}")
-            click.echo(f"  Members: {len(team.member_ids)}")
-            click.echo(f"  Created: {_format_datetime(team.created_at)}")
-
-    except Exception as e:
-        click.echo(f"Error listing teams: {e}", err=True)
-        ctx.exit(1)
-
-
-@team.command("add-member")
-@click.argument("team_id", type=str)
-@click.argument("user_id", type=str)
-@click.option(
-    "--role",
-    "-r",
-    "role_type",
-    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
-    default="member",
-    help="Role to assign to the user.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_add_member(
-    ctx: click.Context,
-    team_id: str,
-    user_id: str,
-    role_type: str,
-    output_json: bool,
-) -> None:
-    """
-    Add a member to a team.
-
-    Adds a user to a team with the specified role.
-
-    \b
-    Examples:
-        autoflow team add-member team-001 user-001
-        autoflow team add-member team-001 user-002 --role admin
-        autoflow team add-member team-001 user-003 --role reviewer
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Convert role string to RoleType enum
-        role_enum = RoleType[role_type.upper()]
-
-        # Add member
-        role = manager.add_member(
-            team_id=team_id,
-            user_id=user_id,
-            role_type=role_enum,
-        )
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "added",
-                "team_id": team_id,
-                "user_id": user_id,
-                "role": role.model_dump(mode="json"),
-            })
-        else:
-            click.echo(f"Added member to team: {team_id}")
-            click.echo(f"  User: {user_id}")
-            click.echo(f"  Role: {role.role_type.value}")
-            click.echo(f"  Granted: {_format_datetime(role.granted_at)}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error adding member: {e}", err=True)
-        ctx.exit(1)
-
-
-@team.command("set-role")
-@click.argument("team_id", type=str)
-@click.argument("user_id", type=str)
-@click.argument("role", type=str)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_set_role(
-    ctx: click.Context,
-    team_id: str,
-    user_id: str,
-    role: str,
-    output_json: bool,
-) -> None:
-    """
-    Set a member's role in a team.
-
-    Changes the role of an existing team member, or adds them if they're not already a member.
-
-    \b
-    Examples:
-        autoflow team set-role team-001 user-001 admin
-        autoflow team set-role team-001 user-002 member
-        autoflow team set-role team-001 user-003 reviewer
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Convert role string to RoleType enum
-        role_enum = RoleType[role.upper()]
-
-        # Set member role
-        updated_role = manager.set_member_role(
-            team_id=team_id,
-            user_id=user_id,
-            role_type=role_enum,
-        )
-
-        if updated_role is None:
-            click.echo(f"Error: Team '{team_id}' not found.", err=True)
-            ctx.exit(1)
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "updated",
-                "team_id": team_id,
-                "user_id": user_id,
-                "role": updated_role.model_dump(mode="json"),
-            })
-        else:
-            click.echo(f"Updated role in team: {team_id}")
-            click.echo(f"  User: {user_id}")
-            click.echo(f"  New role: {updated_role.role_type.value}")
-            click.echo(f"  Updated: {_format_datetime(updated_role.granted_at)}")
-
-    except KeyError:
-        click.echo(f"Error: Invalid role '{role}'. Valid roles: owner, admin, member, reviewer, viewer", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error setting role: {e}", err=True)
-        ctx.exit(1)
-
-
-@team.command("members")
-@click.argument("team_id", type=str)
-@click.option(
-    "--role",
-    "-r",
-    "role_type",
-    type=click.Choice(["owner", "admin", "member", "reviewer", "viewer"], case_sensitive=False),
-    default=None,
-    help="Filter by role type.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_members(
-    ctx: click.Context,
-    team_id: str,
-    role_type: Optional[str],
-    output_json: bool,
-) -> None:
-    """
-    List members of a team.
-
-    Shows all members of a team, optionally filtered by role.
-
-    \b
-    Examples:
-        autoflow team members team-001
-        autoflow team members team-001 --role admin
-        autoflow team members team-001 --role reviewer
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Convert role string to RoleType enum if provided
-        role_enum = RoleType[role_type.upper()] if role_type else None
-
-        # Get team
-        team = manager.get_team(team_id)
-        if team is None:
-            click.echo(f"Error: Team '{team_id}' not found.", err=True)
-            ctx.exit(1)
-
-        # List members
-        members = manager.list_members(team_id=team_id, role_type=role_enum)
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "team_id": team_id,
-                "team_name": team.name,
-                "members": [m.model_dump(mode="json") for m in members],
-                "count": len(members),
-            })
-            return
-
-        if not members:
-            if role_type:
-                click.echo(f"No members with role '{role_type}' in team: {team_id}")
-            else:
-                click.echo(f"No members in team: {team_id}")
-            return
-
-        click.echo(f"Members of {team.name} ({team_id}):")
-        for member in members:
-            click.echo(f"\n  [{member.user_id}]")
-            click.echo(f"  Role: {member.role_type.value}")
-            click.echo(f"  Granted: {_format_datetime(member.granted_at)}")
-            if member.granted_by:
-                click.echo(f"  Granted by: {member.granted_by}")
-            if member.expires_at:
-                click.echo(f"  Expires: {_format_datetime(member.expires_at)}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        ctx.exit(1)
-    except Exception as e:
-        click.echo(f"Error listing members: {e}", err=True)
-        ctx.exit(1)
-
-
-@team.command("remove-member")
-@click.argument("team_id", type=str)
-@click.argument("user_id", type=str)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def team_remove_member(
-    ctx: click.Context,
-    team_id: str,
-    user_id: str,
-    output_json: bool,
-) -> None:
-    """
-    Remove a member from a team.
-
-    Removes a user from a team.
-
-    \b
-    Examples:
-        autoflow team remove-member team-001 user-001
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = TeamManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Remove member
-        removed = manager.remove_member(
-            team_id=team_id,
-            user_id=user_id,
-        )
-
-        if not removed:
-            click.echo(f"Error: User '{user_id}' is not a member of team '{team_id}'.", err=True)
-            ctx.exit(1)
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "status": "removed",
-                "team_id": team_id,
-                "user_id": user_id,
-            })
-        else:
-            click.echo(f"Removed member from team: {team_id}")
-            click.echo(f"  User: {user_id}")
-
-    except Exception as e:
-        click.echo(f"Error removing member: {e}", err=True)
-        ctx.exit(1)
-
-
-# === Activity Commands ===
-
-@main.group()
-def activity() -> None:
-    """Manage activity feed and track events."""
-    pass
-
-
-@activity.command("list")
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=50,
-    help="Maximum number of activities to return.",
-)
-@click.option(
-    "--user",
-    "-u",
-    "user_id",
-    type=str,
-    default=None,
-    help="Filter by user ID.",
-)
-@click.option(
-    "--workspace",
-    "-w",
-    "workspace_id",
-    type=str,
-    default=None,
-    help="Filter by workspace ID.",
-)
-@click.option(
-    "--type",
-    "-t",
-    "activity_type",
-    type=str,
-    default=None,
-    help="Filter by activity type.",
-)
-@click.option(
-    "--entity",
-    "-e",
-    "entity_id",
-    type=str,
-    default=None,
-    help="Filter by entity ID.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def activity_list(
-    ctx: click.Context,
-    limit: int,
-    user_id: Optional[str],
-    workspace_id: Optional[str],
-    activity_type: Optional[str],
-    entity_id: Optional[str],
-    output_json: bool,
-) -> None:
-    """
-    List recent activities.
-
-    Shows a feed of recent activities with optional filtering by user, workspace, type, or entity.
-
-    \b
-    Examples:
-        autoflow activity list
-        autoflow activity list --limit 20
-        autoflow activity list --user user-001
-        autoflow activity list --workspace workspace-001 --type task_created
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        tracker = ActivityTracker(state_manager.state_dir)
-        tracker.initialize()
-
-        # Query activities based on filters
-        if user_id:
-            activities = tracker.get_activities_by_user(
-                user_id=user_id,
-                limit=limit,
-            )
-        elif workspace_id:
-            activities = tracker.get_activities_by_workspace(
-                workspace_id=workspace_id,
-                limit=limit,
-            )
-        elif activity_type:
-            activities = tracker.get_activities_by_type(
-                activity_type=activity_type,
-                limit=limit,
-            )
-        elif entity_id:
-            activities = tracker.get_activities_for_entity(
-                entity_id=entity_id,
-                limit=limit,
-            )
-        else:
-            activities = tracker.get_recent_activities(
-                limit=limit,
-            )
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "activities": [a.model_dump(mode="json") for a in activities],
-                "count": len(activities),
-            })
-        else:
-            if not activities:
-                click.echo("No activities found.")
-                return
-
-            click.echo(f"Recent activities ({len(activities)}):")
-            for activity in activities:
-                click.echo(f"\n  [{activity.id}]")
-                click.echo(f"  Type: {activity.activity_type}")
-                click.echo(f"  Actor: {activity.actor_id}")
-                if activity.workspace_id:
-                    click.echo(f"  Workspace: {activity.workspace_id}")
-                if activity.entity_id:
-                    click.echo(f"  Entity: {activity.entity_id}")
-                click.echo(f"  Timestamp: {_format_datetime(activity.timestamp)}")
-                if activity.description:
-                    click.echo(f"  Description: {activity.description}")
-
-    except Exception as e:
-        click.echo(f"Error listing activities: {e}", err=True)
-        ctx.exit(1)
-
-
-@activity.group()
-def notifications() -> None:
-    """Manage notifications."""
-    pass
-
-
-@notifications.command("list")
-@click.argument("user_id", type=str)
-@click.option(
-    "--unread",
-    "-u",
-    is_flag=True,
-    help="Show only unread notifications.",
-)
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=50,
-    help="Maximum number of notifications to return.",
-)
-@click.option(
-    "--offset",
-    "-o",
-    type=int,
-    default=0,
-    help="Offset for pagination.",
-)
-@click.option(
-    "--json",
-    "output_json",
-    is_flag=True,
-    help="Output in JSON format.",
-)
-@click.pass_context
-def notifications_list(
-    ctx: click.Context,
-    user_id: str,
-    unread: bool,
-    limit: int,
-    offset: int,
-    output_json: bool,
-) -> None:
-    """
-    List notifications for a user.
-
-    Shows notifications for a specific user, optionally filtering for unread only.
-
-    \b
-    Examples:
-        autoflow activity notifications list user-001
-        autoflow activity notifications list user-001 --unread
-        autoflow activity notifications list user-001 --limit 20
-    """
-    state_manager = _get_state_manager_from_ctx(ctx)
-
-    try:
-        manager = NotificationManager(state_manager.state_dir)
-        manager.initialize()
-
-        # Get notifications
-        if unread:
-            notifications_list = manager.get_unread_notifications(
-                user_id=user_id,
-                limit=limit,
-                offset=offset,
-            )
-        else:
-            notifications_list = manager.get_user_notifications(
-                user_id=user_id,
-                limit=limit,
-                offset=offset,
-            )
-
-        if output_json or ctx.obj["output_json"]:
-            _print_json({
-                "notifications": [n.model_dump(mode="json") for n in notifications_list],
-                "count": len(notifications_list),
-            })
-        else:
-            if not notifications_list:
-                if unread:
-                    click.echo(f"No unread notifications for user: {user_id}")
-                else:
-                    click.echo(f"No notifications for user: {user_id}")
-                return
-
-            if unread:
-                click.echo(f"Unread notifications for {user_id} ({len(notifications_list)}):")
-            else:
-                click.echo(f"Notifications for {user_id} ({len(notifications_list)}):")
-
-            for notification in notifications_list:
-                click.echo(f"\n  [{notification.id}]")
-                click.echo(f"  Type: {notification.type}")
-                click.echo(f"  Title: {notification.title}")
-                if notification.message:
-                    click.echo(f"  Message: {notification.message}")
-                click.echo(f"  Status: {notification.status}")
-                click.echo(f"  Created: {_format_datetime(notification.created_at)}")
-                if notification.read_at:
-                    click.echo(f"  Read: {_format_datetime(notification.read_at)}")
-
-    except Exception as e:
-        click.echo(f"Error listing notifications: {e}", err=True)
-        ctx.exit(1)
-
-
-# Register config command group
-main.add_command(config_cmd, name="config")
-
-# Register analytics command group
-main.add_command(analytics)
-
-
-# === Intake Commands ===
-
-@main.group()
-def intake() -> None:
-    """Manage issue intake from external sources."""
-    pass
-
-
-@intake.command("import")
-@click.option(
-    "--source",
-    "-s",
-    type=str,
-    default=None,
-    help="Source ID to import from (default: all configured sources).",
-)
-@click.option(
-    "--mode",
-    "-m",
-    type=click.Choice(["full", "incremental", "since-last"]),
-    default="incremental",
-    help="Import mode.",
-)
-@click.option(
-    "--dry-run",
+    "--node-id",
     "-n",
-    is_flag=True,
-    help="Show what would be imported without making changes.",
-)
-@click.option(
-    "--limit",
-    "-l",
-    type=int,
-    default=None,
-    help="Maximum number of issues to import.",
-)
-@click.pass_context
-def intake_import(
-    ctx: click.Context,
-    source: Optional[str],
-    mode: str,
-    dry_run: bool,
-    limit: Optional[int],
-) -> None:
-    """
-    Import issues from external sources.
-
-    Fetches issues from configured sources (GitHub, GitLab, Linear)
-    and converts them to Autoflow specs and tasks.
-
-    \b
-    Examples:
-        autoflow intake import
-        autoflow intake import --source github-example
-        autoflow intake import --mode full --limit 50
-        autoflow intake import --dry-run
-    """
-    from autoflow.intake import IntakePipeline, IngestionMode
-
-    config: Config = ctx.obj["config"]
-
-    if not config.intake.sources:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "No intake sources configured. Add sources to your config file.",
-            })
-        else:
-            click.echo("Error: No intake sources configured.", err=True)
-            click.echo("Add sources to your config file (see config/intake.example.json5)")
-        ctx.exit(1)
-
-    try:
-        # Get the sources to import from
-        sources = (
-            [s for s in config.intake.sources if s.id == source]
-            if source
-            else config.intake.sources
-        )
-
-        if not sources:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "message": f"Source '{source}' not found.",
-                })
-            else:
-                click.echo(f"Error: Source '{source}' not found.", err=True)
-            ctx.exit(1)
-
-        # Map CLI mode to IngestionMode
-        mode_map = {
-            "full": IngestionMode.FULL,
-            "incremental": IngestionMode.INCREMENTAL,
-            "since-last": IngestionMode.SINCE_LAST,
-        }
-        ingestion_mode = mode_map[mode]
-
-        # Create pipeline config
-        pipeline_config = {
-            "sources": sources,
-            "state_dir": str(config.state_dir),
-            "dry_run": dry_run,
-            "limit": limit,
-        }
-
-        # Create and run pipeline (synchronously)
-        # Note: The pipeline is async, so we need to run it in an event loop
-        async def run_import():
-            pipeline = IntakePipeline(config=pipeline_config)  # type: ignore
-            result = await pipeline.ingest(mode=ingestion_mode, source_id=source)
-            return result
-
-        result = _run_async(run_import())
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "success",
-                "imported": result.stats.issues_processed,
-                "specs_created": result.stats.specs_created,
-                "tasks_created": result.stats.tasks_created,
-                "errors": len(result.errors),
-                "dry_run": dry_run,
-            })
-        else:
-            click.echo("Issue Import")
-            click.echo("=" * 60)
-            click.echo(f"Mode: {mode}")
-            if dry_run:
-                click.echo("DRY RUN - No changes were made")
-            click.echo("")
-            click.echo(f"Issues processed: {result.stats.issues_processed}")
-            click.echo(f"Specs created: {result.stats.specs_created}")
-            click.echo(f"Tasks created: {result.stats.tasks_created}")
-            click.echo(f"Errors: {len(result.errors)}")
-
-            if result.errors:
-                click.echo("\nErrors:")
-                for error in result.errors[:5]:  # Show first 5 errors
-                    click.echo(f"  - {error}")
-
-    except Exception as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error importing issues: {e}", err=True)
-        ctx.exit(1)
-
-
-@intake.command("sync")
-@click.option(
-    "--source",
-    "-s",
     type=str,
     default=None,
-    help="Source ID to sync (default: all configured sources).",
+    help="Unique node identifier for this node.",
 )
-@click.option(
-    "--direction",
-    "-d",
-    type=click.Choice(["push", "pull", "bidirectional"]),
-    default="push",
-    help="Sync direction.",
-)
-@click.option(
-    "--dry-run",
-    "-n",
-    is_flag=True,
-    help="Show what would be synced without making changes.",
-)
-@click.pass_context
-def intake_sync(
-    ctx: click.Context,
-    source: Optional[str],
-    direction: str,
-    dry_run: bool,
-) -> None:
-    """
-    Sync issue status with external sources.
-
-    Pushes Autoflow task status back to external issues or pulls
-    updates from external sources.
-
-    \b
-    Examples:
-        autoflow intake sync
-        autoflow intake sync --source github-example
-        autoflow intake sync --direction pull
-        autoflow intake sync --dry-run
-    """
-    from autoflow.intake import SyncManager, SyncDirection
-
-    config: Config = ctx.obj["config"]
-
-    if not config.intake.sources:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "No intake sources configured.",
-            })
-        else:
-            click.echo("Error: No intake sources configured.", err=True)
-        ctx.exit(1)
-
-    try:
-        # Get the sources to sync
-        sources = (
-            [s for s in config.intake.sources if s.id == source]
-            if source
-            else config.intake.sources
-        )
-
-        if not sources:
-            if ctx.obj["output_json"]:
-                _print_json({
-                    "status": "error",
-                    "message": f"Source '{source}' not found.",
-                })
-            else:
-                click.echo(f"Error: Source '{source}' not found.", err=True)
-            ctx.exit(1)
-
-        # Map CLI direction to SyncDirection
-        direction_map = {
-            "push": SyncDirection.PUSH,
-            "pull": SyncDirection.PULL,
-            "bidirectional": SyncDirection.BIDIRECTIONAL,
-        }
-        sync_direction = direction_map[direction]
-
-        # Create sync manager config
-        sync_config = {
-            "sources": sources,
-            "state_dir": str(config.state_dir),
-            "dry_run": dry_run,
-        }
-
-        # Create and run sync (synchronously)
-        async def run_sync():
-            manager = SyncManager(config=sync_config)  # type: ignore
-            result = await manager.sync(direction=sync_direction, source_id=source)
-            return result
-
-        result = _run_async(run_sync())
-
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "success",
-                "direction": direction,
-                "issues_updated": result.stats.issues_updated,
-                "tasks_updated": result.stats.tasks_updated,
-                "errors": len(result.errors),
-                "dry_run": dry_run,
-            })
-        else:
-            click.echo("Issue Sync")
-            click.echo("=" * 60)
-            click.echo(f"Direction: {direction}")
-            if dry_run:
-                click.echo("DRY RUN - No changes were made")
-            click.echo("")
-            click.echo(f"Issues updated: {result.stats.issues_updated}")
-            click.echo(f"Tasks updated: {result.stats.tasks_updated}")
-            click.echo(f"Errors: {len(result.errors)}")
-
-            if result.errors:
-                click.echo("\nErrors:")
-                for error in result.errors[:5]:  # Show first 5 errors
-                    click.echo(f"  - {error}")
-
-    except Exception as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error syncing issues: {e}", err=True)
-        ctx.exit(1)
-
-
-@intake.command("status")
-@click.option(
-    "--source",
-    "-s",
-    type=str,
-    default=None,
-    help="Source ID to show status for (default: all sources).",
-)
-@click.option(
-    "--detailed",
-    "-d",
-    is_flag=True,
-    help="Show detailed status information.",
-)
-@click.pass_context
-def intake_status(
-    ctx: click.Context,
-    source: Optional[str],
-    detailed: bool,
-) -> None:
-    """
-    Show issue intake system status.
-
-    Displays the current state of configured sources, recent imports,
-    and sync information.
-
-    \b
-    Examples:
-        autoflow intake status
-        autoflow intake status --source github-example
-        autoflow intake status --detailed
-    """
-    from autoflow.intake import SyncManager
-
-    config: Config = ctx.obj["config"]
-    state_manager = _get_state_manager(config)
-
-    try:
-        # Filter sources if specified
-        sources = (
-            [s for s in config.intake.sources if s.id == source]
-            if source
-            else config.intake.sources
-        )
-
-        if not sources:
-            click.echo(f"Error: Source '{source}' not found.", err=True)
-            ctx.exit(1)
-
-        if ctx.obj["output_json"]:
-            source_data = []
-            for s in sources:
-                source_data.append({
-                    "id": s.id,
-                    "type": s.type,
-                    "name": s.name,
-                    "enabled": s.enabled,
-                    "url": s.url,
-                })
-            _print_json({
-                "sources": source_data,
-                "count": len(sources),
-                "state_dir": str(config.state_dir),
-            })
-        else:
-            click.echo("Issue Intake Status")
-            click.echo("=" * 60)
-            click.echo(f"State Directory: {config.state_dir}")
-            click.echo(f"Sources Configured: {len(sources)}")
-            click.echo("")
-
-            for s in sources:
-                status_icon = "✓" if s.enabled else "✗"
-                click.echo(f"{status_icon} [{s.id}] {s.type}: {s.name}")
-                click.echo(f"  URL: {s.url}")
-
-                if detailed:
-                    # Get sync state for this source
-                    sync_state_file = (
-                        Path(config.state_dir) / "intake" / "sync" / f"{s.id}.json"
-                    )
-                    if sync_state_file.exists():
-                        import json
-                        with open(sync_state_file) as f:
-                            sync_state = json.load(f)
-                        click.echo(f"  Last Sync: {sync_state.get('last_sync_at', 'Never')}")
-                        click.echo(f"  Mappings: {len(sync_state.get('mappings', []))}")
-
-                click.echo("")
-
-    except Exception as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error getting status: {e}", err=True)
-        ctx.exit(1)
-
-
-@intake.command("webhook")
 @click.option(
     "--host",
-    "-H",
+    "-h",
     type=str,
-    default="127.0.0.1",
-    help="Host to bind the server to.",
+    default="localhost",
+    help="Host address for this node.",
 )
 @click.option(
     "--port",
     "-p",
     type=int,
     default=8080,
-    help="Port to listen on.",
+    help="Port for this node's server.",
 )
 @click.option(
-    "--path",
-    type=str,
-    default="/webhook",
-    help="Webhook endpoint path.",
-)
-@click.option(
-    "--no-verify",
+    "--force",
+    "-f",
     is_flag=True,
-    help="Disable webhook signature verification.",
+    help="Force re-initialization even if cluster state exists.",
 )
 @click.pass_context
-def intake_webhook(
+def cluster_init(
     ctx: click.Context,
+    cluster_id: Optional[str],
+    node_id: Optional[str],
     host: str,
     port: int,
-    path: str,
-    no_verify: bool,
+    force: bool,
 ) -> None:
     """
-    Start the webhook server for receiving issue events.
+    Initialize a new cluster or create a new node.
 
-    Starts a FastAPI-based webhook server that receives and processes
-    issue events from GitHub, GitLab, and Linear.
+    Creates the cluster state and initializes this node as the first member.
+    If joining an existing cluster, use 'autoflow cluster join' instead.
 
     \b
     Examples:
-        autoflow intake webhook
-        autoflow intake webhook --host 0.0.0.0 --port 8080
-        autoflow intake webhook --path /hooks
-        autoflow intake webhook --no-verify
+        autoflow cluster init
+        autoflow cluster init --cluster-id prod-cluster --node-id node-001
+        autoflow cluster init --host 0.0.0.0 --port 9090
     """
-    from autoflow.intake import WebhookServer, WebhookConfig
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
 
+    # Generate IDs if not provided
+    if not cluster_id:
+        cluster_id = f"cluster-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    if not node_id:
+        node_id = f"node-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+    try:
+        # Check if cluster already exists
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+        if cluster_state_file.exists() and not force:
+            if not ctx.obj["output_json"]:
+                click.echo(f"Cluster already initialized: {cluster_state_file}")
+                click.echo("Use --force to re-initialize.")
+            else:
+                _print_json({
+                    "status": "exists",
+                    "cluster_id": cluster_id,
+                    "message": "Cluster already exists. Use --force to re-initialize.",
+                })
+            ctx.exit(1)
+
+        # Create cluster directory structure
+        cluster_dir = state_manager.state_dir / "cluster"
+        cluster_dir.mkdir(parents=True, exist_ok=True)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "initialized",
+                "cluster_id": cluster_id,
+                "node_id": node_id,
+                "host": host,
+                "port": port,
+                "cluster_dir": str(cluster_dir),
+            })
+        else:
+            click.echo(f"Initialized cluster: {cluster_id}")
+            click.echo(f"  Node ID: {node_id}")
+            click.echo(f"  Address: {host}:{port}")
+            click.echo(f"  Cluster directory: {cluster_dir}")
+            click.echo("")
+            click.echo("Next steps:")
+            click.echo(f"  1. Start the node server: autoflow cluster start")
+            click.echo(f"  2. Other nodes can join: autoflow cluster join {host}:{port}")
+
+    except Exception as e:
+        click.echo(f"Error initializing cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("join")
+@click.argument("address", type=str)
+@click.option(
+    "--node-id",
+    "-n",
+    type=str,
+    default=None,
+    help="Unique node identifier for this node.",
+)
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="localhost",
+    help="Host address for this node.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port for this node's server.",
+)
+@click.option(
+    "--capability",
+    "-c",
+    multiple=True,
+    type=str,
+    help="Node capability (can be specified multiple times).",
+)
+@click.pass_context
+def cluster_join(
+    ctx: click.Context,
+    address: str,
+    node_id: Optional[str],
+    host: str,
+    port: int,
+    capability: tuple[str, ...],
+) -> None:
+    """
+    Join an existing cluster.
+
+    Registers this node with an existing cluster at the specified address.
+
+    \b
+    Examples:
+        autoflow cluster join localhost:8080
+        autoflow cluster join 192.168.1.100:8080 --node-id node-002
+        autoflow cluster join cluster.example.com:8080 --capability claude-code --capability python
+    """
+    config: Config = ctx.obj["config"]
+
+    # Generate node ID if not provided
+    if not node_id:
+        node_id = f"node-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+    capabilities = list(capability) if capability else ["general"]
+
+    try:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "node_id": node_id,
+                "cluster_address": address,
+                "host": host,
+                "port": port,
+                "capabilities": capabilities,
+                "message": "Cluster join requires async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Joining Cluster")
+            click.echo("=" * 60)
+            click.echo(f"  Node ID: {node_id}")
+            click.echo(f"  Cluster: {address}")
+            click.echo(f"  Local Address: {host}:{port}")
+            click.echo(f"  Capabilities: {', '.join(capabilities)}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster join")
+            click.echo("      requires async runtime and NodeClient.")
+
+    except Exception as e:
+        click.echo(f"Error joining cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("status")
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed cluster status.",
+)
+@click.option(
+    "--watch",
+    "-w",
+    is_flag=True,
+    help="Continuously update cluster status.",
+)
+@click.pass_context
+def cluster_status(
+    ctx: click.Context,
+    detailed: bool,
+    watch: bool,
+) -> None:
+    """
+    Show cluster status.
+
+    Displays information about the cluster including nodes, work distribution,
+    and health status.
+
+    \b
+    Examples:
+        autoflow cluster status
+        autoflow cluster status --detailed
+        autoflow cluster status --watch
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Try to load cluster state
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+
+        if not cluster_state_file.exists():
+            if not ctx.obj["output_json"]:
+                click.echo("No cluster initialized.")
+                click.echo("Use 'autoflow cluster init' to create a new cluster.")
+            else:
+                _print_json({
+                    "status": "not_initialized",
+                    "message": "No cluster initialized. Use 'autoflow cluster init' to create a new cluster.",
+                })
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "cluster_state_file": str(cluster_state_file),
+                "message": "Cluster status requires loading state and async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Cluster Status")
+            click.echo("=" * 60)
+            click.echo(f"  State File: {cluster_state_file}")
+            click.echo(f"  Detailed: {detailed}")
+            click.echo(f"  Watch Mode: {watch}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster status")
+            click.echo("      requires loading cluster state from file.")
+
+    except Exception as e:
+        click.echo(f"Error getting cluster status: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("leave")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force leave even if running work exists.",
+)
+@click.pass_context
+def cluster_leave(
+    ctx: click.Context,
+    force: bool,
+) -> None:
+    """
+    Leave the cluster.
+
+    Removes this node from the cluster and shuts down coordination.
+
+    \b
+    Examples:
+        autoflow cluster leave
+        autoflow cluster leave --force
+    """
+    config: Config = ctx.obj["config"]
+    state_manager = _get_state_manager(config)
+
+    try:
+        # Check if cluster exists
+        cluster_state_file = state_manager.state_dir / "cluster" / "cluster_state.json"
+
+        if not cluster_state_file.exists():
+            if not ctx.obj["output_json"]:
+                click.echo("No cluster initialized.")
+            else:
+                _print_json({
+                    "status": "not_initialized",
+                    "message": "No cluster initialized.",
+                })
+            ctx.exit(1)
+
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "placeholder",
+                "force": force,
+                "message": "Cluster leave requires async execution. This is a placeholder.",
+            })
+        else:
+            click.echo("Leaving Cluster")
+            click.echo("=" * 60)
+            click.echo(f"  Force: {force}")
+            click.echo("")
+            click.echo("Note: This is a CLI placeholder. Full cluster leave")
+            click.echo("      requires async runtime and NodeClient.")
+
+    except Exception as e:
+        click.echo(f"Error leaving cluster: {e}", err=True)
+        ctx.exit(1)
+
+
+@cluster.command("start")
+@click.option(
+    "--host",
+    "-h",
+    type=str,
+    default="localhost",
+    help="Host address for this node.",
+)
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=8080,
+    help="Port for this node's server.",
+)
+@click.option(
+    "--daemon",
+    "-d",
+    is_flag=True,
+    help="Run as a background daemon.",
+)
+@click.pass_context
+def cluster_start(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    daemon: bool,
+) -> None:
+    """
+    Start the cluster node server.
+
+    Starts the HTTP server for cluster coordination.
+
+    \b
+    Examples:
+        autoflow cluster start
+        autoflow cluster start --host 0.0.0.0 --port 9090
+        autoflow cluster start --daemon
+    """
     config: Config = ctx.obj["config"]
 
     try:
-        # Create webhook config
-        webhook_config = WebhookConfig(
-            host=host,
-            port=port,
-            path=path,
-            verify_signatures=not no_verify,
-        )
-
-        # Create and start server
-        server = WebhookServer(config=webhook_config)
-
         if ctx.obj["output_json"]:
             _print_json({
-                "status": "starting",
+                "status": "placeholder",
                 "host": host,
                 "port": port,
-                "path": path,
-                "verify_signatures": not no_verify,
+                "daemon": daemon,
+                "message": "Cluster start requires async execution. This is a placeholder.",
             })
         else:
-            click.echo("Starting Webhook Server")
+            click.echo("Starting Cluster Node Server")
             click.echo("=" * 60)
-            click.echo(f"Host: {host}")
-            click.echo(f"Port: {port}")
-            click.echo(f"Path: {path}")
-            click.echo(f"Signature Verification: {not no_verify}")
+            click.echo(f"  Host: {host}")
+            click.echo(f"  Port: {port}")
+            click.echo(f"  Daemon mode: {daemon}")
             click.echo("")
-            click.echo(f"Webhook URL: http://{host}:{port}{path}")
-            click.echo("")
-            click.echo("Press Ctrl+C to stop the server")
-            click.echo("")
-
-        # Start the server (blocking)
-        _run_async(server.start())
-
-    except ImportError as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": "Missing dependencies",
-                "error": str(e),
-            })
-        else:
-            click.echo("Error: Missing required dependencies.", err=True)
-            click.echo("Install them with: pip install fastapi uvicorn", err=True)
-            click.echo(f"Details: {e}", err=True)
-        ctx.exit(1)
+            click.echo("Note: This is a CLI placeholder. Full server start")
+            click.echo("      requires async runtime and NodeServer.")
 
     except Exception as e:
-        if ctx.obj["output_json"]:
-            _print_json({
-                "status": "error",
-                "message": str(e),
-            })
-        else:
-            click.echo(f"Error starting webhook server: {e}", err=True)
+        click.echo(f"Error starting cluster server: {e}", err=True)
         ctx.exit(1)
+
+
+@cluster.command("stop")
+@click.pass_context
+def cluster_stop(ctx: click.Context) -> None:
+    """Stop the cluster node server."""
+    if ctx.obj["output_json"]:
+        _print_json({
+            "status": "placeholder",
+            "message": "Cluster stop requires async execution. This is a placeholder.",
+        })
+    else:
+        click.echo("Stopping Cluster Node Server...")
+        click.echo("")
+        click.echo("Note: This is a CLI placeholder. Full server stop")
+        click.echo("      requires async runtime.")
+
+
+# Register config command group
+main.add_command(config_cmd, name="config")
 
 
 if __name__ == "__main__":

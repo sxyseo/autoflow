@@ -1,0 +1,12 @@
+{
+  "description": "Example distributed configuration for multi-node coordination",
+  "distributed": {
+    "node_id": "node-1",
+    "listen_address": "localhost:8080",
+    "seed_nodes": [
+      "localhost:8080",
+      "node-2.example.com:8080",
+      "node-3.example.com:8080"
+    ]
+  }
+}

@@ -1,5 +1,17 @@
 {
   "active": true,
+<<<<<<< HEAD
+  "spec": "019-distributed-agent-coordination",
+  "state": "building",
+  "subtasks": {
+    "completed": 20,
+    "total": 24,
+    "in_progress": 1,
+    "failed": 0
+  },
+  "phase": {
+    "current": "Integration and CLI",
+=======
   "spec": "036-improve-type-safety-and-reduce-any-usage",
   "state": "building",
   "subtasks": {
@@ -10,6 +22,7 @@
   },
   "phase": {
     "current": "Ensure Mypy Compatibility",
+>>>>>>> origin/main
     "id": null,
     "total": 3
   },
@@ -18,8 +31,15 @@
     "max": 1
   },
   "session": {
+<<<<<<< HEAD
+    "number": 3,
+    "started_at": "2026-03-09T14:00:52.947579"
+  },
+  "last_update": "2026-03-09T14:04:10.153061"
+=======
     "number": 18,
     "started_at": "2026-03-10T21:16:24.370879"
   },
   "last_update": "2026-03-10T22:30:00.000000"
+>>>>>>> origin/main
 }
