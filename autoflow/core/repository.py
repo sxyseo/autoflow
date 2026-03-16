@@ -42,7 +42,6 @@ from typing import Any, Optional, Union
 from pydantic import BaseModel, Field, field_validator
 
 from autoflow.core.state import StateManager
-from autoflow.core.types import RepositoryDependencyMetadata
 
 
 class BranchConfig(BaseModel):
@@ -117,12 +116,12 @@ class RepositoryDependency(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     """Timestamp when this dependency was created."""
 
-    metadata: RepositoryDependencyMetadata = Field(default_factory=dict)  # type: ignore[assignment]
+    metadata: dict[str, Any] = Field(default_factory=dict)
     """
     Additional metadata about the dependency.
 
-    Provides structured metadata including validation status, notes,
-    auto-update preferences, and related task tracking.
+    Provides flexible metadata for storing arbitrary key-value pairs
+    such as validation status, notes, tags, or custom fields.
     """
 
     def is_satisfied_by(
