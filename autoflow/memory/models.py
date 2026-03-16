@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 
 class MemoryType(str, Enum):
@@ -58,6 +59,140 @@ class MemoryScope(str, Enum):
     SPEC = "spec"
     PROJECT = "project"
     GLOBAL = "global"
+
+
+# === TypedDict Definitions for Memory Structures ===
+# These provide type hints for dictionary representations of the models
+
+
+class MetadataDict(TypedDict, total=False):
+    """
+    Generic TypedDict for metadata fields used across memory models.
+
+    Provides a common type structure for metadata dictionaries used in
+    EnhancedMemory, Pattern, Convention, and ConsolidationRecord models.
+    All fields are optional to support flexible metadata.
+
+    Common metadata fields include:
+    - created_by: Agent or user who created the entity
+    - updated_by: Agent or user who last updated the entity
+    - source: Source system or process
+    - tags: List of tags for categorization
+    - archived: Whether the entity is archived
+    - priority: Custom priority values
+    - Any additional string-keyed values
+    """
+
+    created_by: str
+    updated_by: str
+    source: str
+    tags: list[str]
+    archived: bool
+    priority: int
+
+
+def _empty_metadata() -> MetadataDict:
+    """Return empty metadata dict."""
+    return {}
+
+
+class MemoryData(TypedDict, total=False):
+    """
+    TypedDict for memory data structure.
+
+    Represents the dictionary form of an EnhancedMemory, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    content: str
+    memory_type: str  # MemoryType value as string
+    scope: str  # MemoryScope value as string
+    spec_id: str | None
+    project_id: str | None
+    embedding: list[float] | None
+    importance: float
+    access_count: int
+    last_accessed_at: str | None  # ISO format datetime
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    expires_at: str | None  # ISO format datetime
+    metadata: MetadataDict
+    tags: list[str]
+    source: str
+    confidence: float
+
+
+class PatternData(TypedDict, total=False):
+    """
+    TypedDict for pattern data structure.
+
+    Represents the dictionary form of a Pattern, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    description: str
+    pattern_type: str  # PatternType value as string
+    indicators: list[str]
+    occurrences: int
+    confidence: float
+    scope: str  # MemoryScope value as string
+    spec_id: str | None
+    project_id: str | None
+    examples: list[str]
+    mitigation: str | None
+    reinforcement: str | None
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    metadata: MetadataDict
+    tags: list[str]
+
+
+class ConventionData(TypedDict, total=False):
+    """
+    TypedDict for convention data structure.
+
+    Represents the dictionary form of a Convention, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    name: str
+    category: str
+    description: str
+    value: Any
+    confidence: float
+    scope: str  # MemoryScope value as string
+    project_id: str | None
+    evidence: list[str]
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    metadata: MetadataDict
+    tags: list[str]
+
+
+class ConsolidationRecordData(TypedDict, total=False):
+    """
+    TypedDict for consolidation record data structure.
+
+    Represents the dictionary form of a ConsolidationRecord, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    run_id: str
+    spec_id: str
+    status: str
+    memories_created: int
+    patterns_identified: int
+    conventions_detected: int
+    started_at: str  # ISO format datetime
+    completed_at: str | None  # ISO format datetime
+    duration_seconds: float | None
+    error: str | None
+    metadata: MetadataDict
 
 
 class EnhancedMemory(BaseModel):
@@ -101,7 +236,7 @@ class EnhancedMemory(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: Optional[datetime] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
     source: str = "manual"
     confidence: float = 1.0
@@ -312,7 +447,7 @@ class Pattern(BaseModel):
     reinforcement: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -416,7 +551,7 @@ class Convention(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
     tags: list[str] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -508,7 +643,7 @@ class ConsolidationRecord(BaseModel):
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
     error: Optional[str] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=_empty_metadata)
 
     def start(self) -> None:
         """Mark consolidation as started."""

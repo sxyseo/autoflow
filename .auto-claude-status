@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "098-add-module-level-documentation-to-test-files",
+  "spec": "036-improve-type-safety-and-reduce-any-usage",
   "state": "building",
   "subtasks": {
-    "completed": 2,
-    "total": 25,
-    "in_progress": 1,
+    "completed": 17,
+    "total": 21,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "CLI Tests Documentation",
+    "current": "Ensure Mypy Compatibility",
     "id": null,
-    "total": 5
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
-    "started_at": "2026-03-16T22:01:47.002165"
+    "number": 18,
+    "started_at": "2026-03-10T21:16:24.370879"
   },
-  "last_update": "2026-03-16T22:07:10.491747"
+  "last_update": "2026-03-10T22:30:00.000000"
 }

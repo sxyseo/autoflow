@@ -530,7 +530,7 @@ class IntakePipeline:
                 )
 
             # Get issues from response
-            issues_data = list_result.data.get("issues", [])
+            issues_data = (list_result.data or {}).get("issues", [])
             result.issues_fetched = len(issues_data)
 
             if not issues_data:

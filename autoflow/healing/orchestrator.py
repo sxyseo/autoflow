@@ -743,7 +743,8 @@ class HealingOrchestrator:
         )
 
         # Check if we should escalate
-        if self.escalation_manager.should_escalate(self._current_session.healing_attempts):
+        # Session should exist at this point since we created it earlier in the flow
+        if self._current_session and self.escalation_manager.should_escalate(self._current_session.healing_attempts):
             return await self._escalate(None, new_assessment)
 
         return HealingOutcome.FAILED

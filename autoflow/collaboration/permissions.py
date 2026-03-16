@@ -31,7 +31,7 @@ class PermissionConfig:
     workspace_inheritance: bool = True
     require_explicit: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return {
             "default_allow": self.default_allow,

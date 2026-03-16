@@ -177,7 +177,7 @@ class DiagnosticResult:
     health_status: WorkflowHealthStatus
     root_causes: list[RootCause]
     primary_cause: RootCause | None
-    degradation_signals: list[dict]
+    degradation_signals: list[dict[str, Any]]
     metadata: dict[str, Any]
     healing_plan: dict[str, Any]
     requires_escalation: bool
