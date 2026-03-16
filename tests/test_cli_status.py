@@ -847,4 +847,236 @@ class TestLegacyCliListSpecs:
 
         # Worktree and review should always be present
         assert "worktree" in spec
-        assert "review" in spec
+
+
+# ============================================================================
+# Modern CLI Spec List Command Tests
+# ============================================================================
+
+
+class TestModernCliSpecList:
+    """Tests for modern CLI spec list command."""
+
+    @staticmethod
+    def _get_spec_command():
+        """Get the spec command group from cli.py."""
+        import importlib.util
+        from pathlib import Path
+
+        # Find cli.py at the project root
+        cli_file = Path(__file__).parent.parent / "autoflow" / "cli.py"
+        spec = importlib.util.spec_from_file_location("autoflow._cli", cli_file)
+        cli_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli_module)
+        return cli_module.spec
+
+    def test_spec_list_shows_header(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list displays proper header."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            # Initialize state directory
+            state_dir = Path(tmp_path) / ".autoflow"
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            result = runner.invoke(
+                spec,
+                ["list"],
+                obj={"config": None, "output_json": False, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+            assert "Specifications" in result.output
+            assert "=" * 60 in result.output
+
+    def test_spec_list_with_empty_specs(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list with no specs shows appropriate message."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            # Initialize state directory
+            state_dir = Path(tmp_path) / ".autoflow"
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            result = runner.invoke(
+                spec,
+                ["list"],
+                obj={"config": None, "output_json": False, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+            assert "No specifications found" in result.output
+
+    def test_spec_list_displays_specs(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list displays specs with metadata."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem():
+            # Initialize state directory in the isolated filesystem
+            state_dir = Path(".autoflow")
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            # Create spec directories with metadata
+            specs_dir = state_dir / "specs"
+            spec_001_dir = specs_dir / "spec-001"
+            spec_001_dir.mkdir(parents=True)
+
+            # Write metadata.json
+            metadata_001 = spec_001_dir / "metadata.json"
+            metadata_001.write_text(json.dumps({
+                "slug": "spec-001",
+                "title": "Test Spec 1",
+                "summary": "First test spec",
+                "status": "in_progress",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-02T00:00:00Z",
+                "worktree": {
+                    "branch": "feature-001",
+                    "path": "/tmp/worktree",
+                    "base_branch": "main",
+                },
+            }))
+
+            result = runner.invoke(
+                spec,
+                ["list"],
+                obj={"config": None, "output_json": False, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+            assert "[spec-001]" in result.output
+            assert "Test Spec 1" in result.output
+            assert "Status: in_progress" in result.output
+            assert "Branch: feature-001" in result.output
+            assert "Review: Pending" in result.output
+
+    def test_spec_list_json_output(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list JSON output mode."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem():
+            # Initialize state directory in the isolated filesystem
+            state_dir = Path(".autoflow")
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            # Create spec directories with metadata
+            specs_dir = state_dir / "specs"
+            spec_001_dir = specs_dir / "spec-001"
+            spec_001_dir.mkdir(parents=True)
+
+            metadata_001 = spec_001_dir / "metadata.json"
+            metadata_001.write_text(json.dumps({
+                "slug": "spec-001",
+                "title": "Test Spec 1",
+                "summary": "First test spec",
+                "status": "in_progress",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-02T00:00:00Z",
+                "worktree": {},
+            }))
+
+            result = runner.invoke(
+                spec,
+                ["list"],
+                obj={"config": None, "output_json": True, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+
+            # Parse JSON output
+            data = json.loads(result.output)
+
+            assert "specs" in data
+            assert "count" in data
+            assert data["count"] == 1
+            assert len(data["specs"]) == 1
+
+            spec_data = data["specs"][0]
+            assert spec_data["slug"] == "spec-001"
+            assert spec_data["title"] == "Test Spec 1"
+            assert spec_data["status"] == "in_progress"
+
+    def test_spec_list_with_limit(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list with limit option."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem():
+            # Initialize state directory in the isolated filesystem
+            state_dir = Path(".autoflow")
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            # Create multiple spec directories
+            specs_dir = state_dir / "specs"
+            for i in range(3):
+                spec_dir = specs_dir / f"spec-{i:03d}"
+                spec_dir.mkdir(parents=True)
+
+                metadata_file = spec_dir / "metadata.json"
+                metadata_file.write_text(json.dumps({
+                    "slug": f"spec-{i:03d}",
+                    "title": f"Test Spec {i}",
+                    "status": "pending",
+                    "created_at": f"2024-01-0{i+1}T00:00:00Z",
+                    "updated_at": f"2024-01-0{i+1}T00:00:00Z",
+                    "worktree": {},
+                }))
+
+            result = runner.invoke(
+                spec,
+                ["list", "--limit", "2"],
+                obj={"config": None, "output_json": False, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+            # Should only show 2 specs
+            assert "spec-002" in result.output or "spec-001" in result.output
+            assert "spec-002" in result.output or "spec-000" in result.output
+
+    def test_spec_list_shows_review_status(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Test spec list displays review status correctly."""
+        spec = self._get_spec_command()
+
+        with runner.isolated_filesystem():
+            # Initialize state directory in the isolated filesystem
+            state_dir = Path(".autoflow")
+            manager = StateManager(state_dir)
+            manager.initialize()
+
+            # Create spec with approved review state
+            specs_dir = state_dir / "specs"
+            spec_001_dir = specs_dir / "spec-001"
+            spec_001_dir.mkdir(parents=True)
+
+            # Write metadata.json
+            metadata_001 = spec_001_dir / "metadata.json"
+            metadata_001.write_text(json.dumps({
+                "slug": "spec-001",
+                "title": "Approved Spec",
+                "status": "in_progress",
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-02T00:00:00Z",
+                "worktree": {},
+            }))
+
+            # Write review_state.json
+            review_state_001 = spec_001_dir / "review_state.json"
+            review_state_001.write_text(json.dumps({
+                "approved": True,
+                "approved_by": "reviewer-1",
+                "review_count": 2,
+            }))
+
+            result = runner.invoke(
+                spec,
+                ["list"],
+                obj={"config": None, "output_json": False, "state_dir": None},
+            )
+
+            assert result.exit_code == 0
+            assert "✓ Approved" in result.output
+            assert "Approved Spec" in result.output

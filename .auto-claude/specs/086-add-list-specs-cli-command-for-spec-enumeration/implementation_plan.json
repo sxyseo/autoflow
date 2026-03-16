@@ -103,8 +103,8 @@
             "command": "python3 -m pytest tests/test_cli_status.py -k list_specs -v",
             "expected": "PASSED"
           },
-          "status": "pending",
-          "notes": "Add tests to verify the legacy CLI list-specs command outputs all required metadata fields. Follow the pattern from tests/test_state.py test_list_specs_all."
+          "status": "completed",
+          "notes": "Added TestLegacyCliListSpecs class with 4 comprehensive tests:\n- test_list_specs_outputs_all_required_fields: Verifies all required fields (slug, title, summary, status, created_at, updated_at, worktree, review) with subfields (path, branch, base_branch, approved, approved_by, review_count)\n- test_list_specs_with_empty_specs_dir: Verifies empty array returned when no specs exist\n- test_list_specs_sorts_by_created_at_descending: Verifies specs sorted by created_at descending (newest first)\n- test_list_specs_handles_missing_fields_gracefully: Verifies missing optional fields get default values\n\nVerification passed: All 4 tests PASSED.\n\nCommitted as: eb3fe08"
         },
         {
           "id": "subtask-3-2",
@@ -231,5 +231,5 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-16T00:09:08.246Z"
+  "updated_at": "2026-03-16T00:25:00.000Z"
 }
