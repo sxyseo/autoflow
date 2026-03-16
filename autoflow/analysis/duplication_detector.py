@@ -20,6 +20,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from autoflow.utils.file_helpers import load_json
+
 # Import QA findings types for adapter
 try:
     from autoflow.review.qa_findings import QAFinding, QAFindingReport, SeverityLevel
@@ -551,8 +553,12 @@ class DuplicationDetector:
         """
         Load duplication threshold from configuration file.
 
+        Loads configuration from .autoflow/duplication.json with proper defaults.
+        Uses the load_json helper for consistent error handling.
+
         Args:
-            config_path: Path to configuration file (relative to work_dir)
+            config_path: Path to configuration file (relative to work_dir).
+                        Defaults to .autoflow/duplication.json if not provided.
 
         Returns:
             DuplicationThreshold with configured values
@@ -566,18 +572,14 @@ class DuplicationDetector:
         else:
             config_file = self.work_dir / ".autoflow" / "duplication.json"
 
-        if not config_file.exists():
+        # Use load_json helper with empty dict as default if file doesn't exist
+        config = load_json(config_file, default={})
+
+        # If file doesn't exist or is empty, return default threshold
+        if not config:
             return DuplicationThreshold()
 
-        try:
-            config = json.loads(config_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
-            raise json.JSONDecodeError(
-                f"Invalid JSON in config file {config_file}: {e.msg}",
-                e.doc,
-                e.pos,
-            )
-
+        # Create threshold from config with defaults
         threshold = DuplicationThreshold(
             minimum_similarity=config.get("minimum_similarity", 0.7),
             minimum_lines=config.get("minimum_lines", 5),
