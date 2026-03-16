@@ -639,6 +639,63 @@ class TypeCheckGate(BaseGate):
         return f"Type errors found: {passed}/{total} passed, {failed} failures"
 
 
+class DuplicationGate(BaseGate):
+    """
+    Gate for running code duplication detection.
+
+    Runs duplication detection tools to identify similar or identical code
+    blocks that could be refactored. Helps maintain code quality and reduce
+    maintenance burden.
+
+    Example:
+        >>> gate = DuplicationGate()
+        >>> gate.add_check("jscpd", ["npx", "jscpd", "."])
+        >>> result = await gate.run(workdir="/project")
+        >>> if result.passed:
+        ...     print("No code duplication detected!")
+    """
+
+    gate_type = "duplication"
+    gate_name = "Duplication"
+
+    default_checks: list[CheckDefinition] = [
+        CheckDefinition(
+            name="code-duplication-detection",
+            check_type=CheckType.DUPLICATION,
+            command=[
+                "python",
+                "-m",
+                "autoflow.ci.duplication_detector",
+                "detect",
+                "--output-format",
+                "json",
+            ],
+            timeout_seconds=180,
+            required=False,  # Duplication detection is informational
+        ),
+    ]
+
+    def _get_check_type(self) -> CheckType:
+        return CheckType.DUPLICATION
+
+    def _create_result(self) -> GateResult:
+        return GateResult(
+            gate_name=self.gate_name,
+            gate_type=self.gate_type,
+        )
+
+    def _generate_summary(self, result: GateResult) -> str:
+        total = result.total_checks
+        passed = len(result.passed_checks)
+        failed = len(result.failed_checks)
+
+        if result.passed:
+            if failed > 0:
+                return f"Code duplication check passed with warnings: {passed}/{total} checks passed"
+            return f"No code duplication detected: {passed}/{total} checks passed"
+        return f"Code duplication detected: {passed}/{total} passed, {failed} findings"
+
+
 class SymphonyCheckpointGate(BaseGate):
     """
     Checkpoint-aware review gate that integrates with Symphony framework.

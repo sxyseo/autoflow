@@ -49,6 +49,7 @@ class CheckType(StrEnum):
     SECURITY = "security"
     FORMAT = "format"
     BUILD = "build"
+    DUPLICATION = "duplication"
     CUSTOM = "custom"
 
 
