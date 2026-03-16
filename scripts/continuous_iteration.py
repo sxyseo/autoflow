@@ -5,14 +5,31 @@ import argparse
 import json
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import load_config, load_json, run_cmd
+
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
+run = run_cmd
 
 
 class CommandExecutionError(Exception):
@@ -150,29 +167,13 @@ def validate_slug_safe(slug: str) -> bool:
     return not (len(slug) >= 2 and slug[1] == ":")
 
 
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
-
-
-def load_config(path: str) -> dict[str, Any]:
-    content = (ROOT / path).read_text(encoding="utf-8")
-    return json.loads(content)  # type: ignore[no-any-return]
-
-
-def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not path.exists():
-        return default or {}
-    content = path.read_text(encoding="utf-8")
-    return json.loads(content)  # type: ignore[no-any-return]
-
-
 def git_dirty() -> bool:
-    result = run(["git", "status", "--porcelain"])
+    result = run(["git", "status", "--porcelain"], cwd=ROOT)
     return bool(result.stdout.strip())
 
 
 def git_branch() -> str:
-    result = run(["git", "branch", "--show-current"])
+    result = run(["git", "branch", "--show-current"], cwd=ROOT)
     return result.stdout.strip()
 
 
@@ -416,11 +417,11 @@ def auto_commit(config: dict[str, Any], spec: str, push: bool, state: dict[str, 
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     message_prefix = commit_cfg.get("message_prefix", "autoflow")
     message = f"{message_prefix}: {spec} iteration @ {timestamp}"
-    run(["git", "add", "-A"])
-    run(["git", "commit", "-m", message])
+    run(["git", "add", "-A"], cwd=ROOT)
+    run(["git", "commit", "-m", message], cwd=ROOT)
     pushed = False
     if push or commit_cfg.get("push", False):
-        run(["git", "push", "origin", git_branch()])
+        run(["git", "push", "origin", git_branch()], cwd=ROOT)
         pushed = True
 
     # Convert to dicts for successful commit
@@ -445,12 +446,12 @@ def auto_commit(config: dict[str, Any], spec: str, push: bool, state: dict[str, 
 
 
 def workflow_state(spec: str) -> dict[str, Any]:
-    result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
+    result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec], cwd=ROOT)
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
 def task_history(spec: str, task: str) -> list[dict[str, Any]]:
-    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
+    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task], cwd=ROOT)
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
@@ -458,7 +459,7 @@ def sync_agents(overwrite: bool = False) -> dict[str, Any]:
     cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
     if overwrite:
         cmd.append("--overwrite")
-    result = run(cmd)
+    result = run(cmd, cwd=ROOT)
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
@@ -480,7 +481,7 @@ def sweep_stale_runs(config: dict[str, Any], spec: str, dispatch: bool) -> dict[
         cmd.append("--auto-recover")
         if dispatch and recovery_cfg.get("dispatch_recovery", True):
             cmd.append("--dispatch-recovery")
-    result = run(cmd)
+    result = run(cmd, cwd=ROOT)
     return json.loads(result.stdout)  # type: ignore[no-any-return]
 
 
@@ -652,6 +653,7 @@ def dispatch_next(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str
     if dispatch:
         proc = run(
             ["bash", "scripts/workflow-dispatch.sh", spec, role, agent, next_action["id"]],
+            cwd=ROOT,
             check=True,
         )
         payload["tmux_session"] = proc.stdout.strip()
