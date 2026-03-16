@@ -110,6 +110,8 @@ from scripts.cli.utils import (
     write_json,
     write_run_metadata,
 )
+# Import worktree CLI module
+from scripts.cli import worktree
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -5049,24 +5051,11 @@ def build_parser() -> argparse.ArgumentParser:
     invalidate_cmd.add_argument("--reason", default="manual_invalidation")
     invalidate_cmd.set_defaults(func=invalidate_review)
 
-    worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
-    worktree_create_cmd.add_argument("--spec", required=True)
-    worktree_create_cmd.add_argument("--base-branch", default="")
-    worktree_create_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
-    worktree_create_cmd.add_argument("--force", action="store_true")
-    worktree_create_cmd.set_defaults(func=create_worktree)
-
-    worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
-    worktree_remove_cmd.add_argument("--spec", required=True)
-    worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
-    worktree_remove_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
-    worktree_remove_cmd.set_defaults(func=remove_worktree)
+    # Register worktree commands from worktree module
+    worktree.add_subparser(sub)
 
     list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
     list_specs_cmd.set_defaults(func=list_specs)
-
-    worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
-    worktree_list_cmd.set_defaults(func=list_worktrees)
 
     repo_add_cmd_parser = sub.add_parser("repo-add", help="register a repository with autoflow")
     repo_add_cmd_parser.add_argument("--id", required=True, help="unique repository identifier")
