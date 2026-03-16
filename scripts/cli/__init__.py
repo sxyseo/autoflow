@@ -10,6 +10,8 @@ Usage:
     from scripts.cli import spec, task, run, worktree
 
     # The package structure organizes commands by functionality:
+    # - base.py: Base Subcommand class and interfaces
+    # - utils.py: Shared utilities and constants
     # - spec.py: Spec-related commands (new-spec, show-spec, etc.)
     # - task.py: Task-related commands (init-tasks, list-tasks, etc.)
     # - run.py: Run-related commands (new-run, complete-run, etc.)
@@ -20,8 +22,8 @@ Usage:
     # - repository.py: Repository commands
     # - system.py: System commands
     # - integration.py: Integration commands
-    # - utils.py: Shared utilities
-    # - base.py: Base classes and interfaces
 """
 
-__all__ = []
+from scripts.cli.base import Subcommand
+
+__all__ = ["Subcommand"]
