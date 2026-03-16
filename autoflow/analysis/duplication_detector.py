@@ -463,7 +463,7 @@ class DuplicationDetector:
 
     def __init__(
         self,
-        threshold: DuplicationThreshold | None = None,
+        threshold: DuplicationThreshold | float | None = None,
         config_path: str | None = None,
         work_dir: str = ".",
     ):
@@ -471,43 +471,125 @@ class DuplicationDetector:
         Initialize duplication detector.
 
         Args:
-            threshold: Duplication threshold configuration
-            config_path: Path to configuration file
+            threshold: Duplication threshold configuration. Can be:
+                - DuplicationThreshold object with full configuration
+                - float value for minimum_similarity (0.0-1.0)
+                - None to load from config file or use defaults
+            config_path: Path to configuration file (relative to work_dir)
             work_dir: Working directory for file operations
+
+        Raises:
+            ValueError: If threshold value is outside valid range (0.0-1.0)
         """
         self.work_dir = Path(work_dir)
-        self.threshold = threshold or self._load_threshold(config_path)
+
+        # Handle different threshold input types
+        if threshold is None:
+            self.threshold = self._load_threshold(config_path)
+        elif isinstance(threshold, (int, float)):
+            # Validate threshold value
+            if not 0.0 <= threshold <= 1.0:
+                raise ValueError(
+                    f"threshold must be between 0.0 and 1.0, got {threshold}"
+                )
+            # Create DuplicationThreshold from float value
+            self.threshold = DuplicationThreshold(minimum_similarity=float(threshold))
+        elif isinstance(threshold, DuplicationThreshold):
+            # Validate threshold configuration
+            self._validate_threshold(threshold)
+            self.threshold = threshold
+        else:
+            raise TypeError(
+                f"threshold must be DuplicationThreshold, float, or None, "
+                f"got {type(threshold).__name__}"
+            )
+
+    def _validate_threshold(self, threshold: DuplicationThreshold) -> None:
+        """
+        Validate duplication threshold configuration.
+
+        Args:
+            threshold: DuplicationThreshold to validate
+
+        Raises:
+            ValueError: If threshold values are outside valid ranges
+        """
+        if not 0.0 <= threshold.minimum_similarity <= 1.0:
+            raise ValueError(
+                f"minimum_similarity must be between 0.0 and 1.0, "
+                f"got {threshold.minimum_similarity}"
+            )
+
+        if threshold.minimum_lines < 0:
+            raise ValueError(
+                f"minimum_lines must be non-negative, got {threshold.minimum_lines}"
+            )
+
+        if not 0.0 <= threshold.token_similarity_weight <= 1.0:
+            raise ValueError(
+                f"token_similarity_weight must be between 0.0 and 1.0, "
+                f"got {threshold.token_similarity_weight}"
+            )
+
+        if not 0.0 <= threshold.structure_similarity_weight <= 1.0:
+            raise ValueError(
+                f"structure_similarity_weight must be between 0.0 and 1.0, "
+                f"got {threshold.structure_similarity_weight}"
+            )
+
+        # Weights should sum to approximately 1.0 (allow small floating point errors)
+        total_weight = (
+            threshold.token_similarity_weight + threshold.structure_similarity_weight
+        )
+        if not 0.9 <= total_weight <= 1.1:
+            raise ValueError(
+                f"Sum of token_similarity_weight and structure_similarity_weight "
+                f"should be approximately 1.0, got {total_weight}"
+            )
 
     def _load_threshold(self, config_path: str | None = None) -> DuplicationThreshold:
         """
-        Load duplication threshold from configuration.
+        Load duplication threshold from configuration file.
 
         Args:
-            config_path: Path to configuration file
+            config_path: Path to configuration file (relative to work_dir)
 
         Returns:
             DuplicationThreshold with configured values
+
+        Raises:
+            json.JSONDecodeError: If config file exists but contains invalid JSON
+            ValueError: If config values are outside valid ranges
         """
         if config_path:
             config_file = self.work_dir / config_path
         else:
             config_file = self.work_dir / ".autoflow" / "duplication.json"
 
-        if config_file.exists():
-            try:
-                with open(config_file) as f:
-                    config = json.load(f)
-                    return DuplicationThreshold(
-                        minimum_similarity=config.get("minimum_similarity", 0.7),
-                        minimum_lines=config.get("minimum_lines", 5),
-                        token_similarity_weight=config.get("token_similarity_weight", 0.5),
-                        structure_similarity_weight=config.get("structure_similarity_weight", 0.5),
-                        file_overrides=config.get("file_overrides", {}),
-                    )
-            except (OSError, json.JSONDecodeError):
-                pass
+        if not config_file.exists():
+            return DuplicationThreshold()
 
-        return DuplicationThreshold()
+        try:
+            config = json.loads(config_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(
+                f"Invalid JSON in config file {config_file}: {e.msg}",
+                e.doc,
+                e.pos,
+            )
+
+        threshold = DuplicationThreshold(
+            minimum_similarity=config.get("minimum_similarity", 0.7),
+            minimum_lines=config.get("minimum_lines", 5),
+            token_similarity_weight=config.get("token_similarity_weight", 0.5),
+            structure_similarity_weight=config.get("structure_similarity_weight", 0.5),
+            file_overrides=config.get("file_overrides", {}),
+        )
+
+        # Validate loaded configuration
+        self._validate_threshold(threshold)
+
+        return threshold
 
     def detect(
         self,
