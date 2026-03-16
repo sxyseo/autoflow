@@ -79,7 +79,9 @@ from scripts.cli.utils import (
     WORKTREES_DIR,
     ensure_state,
     ensure_state as ensure_state_dirs,
+    invalidate_tasks_cache,
     load_spec_metadata,
+    load_tasks,
     now_stamp,
     now_utc,
     parse_stamp,
@@ -87,9 +89,11 @@ from scripts.cli.utils import (
     read_json,
     run_cmd,
     save_spec_metadata,
+    save_tasks,
     slugify,
     spec_dir,
     spec_files,
+    task_file,
     tmux_session_exists,
     validate_slug_safe,
     write_json,
@@ -306,21 +310,6 @@ def load_agents() -> dict[str, AgentSpec]:
         )
     _agents_config_cache = agents
     return _agents_config_cache
-
-
-def task_file(spec_slug: str) -> Path:
-    """
-    Get the task file path for a spec.
-
-    Args:
-        spec_slug: Spec slug identifier
-
-    Returns:
-        Path to the task JSON file
-    """
-    if not validate_slug_safe(spec_slug):
-        raise SystemExit(f"invalid spec slug: {spec_slug}")
-    return TASKS_DIR / f"{spec_slug}.json"
 
 
 def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
@@ -1145,48 +1134,6 @@ def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
     write_json(spec_files(spec_slug)["review_state"], state)
 
 
-def load_tasks(spec_slug: str) -> dict[str, Any]:
-    """
-    Load the tasks file for a spec using a lazy-loaded cache.
-
-    Reads and parses the tasks JSON file containing all tasks, their status,
-    and metadata. Exits with an error if the tasks file doesn't exist.
-
-    Cache Behavior:
-        This function uses an in-memory cache indexed by spec_slug to avoid
-        repeated disk I/O. On first call for a spec_slug, it loads the tasks
-        from disk. Subsequent calls return the cached data directly from memory.
-
-    Args:
-        spec_slug: Spec slug identifier
-
-    Returns:
-        Tasks dictionary with the following structure:
-        - tasks: List of task dictionaries, each containing:
-            - id: Unique task identifier (str)
-            - title: Task title (str)
-            - status: Task status from VALID_TASK_STATUSES (str)
-            - ...additional task metadata
-        - ...other top-level keys
-
-    Raises:
-        SystemExit: If the tasks file doesn't exist
-    """
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-
-    _populate_tasks_cache(spec_slug)
-    if spec_slug in _cache_loaded_task_specs:
-        return _tasks_metadata_cache.get(spec_slug, {})
-
-    path = task_file(spec_slug)
-    if not path.exists():
-        raise SystemExit(f"missing task file: {path}")
-    tasks_data = read_json(path)
-    _tasks_metadata_cache[spec_slug] = tasks_data
-    _cache_loaded_task_specs.add(spec_slug)
-    return tasks_data
-
-
 def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
     """
     Parse a dependency reference into (repository_id, task_id).
@@ -1865,25 +1812,6 @@ def review_status_summary(spec_slug: str) -> dict[str, Any]:
     }
 
 
-def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
-    """
-    Save task data for a spec and synchronize review state.
-
-    Updates the task data with a timestamp, writes it to the task file,
-    and triggers review state synchronization. The reason parameter allows
-    tracking why the task state was updated.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-        data: Task data dictionary to save
-        reason: Optional reason for task state update (default: "task_state_updated")
-    """
-    data["updated_at"] = now_stamp()
-    write_json(task_file(spec_slug), data)
-    invalidate_tasks_cache()
-    sync_review_state(spec_slug, reason=reason)
-
-
 def detect_base_branch() -> str:
     """
     Detect the git repository's base branch.
@@ -2228,8 +2156,6 @@ _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
 _system_config_cache: dict[str, Any] | None = None
 _agents_config_cache: dict[str, AgentSpec] | None = None
-_tasks_metadata_cache: dict[str, dict[str, Any]] = {}
-_cache_loaded_task_specs: set[str] = set()
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2452,69 +2378,6 @@ def invalidate_config_cache() -> None:
     """
     invalidate_system_config_cache()
     invalidate_agents_cache()
-
-
-def invalidate_tasks_cache() -> None:
-    """Invalidate the task metadata cache."""
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-    _tasks_metadata_cache.clear()
-    _cache_loaded_task_specs.clear()
-
-
-def _populate_tasks_cache(spec_slug: str) -> None:
-    """Load task metadata for a specific spec_slug into the cache.
-
-    This implements lazy-loading: tasks are only loaded from disk when needed.
-    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
-
-    Opportunistic Caching:
-        Since we must scan all task files to find tasks for the requested spec,
-        we opportunistically cache tasks for ALL specs encountered during the scan.
-        This means the first call for any spec effectively caches tasks for all specs,
-        making subsequent calls for other specs essentially free (O(1) lookup).
-
-    Cache Invalidation:
-        If the spec is already in _cache_loaded_task_specs, we skip the filesystem scan
-        entirely and return immediately. This ensures that after the first load,
-        all subsequent calls are pure memory lookups.
-
-    Args:
-        spec_slug: The spec identifier to load tasks for.
-    """
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-
-    # Skip if this spec has already been loaded (cache hit)
-    if spec_slug in _cache_loaded_task_specs:
-        return
-
-    # Ensure the spec has an entry in the cache
-    if spec_slug not in _tasks_metadata_cache:
-        _tasks_metadata_cache[spec_slug] = {}
-
-    # Load tasks from filesystem for this spec
-    # Note: We must scan all task files to find tasks matching this spec
-    if not TASKS_DIR.exists():
-        _cache_loaded_task_specs.add(spec_slug)
-        return
-
-    # First pass: discover all specs and collect their task data
-    # This enables opportunistic caching of all specs in one scan
-    spec_tasks = {}
-    for task_file_path in sorted(TASKS_DIR.iterdir()):
-        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
-            continue
-        # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
-        file_spec = task_file_path.stem
-        if file_spec:
-            task_data = read_json(task_file_path)
-            if task_data:
-                spec_tasks[file_spec] = task_data
-
-    # Second pass: add all discovered tasks to cache
-    # This implements opportunistic caching for all specs encountered
-    for discovered_spec, tasks in spec_tasks.items():
-        _tasks_metadata_cache[discovered_spec] = tasks
-        _cache_loaded_task_specs.add(discovered_spec)
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
@@ -3240,7 +3103,7 @@ def set_task_status(args: argparse.Namespace) -> None:
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": args.note or f"status set to {args.status}"}
     )
-    save_tasks(args.spec, data, reason="task_status_updated")
+    save_tasks(args.spec, data, reason="task_status_updated", sync_review_state_callback=sync_review_state)
     record_event(args.spec, "task.status_updated", {"task": args.task, "status": args.status})
     print_json(task)
 
@@ -3270,7 +3133,7 @@ def update_task_cmd(args: argparse.Namespace) -> None:
         task.setdefault("notes", []).append({"at": now_stamp(), "note": f"status set to {args.status}"})
     if not changed_fields:
         raise SystemExit("no task update provided")
-    save_tasks(args.spec, data, reason="task_updated")
+    save_tasks(args.spec, data, reason="task_updated", sync_review_state_callback=sync_review_state)
     record_event(args.spec, "task.updated", {"task": args.task, "fields": changed_fields})
     print(json.dumps(task, indent=2, ensure_ascii=True))
 
@@ -3282,7 +3145,7 @@ def reset_task_cmd(args: argparse.Namespace) -> None:
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": args.note or "task reset to todo"}
     )
-    save_tasks(args.spec, data, reason="task_reset")
+    save_tasks(args.spec, data, reason="task_reset", sync_review_state_callback=sync_review_state)
     record_event(args.spec, "task.reset", {"task": args.task})
     print(json.dumps(task, indent=2, ensure_ascii=True))
 
@@ -3800,7 +3663,7 @@ def create_run(args: argparse.Namespace) -> None:
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": f"run pending for role {args.role}"}
     )
-    save_tasks(args.spec, tasks, reason="task_status_updated")
+    save_tasks(args.spec, tasks, reason="task_status_updated", sync_review_state_callback=sync_review_state)
     run_dir = create_run_record(
         args.spec,
         args.role,
@@ -3841,7 +3704,7 @@ def resume_run(args: argparse.Namespace) -> None:
     task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
     task["status"] = "in_progress"
     task.setdefault("notes", []).append({"at": now_stamp(), "note": f"retry created from {args.run}"})
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated", sync_review_state_callback=sync_review_state)
     new_run = create_run_record(
         metadata["spec"],
         metadata["role"],
@@ -3893,7 +3756,7 @@ def recover_run_record(run_id: str, reason: str, dispatch: bool = False) -> dict
     task.setdefault("notes", []).append(
         {"at": now_stamp(), "note": f"recovery created from {run_id}: {reason}"}
     )
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated", sync_review_state_callback=sync_review_state)
 
     metadata["status"] = "recovered"
     metadata["recovered_at"] = now_stamp()
@@ -4005,7 +3868,7 @@ def sweep_runs_cmd(args: argparse.Namespace) -> None:
         )
 
     if task_updates:
-        save_tasks(args.spec, tasks, reason="run_sweep")
+        save_tasks(args.spec, tasks, reason="run_sweep", sync_review_state_callback=sync_review_state)
 
     print_json(
         {
@@ -4082,7 +3945,7 @@ def complete_run_record(
     }
     task["status"] = status_map[result]
     task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated", sync_review_state_callback=sync_review_state)
     next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
     fix_request_path = ""
     if metadata["role"] == "reviewer" and result in {"needs_changes", "blocked", "failed"}:
@@ -4204,7 +4067,7 @@ def cancel_run(args: argparse.Namespace) -> None:
     task = task_lookup(tasks, metadata["task"])
     task["status"] = "todo"
     task.setdefault("notes", []).append({"at": now_stamp(), "note": reason})
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated", sync_review_state_callback=sync_review_state)
     record_event(
         metadata["spec"],
         "run.cancelled",
@@ -5189,7 +5052,7 @@ def cleanup_runs_cmd(args: argparse.Namespace) -> None:
             {"run": metadata["id"], "status": args.target_status, "task": payload["task"]},
         )
     if task_updates:
-        save_tasks(args.spec, tasks, reason="run_cleanup")
+        save_tasks(args.spec, tasks, reason="run_cleanup", sync_review_state_callback=sync_review_state)
     invalidate_run_cache()
     print(
         json.dumps(

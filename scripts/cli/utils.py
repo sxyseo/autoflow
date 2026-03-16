@@ -36,7 +36,7 @@ import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -428,3 +428,160 @@ def ensure_state() -> None:
         DEPENDENCIES_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
+
+
+# Task file management functions
+
+def task_file(spec_slug: str) -> Path:
+    """
+    Get the task file path for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Path to the task JSON file
+    """
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
+    return TASKS_DIR / f"{spec_slug}.json"
+
+
+# Task metadata cache for performance optimization
+
+_tasks_metadata_cache: dict[str, dict[str, Any]] = {}
+_cache_loaded_task_specs: set[str] = set()
+
+
+def _populate_tasks_cache(spec_slug: str) -> None:
+    """Load task metadata for a specific spec_slug into the cache.
+
+    This implements lazy-loading: tasks are only loaded from disk when needed.
+    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
+
+    Opportunistic Caching:
+        Since we must scan all task files to find tasks for the requested spec,
+        we opportunistically cache tasks for ALL specs encountered during the scan.
+        This means the first call for any spec effectively caches tasks for all specs,
+        making subsequent calls for other specs essentially free (O(1) lookup).
+
+    Cache Invalidation:
+        If the spec is already in _cache_loaded_task_specs, we skip the filesystem scan
+        entirely and return immediately. This ensures that after the first load,
+        all subsequent calls are pure memory lookups.
+
+    Args:
+        spec_slug: The spec identifier to load tasks for.
+    """
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+
+    # Skip if this spec has already been loaded (cache hit)
+    if spec_slug in _cache_loaded_task_specs:
+        return
+
+    # Ensure the spec has an entry in the cache
+    if spec_slug not in _tasks_metadata_cache:
+        _tasks_metadata_cache[spec_slug] = {}
+
+    # Load tasks from filesystem for this spec
+    # Note: We must scan all task files to find tasks matching this spec
+    if not TASKS_DIR.exists():
+        _cache_loaded_task_specs.add(spec_slug)
+        return
+
+    # First pass: discover all specs and collect their task data
+    # This enables opportunistic caching of all specs in one scan
+    spec_tasks = {}
+    for task_file_path in sorted(TASKS_DIR.iterdir()):
+        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
+            continue
+        # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
+        file_spec = task_file_path.stem
+        if file_spec:
+            task_data = read_json(task_file_path)
+            if task_data:
+                spec_tasks[file_spec] = task_data
+
+    # Second pass: add all discovered tasks to cache
+    # This implements opportunistic caching for all specs encountered
+    for discovered_spec, tasks in spec_tasks.items():
+        _tasks_metadata_cache[discovered_spec] = tasks
+        _cache_loaded_task_specs.add(discovered_spec)
+
+
+def invalidate_tasks_cache() -> None:
+    """Invalidate the task metadata cache."""
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+    _tasks_metadata_cache.clear()
+    _cache_loaded_task_specs.clear()
+
+
+def load_tasks(spec_slug: str) -> dict[str, Any]:
+    """
+    Load the tasks file for a spec using a lazy-loaded cache.
+
+    Reads and parses the tasks JSON file containing all tasks, their status,
+    and metadata. Exits with an error if the tasks file doesn't exist.
+
+    Cache Behavior:
+        This function uses an in-memory cache indexed by spec_slug to avoid
+        repeated disk I/O. On first call for a spec_slug, it loads the tasks
+        from disk. Subsequent calls return the cached data directly from memory.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Tasks dictionary with the following structure:
+        - tasks: List of task dictionaries, each containing:
+            - id: Unique task identifier (str)
+            - title: Task title (str)
+            - status: Task status from VALID_TASK_STATUSES (str)
+            - ...additional task metadata
+        - ...other top-level keys
+
+    Raises:
+        SystemExit: If the tasks file doesn't exist
+    """
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+
+    _populate_tasks_cache(spec_slug)
+    if spec_slug in _cache_loaded_task_specs:
+        return _tasks_metadata_cache.get(spec_slug, {})
+
+    path = task_file(spec_slug)
+    if not path.exists():
+        raise SystemExit(f"missing task file: {path}")
+    tasks_data = read_json(path)
+    _tasks_metadata_cache[spec_slug] = tasks_data
+    _cache_loaded_task_specs.add(spec_slug)
+    return tasks_data
+
+
+def save_tasks(
+    spec_slug: str,
+    data: dict[str, Any],
+    *,
+    reason: str = "task_state_updated",
+    sync_review_state_callback: Callable[[str, str], dict[str, Any]] | None = None,
+) -> None:
+    """
+    Save task data for a spec and optionally synchronize review state.
+
+    Updates the task data with a timestamp, writes it to the task file,
+    invalidates the cache, and optionally triggers review state synchronization
+    via a callback function. The reason parameter allows tracking why the task
+    state was updated.
+
+    Args:
+        spec_slug: Slug identifier for the spec
+        data: Task data dictionary to save
+        reason: Optional reason for task state update (default: "task_state_updated")
+        sync_review_state_callback: Optional callback to sync review state after saving.
+                                     If provided, called with (spec_slug, reason).
+    """
+    data["updated_at"] = now_stamp()
+    write_json(task_file(spec_slug), data)
+    invalidate_tasks_cache()
+    if sync_review_state_callback:
+        sync_review_state_callback(spec_slug, reason=reason)
