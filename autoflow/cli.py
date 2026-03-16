@@ -2410,10 +2410,73 @@ def spec_list(
     List specifications.
 
     Shows specifications, optionally including archived ones.
+    Includes detailed metadata: status, worktree, and review information.
     """
     state_manager = _get_state_manager_from_ctx(ctx)
+    state_dir = state_manager.state_dir
 
-    specs = state_manager.list_specs(include_archived=archived)[:limit]
+    # Specs are stored as directories with metadata.json files
+    specs_dir = state_dir / "specs"
+
+    specs = []
+
+    if specs_dir.exists():
+        for spec_dir in sorted(specs_dir.iterdir()):
+            if not spec_dir.is_dir():
+                continue
+
+            # Load metadata.json
+            metadata_path = spec_dir / "metadata.json"
+            if not metadata_path.exists():
+                continue
+
+            try:
+                with open(metadata_path, encoding="utf-8") as f:
+                    metadata = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                continue
+
+            spec_slug = metadata.get("slug", spec_dir.name)
+
+            # Load review_state.json
+            review_state_path = spec_dir / "review_state.json"
+            review_state = {
+                "approved": False,
+                "approved_by": "",
+                "review_count": 0,
+            }
+
+            if review_state_path.exists():
+                try:
+                    with open(review_state_path, encoding="utf-8") as f:
+                        loaded_review = json.load(f)
+                        review_state = {
+                            "approved": loaded_review.get("approved", False),
+                            "approved_by": loaded_review.get("approved_by", ""),
+                            "review_count": loaded_review.get("review_count", 0),
+                        }
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+            # Build spec entry with detailed metadata
+            spec_entry = {
+                "slug": spec_slug,
+                "title": metadata.get("title", ""),
+                "summary": metadata.get("summary", ""),
+                "status": metadata.get("status", ""),
+                "created_at": metadata.get("created_at", ""),
+                "updated_at": metadata.get("updated_at", ""),
+                "worktree": metadata.get("worktree", {}),
+                "review": review_state,
+            }
+
+            specs.append(spec_entry)
+
+    # Sort by created_at descending
+    specs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    # Apply limit
+    specs = specs[:limit]
 
     if ctx.obj["output_json"]:
         _print_json({"specs": specs, "count": len(specs)})
@@ -2427,12 +2490,22 @@ def spec_list(
         return
 
     for spec_data in specs:
-        spec_id = spec_data.get("id", "unknown")
+        spec_slug = spec_data.get("slug", "unknown")
         spec_title = spec_data.get("title", "N/A")
-        click.echo(f"\n[{spec_id}] {spec_title}")
-        if spec_data.get("tags"):
-            tags = ", ".join(spec_data["tags"])
-            click.echo(f"  Tags: {tags}")
+        spec_status = spec_data.get("status", "N/A")
+
+        click.echo(f"\n[{spec_slug}] {spec_title}")
+        click.echo(f"  Status: {spec_status}")
+
+        # Show worktree info if available
+        worktree = spec_data.get("worktree", {})
+        if worktree.get("branch"):
+            click.echo(f"  Branch: {worktree.get('branch')}")
+
+        # Show review status
+        review = spec_data.get("review", {})
+        review_status = "✓ Approved" if review.get("approved") else "Pending"
+        click.echo(f"  Review: {review_status}")
 
 
 @spec.command("archive")
