@@ -114,6 +114,8 @@ from scripts.cli.utils import (
 )
 # Import worktree CLI module
 from scripts.cli import worktree
+# Import memory CLI module
+from scripts.cli import memory
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -4061,50 +4063,6 @@ def sync_agents_cmd(args: argparse.Namespace) -> None:
     print_json(sync_discovered_agents(overwrite=args.overwrite))
 
 
-def write_memory_cmd(args: argparse.Namespace) -> None:
-    """
-    Append content to a memory file.
-
-    Creates a timestamped memory entry in either global or spec-scoped memory.
-    The entry is written as a markdown section with an optional title. If no
-    title is provided, a timestamp is used.
-
-    Args:
-        args: Namespace containing:
-            - scope: Memory scope ("global" or "spec")
-            - spec: Optional spec slug for spec-scoped memory
-            - title: Optional title for the memory entry
-            - content: Content to append to memory
-
-    Output:
-        Prints the path to the updated memory file
-    """
-    path = append_memory(args.scope, args.content, spec_slug=args.spec, title=args.title)
-    print(str(path))
-
-
-def show_memory_cmd(args: argparse.Namespace) -> None:
-    """
-    Display stored memory content.
-
-    Retrieves and displays the content of a memory file. The memory file
-    is determined by the scope (global or spec) and optional spec slug.
-
-    Args:
-        args: Namespace containing:
-            - scope: Memory scope ("global" or "spec")
-            - spec: Optional spec slug for spec-scoped memory
-
-    Output:
-        Prints the memory file contents, or empty string if file doesn't exist
-    """
-    path = memory_file(args.scope, args.spec)
-    if not path.exists():
-        print("")
-        return
-    print(path.read_text(encoding="utf-8"))
-
-
 def show_strategy_cmd(args: argparse.Namespace) -> None:
     """
     Display accumulated strategy memory for a spec.
@@ -4788,43 +4746,6 @@ def test_agent_cmd(args: argparse.Namespace) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
-def capture_memory_cmd(args: argparse.Namespace) -> None:
-    run_dir = RUNS_DIR / args.run
-    metadata_path = run_dir / "run.json"
-    if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {args.run}")
-    metadata = read_json(metadata_path)
-    if metadata.get("status") != "completed":
-        raise SystemExit("capture-memory requires a completed run")
-    summary_path = run_dir / "summary.md"
-    summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
-    scopes = args.scopes or metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]
-    written = []
-    content = "\n".join(
-        [
-            f"run={metadata.get('id', '')}",
-            f"spec={metadata.get('spec', '')}",
-            f"task={metadata.get('task', '')}",
-            f"role={metadata.get('role', '')}",
-            f"result={metadata.get('result', '')}",
-            "",
-            summary or "No summary recorded.",
-        ]
-    )
-    for scope in scopes:
-        written.append(
-            str(
-                append_memory(
-                    scope,
-                    content,
-                    spec_slug=metadata.get("spec", ""),
-                    title=f"{metadata.get('task', '')} {metadata.get('role', '')} {metadata.get('result', '')}".strip(),
-                )
-            )
-        )
-    print(json.dumps({"run": args.run, "scopes": scopes, "written": written}, indent=2, ensure_ascii=True))
-
-
 def cleanup_runs_cmd(args: argparse.Namespace) -> None:
     cleaned = []
     tasks = load_tasks(args.spec)
@@ -5064,22 +4985,8 @@ def build_parser() -> argparse.ArgumentParser:
     test_agent.add_argument("--agent", required=True)
     test_agent.set_defaults(func=test_agent_cmd)
 
-    write_memory = sub.add_parser("write-memory", help="append to global or spec memory")
-    write_memory.add_argument("--scope", choices=["global", "spec"], required=True)
-    write_memory.add_argument("--spec")
-    write_memory.add_argument("--title", default="")
-    write_memory.add_argument("--content", required=True)
-    write_memory.set_defaults(func=write_memory_cmd)
-
-    show_memory = sub.add_parser("show-memory", help="show stored memory context")
-    show_memory.add_argument("--scope", choices=["global", "spec"], required=True)
-    show_memory.add_argument("--spec")
-    show_memory.set_defaults(func=show_memory_cmd)
-
-    capture_memory = sub.add_parser("capture-memory", help="capture memory from a completed run into its configured scopes")
-    capture_memory.add_argument("--run", required=True)
-    capture_memory.add_argument("--scopes", nargs="+")
-    capture_memory.set_defaults(func=capture_memory_cmd)
+    # Memory commands
+    memory.add_subparser(sub)
 
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
