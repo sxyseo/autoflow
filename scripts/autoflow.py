@@ -160,6 +160,8 @@ from scripts.cli import memory
 from scripts.cli import review
 # Import agent CLI module
 from scripts.cli import agent
+# Import system CLI module
+from scripts.cli import system
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -2877,49 +2879,6 @@ def create_fix_request_cmd(args: argparse.Namespace) -> None:
     print(str(path))
 
 
-def show_system_config(_: argparse.Namespace) -> None:
-    """
-    Display the current system configuration.
-
-    Prints the system configuration as formatted JSON. The configuration is
-    loaded from system.json (if it exists) and merged with defaults from
-    the system config template.
-
-    The output includes:
-    - memory: Memory settings and file paths
-    - models: Model profile configurations
-    - tools: Tool profile configurations
-    - registry: Registry settings
-    """
-    print_json(load_system_config())
-
-
-def init_system_config(_: argparse.Namespace) -> None:
-    """
-    Initialize the system configuration file.
-
-    Creates the system configuration file at .autoflow/system.json with default
-    values. If the file already exists, this command does nothing (it will not
-    overwrite existing configuration).
-
-    The configuration is loaded from config/system.example.json if it exists,
-    otherwise uses hardcoded defaults. The configuration includes:
-    - memory: Memory settings and file paths
-    - models: Model profile configurations
-    - tools: Tool profile configurations
-    - registry: Registry settings
-
-    Prints the path to the configuration file after initialization.
-    """
-    ensure_state()
-    if not SYSTEM_CONFIG_FILE.exists():
-        # NOTE: This writes to SYSTEM_CONFIG_FILE (system.json)
-        # Cache invalidation required: call invalidate_config_cache() after this write
-        write_json(SYSTEM_CONFIG_FILE, system_config_default())
-        invalidate_config_cache()
-    print(str(SYSTEM_CONFIG_FILE))
-
-
 def discover_agents_cmd(_: argparse.Namespace) -> None:
     """
     Discover and display all available agents.
@@ -3540,67 +3499,6 @@ def repo_validate_cmd(args: argparse.Namespace) -> None:
             raise SystemExit(1)
 
 
-def validate_config_cmd(_: argparse.Namespace) -> None:
-    ensure_state()
-    issues: list[str] = []
-    warnings: list[str] = []
-    system_config = load_system_config()
-    checks: dict[str, Any] = {
-        "system_config_file": {
-            "path": str(SYSTEM_CONFIG_FILE),
-            "exists": SYSTEM_CONFIG_FILE.exists(),
-        },
-        "agents_file": {
-            "path": str(AGENTS_FILE),
-            "exists": AGENTS_FILE.exists(),
-        },
-    }
-    if not AGENTS_FILE.exists():
-        issues.append("missing .autoflow/agents.json")
-        agents_payload = {"agents": {}}
-    else:
-        agents_payload = read_json_or_default(AGENTS_FILE, {"agents": {}})
-    model_profiles = system_config.get("models", {}).get("profiles", {})
-    tool_profiles = system_config.get("tools", {}).get("profiles", {})
-    agent_checks = []
-    for name, spec in agents_payload.get("agents", {}).items():
-        entry = {
-            "name": name,
-            "protocol": spec.get("protocol", "cli"),
-            "command": spec.get("command", ""),
-            "valid": True,
-            "issues": [],
-            "warnings": [],
-        }
-        if not entry["command"]:
-            entry["valid"] = False
-            entry["issues"].append("missing command")
-        if spec.get("model_profile") and spec["model_profile"] not in model_profiles:
-            entry["warnings"].append(f"unknown model_profile: {spec['model_profile']}")
-        if spec.get("tool_profile") and spec["tool_profile"] not in tool_profiles:
-            entry["warnings"].append(f"unknown tool_profile: {spec['tool_profile']}")
-        if spec.get("protocol") == "acp" and not spec.get("transport"):
-            entry["valid"] = False
-            entry["issues"].append("missing ACP transport")
-        if not entry["valid"]:
-            issues.extend(f"{name}: {item}" for item in entry["issues"])
-        warnings.extend(f"{name}: {item}" for item in entry["warnings"])
-        agent_checks.append(entry)
-    checks["agents"] = agent_checks
-    print(
-        json.dumps(
-            {
-                "valid": not issues,
-                "issues": issues,
-                "warnings": warnings,
-                "checks": checks,
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
-
-
 def test_agent_cmd(args: argparse.Namespace) -> None:
     configured = read_json_or_default(AGENTS_FILE, {"agents": {}}).get("agents", {}).get(args.agent)
     payload = {
@@ -3852,17 +3750,11 @@ def build_parser() -> argparse.ArgumentParser:
     repo_validate_cmd_parser.add_argument("--repo", default="", help="validate specific repository (validates all if not specified)")
     repo_validate_cmd_parser.set_defaults(func=repo_validate_cmd)
 
-    init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
-    init_system_cmd.set_defaults(func=init_system_config)
-
-    system_cmd = sub.add_parser("show-system-config", help="show system memory/model/tool config")
-    system_cmd.set_defaults(func=show_system_config)
+    # System commands
+    system.add_subparser(sub)
 
     # Agent commands
     agent.add_subparser(sub)
-
-    validate_cmd = sub.add_parser("validate-config", help="validate Autoflow system and agent config files")
-    validate_cmd.set_defaults(func=validate_config_cmd)
 
     # Memory commands
     memory.add_subparser(sub)
