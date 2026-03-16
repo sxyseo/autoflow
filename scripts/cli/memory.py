@@ -31,33 +31,18 @@ from scripts.cli.utils import (
     ensure_state,
     now_stamp,
     read_json,
+    resolve_root_path,
+    load_system_config,
+    memory_file as utils_memory_file,
+    append_memory as utils_append_memory,
 )
-
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in future tasks
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-
-def _get_memory_helper_functions():
-    """Import memory helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in future tasks
-    import scripts.autoflow as af
-
-    return {
-        'resolve_root_path': af.resolve_root_path,
-        'load_system_config': af.load_system_config,
-        'memory_file': af.memory_file,
-        'append_memory': af.append_memory,
-    }
 
 
 def memory_file(scope: str, spec_slug: str | None = None) -> Path:
     """
     Resolve the path to a memory file based on scope and optional spec slug.
 
-    Delegates to the memory_file function in autoflow.py to avoid duplication.
+    Delegates to the memory_file function in utils.py to avoid duplication.
 
     Args:
         scope: Memory scope, either "global" or "spec"
@@ -69,15 +54,14 @@ def memory_file(scope: str, spec_slug: str | None = None) -> Path:
     Raises:
         SystemExit: If scope is "spec" but no spec_slug is provided
     """
-    helpers = _get_memory_helper_functions()
-    return helpers['memory_file'](scope, spec_slug)
+    return utils_memory_file(scope, spec_slug)
 
 
 def append_memory(scope: str, content: str, spec_slug: str | None = None, title: str = "") -> Path:
     """
     Append content to a memory file with a timestamped heading.
 
-    Delegates to the append_memory function in autoflow.py to avoid duplication.
+    Delegates to the append_memory function in utils.py to avoid duplication.
 
     Args:
         scope: Memory scope, either "global" or "spec"
@@ -88,8 +72,7 @@ def append_memory(scope: str, content: str, spec_slug: str | None = None, title:
     Returns:
         Path object for the memory file that was appended to
     """
-    helpers = _get_memory_helper_functions()
-    return helpers['append_memory'](scope, content, spec_slug, title)
+    return utils_append_memory(scope, content, spec_slug, title)
 
 
 def write_memory_cmd(args: argparse.Namespace) -> None:
@@ -129,8 +112,7 @@ def show_memory_cmd(args: argparse.Namespace) -> None:
     Output:
         Prints the memory file contents, or empty string if file doesn't exist
     """
-    helpers = _get_memory_helper_functions()
-    path = helpers['memory_file'](args.scope, args.spec)
+    path = utils_memory_file(args.scope, args.spec)
     if not path.exists():
         print("")
         return
@@ -153,7 +135,6 @@ def capture_memory_cmd(args: argparse.Namespace) -> None:
     Output:
         Prints JSON with run ID, scopes, and list of written file paths
     """
-    helpers = _get_memory_helper_functions()
     run_dir = RUNS_DIR / args.run
     metadata_path = run_dir / "run.json"
     if not metadata_path.exists():
@@ -179,7 +160,7 @@ def capture_memory_cmd(args: argparse.Namespace) -> None:
     for scope in scopes:
         written.append(
             str(
-                helpers['append_memory'](
+                utils_append_memory(
                     scope,
                     content,
                     spec_slug=metadata.get("spec", ""),

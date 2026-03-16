@@ -35,17 +35,6 @@ from scripts.cli.utils import (
     write_json,
 )
 
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in future tasks
-# Use lazy imports to avoid circular dependency issues
-
-
-def _get_invalidate_config_cache():
-    """Lazy import of invalidate_config_cache from autoflow.py (temporary)."""
-    # This function will be moved to utils.py in future tasks
-    import scripts.autoflow as af
-    return af.invalidate_config_cache
-
 
 def show_system_config(_: argparse.Namespace) -> None:
     """
@@ -86,7 +75,7 @@ def init_system_config(_: argparse.Namespace) -> None:
         # NOTE: This writes to SYSTEM_CONFIG_FILE (system.json)
         # Cache invalidation required: call invalidate_config_cache() after this write
         write_json(SYSTEM_CONFIG_FILE, system_config_default())
-        _get_invalidate_config_cache()()
+        invalidate_system_config_cache()
     print(str(SYSTEM_CONFIG_FILE))
 
 

@@ -33,28 +33,12 @@ from scripts.cli.utils import (
     read_json_or_default,
     run_cmd,
     write_json,
+    load_system_config,
+    invalidate_system_config_cache as invalidate_config_cache,
 )
 
 # Import ROOT for path setup
 from scripts.cli.utils import ROOT
-
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in future tasks
-# Use lazy imports to avoid circular dependency issues
-
-
-def _get_load_system_config():
-    """Lazy import of load_system_config from autoflow.py (temporary)."""
-    # This function will be moved to utils.py in future tasks
-    import scripts.autoflow as af
-    return af.load_system_config
-
-
-def _get_invalidate_config_cache():
-    """Lazy import of invalidate_config_cache from autoflow.py (temporary)."""
-    # This function will be moved to utils.py in future tasks
-    import scripts.autoflow as af
-    return af.invalidate_config_cache
 
 
 def discover_cli_agent(name: str, command: str) -> dict[str, Any] | None:
@@ -147,7 +131,7 @@ def discover_agents_registry() -> dict[str, Any]:
         >>> for agent in registry['agents']:
         ...     print(f"  - {agent['name']} ({agent['protocol']})")
     """
-    config = _get_load_system_config()()
+    config = load_system_config()
     discovered = []
     for name, command in [("codex", "codex"), ("claude", "claude")]:
         item = discover_cli_agent(name, command)
@@ -284,7 +268,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     # NOTE: This writes to AGENTS_FILE (agents.json)
     # Cache invalidation required: call invalidate_config_cache() after this write
     write_json(AGENTS_FILE, payload)
-    _get_invalidate_config_cache()()
+    invalidate_config_cache()
     return {
         "agents_file": str(AGENTS_FILE),
         "added": added,
@@ -370,7 +354,7 @@ def test_agent_cmd(args: argparse.Namespace) -> None:
         "issues": [],
     }
     if configured:
-        resolved = resolve_agent_profiles(configured, _get_load_system_config()())
+        resolved = resolve_agent_profiles(configured, load_system_config())
         payload["protocol"] = resolved.get("protocol", "cli")
         payload["command"] = resolved.get("command", "")
         payload["model"] = resolved.get("model", "")
