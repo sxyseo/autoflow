@@ -2769,6 +2769,24 @@ def invalidate_tasks_cache() -> None:
     _cache_loaded_task_specs.clear()
 
 
+def clear_hash_cache() -> None:
+    """Clear the file hash cache.
+
+    This function clears the in-memory cache that stores file content hashes.
+    Call this when you need to force recomputation of file hashes, such as after
+    manual file modifications or when cache consistency needs to be ensured.
+
+    The cache will be repopulated on-demand when file hashes are next requested.
+
+    Cache Management Strategy:
+        - Clear on-demand: only when necessary
+        - Lazy: data is reloaded on next access (not immediately)
+        - Efficient: avoids unnecessary filesystem reads
+    """
+    global _file_hash_cache
+    _file_hash_cache.clear()
+
+
 def _populate_tasks_cache(spec_slug: str) -> None:
     """Load task metadata for a specific spec_slug into the cache.
 
