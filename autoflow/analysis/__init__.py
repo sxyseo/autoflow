@@ -8,6 +8,13 @@ Integrates with the verification system to detect and prevent
 code duplication before it reaches the codebase.
 """
 
+from autoflow.analysis.code_similarity import (
+    SimilarityResult,
+    TokenInfo,
+    TokenSequence,
+    TokenSimilarity,
+    TokenType,
+)
 from autoflow.analysis.duplication_detector import (
     DuplicationDetector,
     DuplicationFinding,
@@ -16,6 +23,13 @@ from autoflow.analysis.duplication_detector import (
 )
 
 __all__ = [
+    # Code similarity
+    "SimilarityResult",
+    "TokenInfo",
+    "TokenSequence",
+    "TokenSimilarity",
+    "TokenType",
+    # Duplication detection
     "DuplicationDetector",
     "DuplicationFinding",
     "DuplicationReport",
