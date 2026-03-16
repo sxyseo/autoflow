@@ -27,6 +27,36 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
+from typing_extensions import TypedDict
+
+
+class MetadataDict(TypedDict, total=False):
+    """
+    TypedDict for metadata fields in BMAD artifacts.
+
+    Provides type structure for metadata dictionaries used in
+    ArtifactSpec and ArtifactCollection models. All fields
+    are optional to support flexible metadata.
+
+    Common metadata fields include:
+    - created_by: Agent or user who created the artifact
+    - updated_by: Agent or user who last updated the artifact
+    - source: Source system or process
+    - tags: List of tags for categorization
+    - version: Artifact version
+    - Any additional string-keyed values
+    """
+
+    created_by: str
+    updated_by: str
+    source: str
+    tags: list[str]
+    version: str
+
+
+def _empty_metadata() -> MetadataDict:
+    """Return empty metadata dict."""
+    return {}
 
 
 class ArtifactType(str, Enum):
@@ -65,7 +95,7 @@ class ArtifactSpec:
     required: bool = True
     description: str = ""
     content_check: Optional[str] = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
 
     def exists(self, root: Optional[Union[Path, str]] = None) -> bool:
         """
@@ -225,7 +255,7 @@ class ArtifactCollection:
 
     artifacts: list[ArtifactSpec] = field(default_factory=list)
     name: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: MetadataDict = field(default_factory=_empty_metadata)
 
     def add_artifact(self, artifact: ArtifactSpec) -> None:
         """

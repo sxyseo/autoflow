@@ -27,15 +27,145 @@ import tempfile
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union, overload, cast
 
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 from autoflow.core.sanitization import sanitize_dict
 
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
+
+
+# === TypedDict Definitions for Core State Structures ===
+# These provide type hints for dictionary representations of the models
+
+
+class MetadataDict(TypedDict, total=False):
+    """
+    Generic TypedDict for metadata fields used across multiple models.
+
+    Provides a common type structure for metadata dictionaries used in
+    Task, Run, Spec, Memory, and ParallelTaskGroup models. All fields
+    are optional to support flexible metadata.
+
+    Common metadata fields include:
+    - created_by: Agent or user who created the entity
+    - updated_by: Agent or user who last updated the entity
+    - source: Source system or process
+    - tags: List of tags for categorization
+    - archived: Whether the entity is archived
+    - priority: Custom priority values
+    - Any additional string-keyed values
+    """
+
+    created_by: str
+    updated_by: str
+    source: str
+    tags: list[str]
+    archived: bool
+    priority: int
+
+
+class TaskData(TypedDict, total=False):
+    """
+    TypedDict for task data structure.
+
+    Represents the dictionary form of a Task, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    description: str
+    status: str  # TaskStatus value as string
+    priority: int
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    assigned_agent: str | None
+    labels: list[str]
+    dependencies: list[str]
+    metadata: MetadataDict
+
+
+class RunData(TypedDict, total=False):
+    """
+    TypedDict for run data structure.
+
+    Represents the dictionary form of a Run, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    task_id: str | None
+    agent: str
+    status: str  # RunStatus value as string
+    started_at: str  # ISO format datetime
+    completed_at: str | None  # ISO format datetime
+    duration_seconds: float | None
+    workdir: str
+    command: str | None
+    exit_code: int | None
+    output: str | None
+    error: str | None
+    metadata: MetadataDict
+
+
+class SpecData(TypedDict, total=False):
+    """
+    TypedDict for specification data structure.
+
+    Represents the dictionary form of a Spec, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    content: str
+    version: str
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    author: str | None
+    tags: list[str]
+    metadata: MetadataDict
+
+
+class ParallelGroupData(TypedDict, total=False):
+    """
+    TypedDict for parallel task group data structure.
+
+    Represents the dictionary form of a ParallelTaskGroup, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    title: str
+    description: str
+    status: str  # ParallelGroupStatus value as string
+    task_ids: list[str]
+    max_parallel: int
+    created_at: str  # ISO format datetime
+    updated_at: str  # ISO format datetime
+    metadata: MetadataDict
+
+
+class MemoryData(TypedDict, total=False):
+    """
+    TypedDict for memory data structure.
+
+    Represents the dictionary form of a Memory, used when working with
+    raw JSON data. All fields are optional to support partial updates.
+    """
+
+    id: str
+    key: str
+    value: Any
+    category: str
+    created_at: str  # ISO format datetime
+    expires_at: str | None  # ISO format datetime
+    metadata: MetadataDict
 
 
 class TaskStatus(str, Enum):
@@ -82,7 +212,7 @@ class Task(BaseModel):
     assigned_agent: Optional[str] = None
     labels: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)  # type: ignore[assignment]
 
     def touch(self) -> None:
         """Update the updated_at timestamp."""
@@ -104,7 +234,7 @@ class Run(BaseModel):
     exit_code: Optional[int] = None
     output: Optional[str] = None
     error: Optional[str] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)  # type: ignore[assignment]
 
     def complete(
         self,
@@ -135,7 +265,7 @@ class Spec(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     author: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)  # type: ignore[assignment]
 
 
 class Memory(BaseModel):
@@ -147,7 +277,7 @@ class Memory(BaseModel):
     category: str = "general"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     expires_at: Optional[datetime] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)  # type: ignore[assignment]
 
     def is_expired(self) -> bool:
         """Check if this memory entry has expired."""
@@ -167,7 +297,7 @@ class ParallelTaskGroup(BaseModel):
     max_parallel: int = 3  # Maximum number of parallel tasks
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: MetadataDict = Field(default_factory=dict)  # type: ignore[assignment]
 
     def touch(self) -> None:
         """Update the updated_at timestamp."""
@@ -380,6 +510,60 @@ class StateManager:
 
     # === Generic JSON Operations ===
 
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[TaskData] = None,
+    ) -> Optional[TaskData]:
+        """Read JSON data as TaskData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[RunData] = None,
+    ) -> Optional[RunData]:
+        """Read JSON data as RunData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[SpecData] = None,
+    ) -> Optional[SpecData]:
+        """Read JSON data as SpecData."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Read JSON data as dict."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[list[Any]] = None,
+    ) -> Optional[list[Any]]:
+        """Read JSON data as list."""
+        ...
+
+    @overload
+    def read_json(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[T] = None,
+    ) -> Union[JSONData, T]:
+        """Read JSON data with generic type."""
+        ...
+
     def read_json(
         self,
         file_path: Union[str, Path],
@@ -409,12 +593,12 @@ class StateManager:
 
         try:
             with open(path, encoding="utf-8") as f:
-                return json.load(f)
+                return cast(JSONData, json.load(f))
         except json.JSONDecodeError as e:
             # Try to restore from backup
             if self._restore_backup(path):
                 with open(path, encoding="utf-8") as f:
-                    return json.load(f)
+                    return cast(JSONData, json.load(f))
             if default is not None:
                 return default
             raise ValueError(f"Invalid JSON in {path}: {e}") from e
@@ -480,7 +664,7 @@ class StateManager:
 
     # === Task Operations ===
 
-    def save_task(self, task_id: str, task_data: dict[str, Any]) -> Path:
+    def save_task(self, task_id: str, task_data: TaskData | Task) -> Path:
         """
         Save a task to the state.
 
@@ -497,15 +681,22 @@ class StateManager:
             ...     "status": "in_progress"
             ... })
         """
+        # Convert Task model to dict if necessary
+        if isinstance(task_data, Task):
+            data: JSONData = cast(JSONData, task_data.model_dump())
+        else:
+            data = cast(JSONData, task_data)
+
         # Ensure timestamps
-        if "created_at" not in task_data:
-            task_data["created_at"] = datetime.utcnow().isoformat()
-        task_data["updated_at"] = datetime.utcnow().isoformat()
+        if isinstance(data, dict):
+            if "created_at" not in data:
+                data["created_at"] = datetime.utcnow().isoformat()
+            data["updated_at"] = datetime.utcnow().isoformat()
 
         file_path = self.tasks_dir / f"{task_id}.json"
-        return self.write_json(file_path, task_data)
+        return self.write_json(file_path, data)
 
-    def load_task(self, task_id: str) -> Optional[dict[str, Any]]:
+    def load_task(self, task_id: str) -> Optional[TaskData]:
         """
         Load a task from the state.
 
@@ -530,7 +721,7 @@ class StateManager:
         self,
         status: Optional[TaskStatus] = None,
         agent: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TaskData]:
         """
         List tasks, optionally filtered.
 
@@ -544,13 +735,15 @@ class StateManager:
         Example:
             >>> pending_tasks = state.list_tasks(status=TaskStatus.PENDING)
         """
-        tasks = []
+        tasks: list[TaskData] = []
         if not self.tasks_dir.exists():
             return tasks
 
         for task_file in self.tasks_dir.glob("*.json"):
             try:
                 task = self.read_json(task_file)
+                if task is None:
+                    continue
                 if status and task.get("status") != status.value:
                     continue
                 if agent and task.get("assigned_agent") != agent:
@@ -583,7 +776,7 @@ class StateManager:
     # === Parallel Group Operations ===
 
     def save_parallel_group(
-        self, group_id: str, group_data: dict[str, Any]
+        self, group_id: str, group_data: ParallelGroupData | ParallelTaskGroup
     ) -> Path:
         """
         Save a parallel task group to the state.
@@ -602,17 +795,24 @@ class StateManager:
             ...     "max_parallel": 3
             ... })
         """
+        # Convert ParallelTaskGroup model to dict if necessary
+        if isinstance(group_data, ParallelTaskGroup):
+            data: JSONData = cast(JSONData, group_data.model_dump())
+        else:
+            data = cast(JSONData, group_data)
+
         # Ensure timestamps
-        if "created_at" not in group_data:
-            group_data["created_at"] = datetime.utcnow().isoformat()
-        group_data["updated_at"] = datetime.utcnow().isoformat()
+        if isinstance(data, dict):
+            if "created_at" not in data:
+                data["created_at"] = datetime.utcnow().isoformat()
+            data["updated_at"] = datetime.utcnow().isoformat()
 
         file_path = self.parallel_dir / f"{group_id}.json"
-        return self.write_json(file_path, group_data)
+        return self.write_json(file_path, data)
 
     def load_parallel_group(
         self, group_id: str
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[ParallelGroupData]:
         """
         Load a parallel task group from the state.
 
@@ -629,14 +829,15 @@ class StateManager:
         """
         file_path = self.parallel_dir / f"{group_id}.json"
         try:
-            return self.read_json(file_path)
+            result = self.read_json(file_path, default=None)
+            return cast(Optional[ParallelGroupData], result)
         except FileNotFoundError:
             return None
 
     def list_parallel_groups(
         self,
         status: Optional[ParallelGroupStatus] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[ParallelGroupData]:
         """
         List parallel task groups, optionally filtered.
 
@@ -651,13 +852,15 @@ class StateManager:
             ...     status=ParallelGroupStatus.IN_PROGRESS
             ... )
         """
-        groups = []
+        groups: list[ParallelGroupData] = []
         if not self.parallel_dir.exists():
             return groups
 
         for group_file in self.parallel_dir.glob("*.json"):
             try:
-                group = self.read_json(group_file)
+                group = cast(Optional[ParallelGroupData], self.read_json(group_file, default=None))
+                if group is None:
+                    continue
                 if status and group.get("status") != status.value:
                     continue
                 groups.append(group)
@@ -687,7 +890,7 @@ class StateManager:
 
     # === Run Operations ===
 
-    def save_run(self, run_id: str, run_data: dict[str, Any]) -> Path:
+    def save_run(self, run_id: str, run_data: RunData | Run) -> Path:
         """
         Save a run to the state.
 
@@ -704,10 +907,16 @@ class StateManager:
             ...     "status": "running"
             ... })
         """
-        file_path = self.runs_dir / f"{run_id}.json"
-        return self.write_json(file_path, run_data)
+        # Convert Run model to dict if necessary
+        if isinstance(run_data, Run):
+            data: JSONData = cast(JSONData, run_data.model_dump())
+        else:
+            data = cast(JSONData, run_data)
 
-    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        file_path = self.runs_dir / f"{run_id}.json"
+        return self.write_json(file_path, data)
+
+    def load_run(self, run_id: str) -> Optional[RunData]:
         """
         Load a run from the state.
 
@@ -719,7 +928,8 @@ class StateManager:
         """
         file_path = self.runs_dir / f"{run_id}.json"
         try:
-            return self.read_json(file_path)
+            result = self.read_json(file_path, default=None)
+            return cast(Optional[RunData], result)
         except FileNotFoundError:
             return None
 
@@ -728,7 +938,7 @@ class StateManager:
         status: Optional[RunStatus] = None,
         agent: Optional[str] = None,
         limit: int = 100,
-    ) -> list[dict[str, Any]]:
+    ) -> list[RunData]:
         """
         List runs, optionally filtered.
 
@@ -740,13 +950,15 @@ class StateManager:
         Returns:
             List of run dictionaries
         """
-        runs = []
+        runs: list[RunData] = []
         if not self.runs_dir.exists():
             return runs
 
         for run_file in self.runs_dir.glob("*.json"):
             try:
-                run = self.read_json(run_file)
+                run = cast(Optional[RunData], self.read_json(run_file, default=None))
+                if run is None:
+                    continue
                 if status and run.get("status") != status.value:
                     continue
                 if agent and run.get("agent") != agent:
@@ -761,7 +973,7 @@ class StateManager:
 
     # === Spec Operations ===
 
-    def save_spec(self, spec_id: str, spec_data: dict[str, Any]) -> Path:
+    def save_spec(self, spec_id: str, spec_data: SpecData | Spec) -> Path:
         """
         Save a specification to the state.
 
@@ -772,15 +984,22 @@ class StateManager:
         Returns:
             Path to the saved spec file
         """
+        # Convert Spec model to dict if necessary
+        if isinstance(spec_data, Spec):
+            data: JSONData = cast(JSONData, spec_data.model_dump())
+        else:
+            data = cast(JSONData, spec_data)
+
         # Ensure timestamps
-        if "created_at" not in spec_data:
-            spec_data["created_at"] = datetime.utcnow().isoformat()
-        spec_data["updated_at"] = datetime.utcnow().isoformat()
+        if isinstance(data, dict):
+            if "created_at" not in data:
+                data["created_at"] = datetime.utcnow().isoformat()
+            data["updated_at"] = datetime.utcnow().isoformat()
 
         file_path = self.specs_dir / f"{spec_id}.json"
-        return self.write_json(file_path, spec_data)
+        return self.write_json(file_path, data)
 
-    def load_spec(self, spec_id: str) -> Optional[dict[str, Any]]:
+    def load_spec(self, spec_id: str) -> Optional[SpecData]:
         """
         Load a specification from the state.
 
@@ -792,7 +1011,8 @@ class StateManager:
         """
         file_path = self.specs_dir / f"{spec_id}.json"
         try:
-            return self.read_json(file_path)
+            result = self.read_json(file_path, default=None)
+            return cast(Optional[SpecData], result)
         except FileNotFoundError:
             return None
 
@@ -800,7 +1020,7 @@ class StateManager:
         self,
         tags: Optional[list[str]] = None,
         include_archived: bool = False,
-    ) -> list[dict[str, Any]]:
+    ) -> list[SpecData]:
         """
         List specifications, optionally filtered by tags.
 
@@ -811,15 +1031,23 @@ class StateManager:
         Returns:
             List of spec dictionaries
         """
-        specs = []
+        specs: list[SpecData] = []
         if not self.specs_dir.exists():
             return specs
 
         for spec_file in self.specs_dir.glob("*.json"):
             try:
-                spec = self.read_json(spec_file)
+                spec = cast(Optional[SpecData], self.read_json(spec_file, default=None))
+                if spec is None:
+                    continue
                 if tags:
-                    spec_tags = set(spec.get("tags", []))
+                    spec_tags_value = spec.get("tags")
+                    if spec_tags_value is None:
+                        spec_tags = set()
+                    elif isinstance(spec_tags_value, list):
+                        spec_tags = set(spec_tags_value)
+                    else:
+                        continue
                     if not set(tags).issubset(spec_tags):
                         continue
                 specs.append(spec)
@@ -830,9 +1058,17 @@ class StateManager:
         if include_archived and self.archive_dir.exists():
             for spec_file in self.archive_dir.glob("*.json"):
                 try:
-                    spec = self.read_json(spec_file)
+                    spec = cast(Optional[SpecData], self.read_json(spec_file, default=None))
+                    if spec is None:
+                        continue
                     if tags:
-                        spec_tags = set(spec.get("tags", []))
+                        spec_tags_value = spec.get("tags")
+                        if spec_tags_value is None:
+                            spec_tags = set()
+                        elif isinstance(spec_tags_value, list):
+                            spec_tags = set(spec_tags_value)
+                        else:
+                            continue
                         if not set(tags).issubset(spec_tags):
                             continue
                     specs.append(spec)
@@ -868,12 +1104,17 @@ class StateManager:
         self._create_backup(source_path)
 
         # Read spec to update metadata
-        spec_data = self.read_json(source_path)
+        spec_data = cast(JSONData, self.read_json(source_path, default={}))
+        if not isinstance(spec_data, dict):
+            return False
 
         # Add archived flag to metadata
         if "metadata" not in spec_data:
             spec_data["metadata"] = {}
-        spec_data["metadata"]["archived"] = True
+        metadata = spec_data["metadata"]
+        if isinstance(metadata, dict):
+            metadata["archived"] = True
+            spec_data["metadata"] = metadata
 
         # Write updated spec back to source before moving
         self.write_json(source_path, spec_data)
@@ -884,7 +1125,7 @@ class StateManager:
 
         return True
 
-    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[dict[str, Any]]:
+    def list_archived_specs(self, tags: Optional[list[str]] = None) -> list[SpecData]:
         """
         List archived specifications, optionally filtered by tags.
 
@@ -897,15 +1138,23 @@ class StateManager:
         Example:
             >>> archived = state.list_archived_specs()
         """
-        specs = []
+        specs: list[SpecData] = []
         if not self.archive_dir.exists():
             return specs
 
         for spec_file in self.archive_dir.glob("*.json"):
             try:
-                spec = self.read_json(spec_file)
+                spec = cast(Optional[SpecData], self.read_json(spec_file, default=None))
+                if spec is None:
+                    continue
                 if tags:
-                    spec_tags = set(spec.get("tags", []))
+                    spec_tags_value = spec.get("tags")
+                    if spec_tags_value is None:
+                        spec_tags = set()
+                    elif isinstance(spec_tags_value, list):
+                        spec_tags = set(spec_tags_value)
+                    else:
+                        continue
                     if not set(tags).issubset(spec_tags):
                         continue
                 specs.append(spec)
@@ -972,14 +1221,18 @@ class StateManager:
         file_path = self.memory_dir / f"{memory_id}.json"
 
         try:
-            data = self.read_json(file_path)
+            data = cast(Optional[MemoryData], self.read_json(file_path, default=None))
+            if data is None:
+                return None
             # Check expiration
             if "expires_at" in data:
-                expires_at = datetime.fromisoformat(data["expires_at"])
-                if datetime.utcnow() > expires_at:
-                    # Memory expired, delete it
-                    file_path.unlink()
-                    return None
+                expires_at_str = data.get("expires_at")
+                if expires_at_str:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    if datetime.utcnow() > expires_at:
+                        # Memory expired, delete it
+                        file_path.unlink()
+                        return None
             return data.get("value")
         except FileNotFoundError:
             return None
@@ -987,7 +1240,7 @@ class StateManager:
     def list_memory(
         self,
         category: Optional[str] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[MemoryData]:
         """
         List memory entries, optionally filtered by category.
 
@@ -997,20 +1250,24 @@ class StateManager:
         Returns:
             List of memory entries
         """
-        memories = []
+        memories: list[MemoryData] = []
         if not self.memory_dir.exists():
             return memories
 
         for memory_file in self.memory_dir.glob("*.json"):
             try:
-                memory = self.read_json(memory_file)
+                memory = cast(Optional[MemoryData], self.read_json(memory_file, default=None))
+                if memory is None:
+                    continue
 
                 # Check expiration
                 if "expires_at" in memory:
-                    expires_at = datetime.fromisoformat(memory["expires_at"])
-                    if datetime.utcnow() > expires_at:
-                        memory_file.unlink()
-                        continue
+                    expires_at_str = memory.get("expires_at")
+                    if expires_at_str:
+                        expires_at = datetime.fromisoformat(expires_at_str)
+                        if datetime.utcnow() > expires_at:
+                            memory_file.unlink()
+                            continue
 
                 if category and memory.get("category") != category:
                     continue
@@ -1110,9 +1367,11 @@ class StateManager:
 
         for file_path in directory.glob("*.json"):
             try:
-                data = self.read_json(file_path)
-                status = data.get(status_field, "unknown")
-                counts[status] = counts.get(status, 0) + 1
+                data = cast(JSONData, self.read_json(file_path, default={}))
+                if isinstance(data, dict):
+                    status_value = data.get(status_field, "unknown")
+                    if isinstance(status_value, str):
+                        counts[status_value] = counts.get(status_value, 0) + 1
             except (json.JSONDecodeError, KeyError):
                 counts["error"] = counts.get("error", 0) + 1
 
@@ -1131,12 +1390,14 @@ class StateManager:
 
         for memory_file in self.memory_dir.glob("*.json"):
             try:
-                memory = self.read_json(memory_file)
-                if "expires_at" in memory:
-                    expires_at = datetime.fromisoformat(memory["expires_at"])
-                    if datetime.utcnow() > expires_at:
-                        memory_file.unlink()
-                        removed += 1
+                memory = cast(Optional[MemoryData], self.read_json(memory_file, default=None))
+                if memory and "expires_at" in memory:
+                    expires_at_str = memory.get("expires_at")
+                    if expires_at_str:
+                        expires_at = datetime.fromisoformat(expires_at_str)
+                        if datetime.utcnow() > expires_at:
+                            memory_file.unlink()
+                            removed += 1
             except (json.JSONDecodeError, KeyError):
                 continue
 
@@ -1490,6 +1751,55 @@ class StateManager:
 
 
 # === Module-level convenience functions ===
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[TaskData] = None,
+) -> Optional[TaskData]:
+    """Read JSON data as TaskData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[RunData] = None,
+) -> Optional[RunData]:
+    """Read JSON data as RunData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[SpecData] = None,
+) -> Optional[SpecData]:
+    """Read JSON data as SpecData."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Read JSON data as dict."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[list[Any]] = None,
+) -> Optional[list[Any]]:
+    """Read JSON data as list."""
+    ...
+
+@overload
+def read_json(
+    file_path: Union[str, Path],
+    default: Optional[T] = None,
+) -> Union[JSONData, T]:
+    """Read JSON data with generic type."""
+    ...
+
 
 def read_json(
     file_path: Union[str, Path],

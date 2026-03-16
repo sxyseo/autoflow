@@ -39,18 +39,15 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from typing_extensions import TypedDict
+
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from scripts.integrity import hash_file_content, verify_file_integrity
-from autoflow.core.sanitization import sanitize_dict, sanitize_value
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -59,24 +56,15 @@ LOGS_DIR = STATE_DIR / "logs"
 WORKTREES_DIR = STATE_DIR / "worktrees" / "tasks"
 MEMORY_DIR = STATE_DIR / "memory"
 STRATEGY_MEMORY_DIR = MEMORY_DIR / "strategy"
-REPOSITORIES_DIR = STATE_DIR / "repositories"
-DEPENDENCIES_DIR = STATE_DIR / "dependencies"
 DISCOVERY_FILE = STATE_DIR / "discovered_agents.json"
 SYSTEM_CONFIG_FILE = STATE_DIR / "system.json"
-# NOTE: Cache invalidation must be called after writing to SYSTEM_CONFIG_FILE
-# Locations where SYSTEM_CONFIG_FILE is written via write_json():
-# - Line ~3993: init_system_config() - Initialize system config with defaults
 SYSTEM_CONFIG_TEMPLATE = ROOT / "config" / "system.example.json"
 AGENTS_FILE = STATE_DIR / "agents.json"
-# NOTE: Cache invalidation must be called after writing to AGENTS_FILE
-# Locations where AGENTS_FILE is written via write_json():
-# - Line ~2342: sync_discovered_agents() - Sync agents from discovery registry
 BMAD_DIR = ROOT / "templates" / "bmad"
 REVIEW_STATE_FILE = "review_state.json"
 EVENTS_FILE = "events.jsonl"
 QA_FIX_REQUEST_FILE = "QA_FIX_REQUEST.md"
 QA_FIX_REQUEST_JSON_FILE = "QA_FIX_REQUEST.json"
-AGENT_RESULT_FILE = "agent_result.json"
 VALID_TASK_STATUSES = {
     "todo",
     "in_progress",
@@ -86,24 +74,220 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
-INACTIVE_RUN_STATUSES = {
-    "completed",
-    "abandoned",
-    "cancelled",
-    "cleaned",
-    "recovered",
-    "stale",
-}
-RUN_LEASE_ACTIVE_STATUSES = {"created", "running"}
-DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30
-DEFAULT_STALE_AFTER_SECONDS = 120
 
 
-def repository_manager():
-    """Load RepositoryManager only when repository features are used."""
-    from autoflow.core.repository import RepositoryManager
+# === TypedDict Definitions for Scripts State Structures ===
+# These provide type hints for dictionary representations used throughout
+# the scripts module, particularly for JSON serialization/deserialization.
 
-    return RepositoryManager(STATE_DIR)
+
+class ReviewState(TypedDict, total=False):
+    """
+    TypedDict for review state structure.
+
+    Represents the approval and review state of a spec implementation,
+    tracking approval status, approver information, and review history.
+
+    Attributes:
+        approved: Whether the review is approved
+        approved_by: Username of the approver
+        approved_at: ISO timestamp of approval
+        spec_hash: Hash of the spec at approval time
+        review_count: Number of reviews performed
+        feedback: List of feedback comments
+        invalidated_at: ISO timestamp of invalidation
+        invalidated_reason: Reason for invalidation
+    """
+
+    approved: bool
+    approved_by: str
+    approved_at: str
+    spec_hash: str
+    review_count: int
+    feedback: list[str]
+    invalidated_at: str
+    invalidated_reason: str
+
+
+class StrategyMemoryStats(TypedDict, total=False):
+    """
+    TypedDict for strategy memory statistics.
+
+    Nested structure within StrategyMemory that tracks various metrics
+    across different dimensions like roles, results, finding categories,
+    severity levels, and files.
+
+    Attributes:
+        by_role: Counters grouped by agent role
+        by_result: Counters grouped by task result type
+        finding_categories: Counters for review finding categories
+        severity: Counters for finding severity levels
+        files: Counters for files mentioned in findings
+    """
+
+    by_role: dict[str, int]
+    by_result: dict[str, int]
+    finding_categories: dict[str, int]
+    severity: dict[str, int]
+    files: dict[str, int]
+
+
+class StrategyMemory(TypedDict, total=False):
+    """
+    TypedDict for strategy memory structure.
+
+    Represents the persistent memory store for workflow reflections,
+    planner notes, statistics, and actionable recommendations.
+
+    Attributes:
+        updated_at: ISO 8601 timestamp of last update
+        reflections: List of reflection entries from workflow reviews
+        planner_notes: List of notes added by the planner agent
+        stats: Statistics and metrics tracked across workflow runs
+        playbook: List of actionable recommendations derived from patterns
+    """
+
+    updated_at: str
+    reflections: list[dict[str, Any]]
+    planner_notes: list[dict[str, Any]]
+    stats: StrategyMemoryStats
+    playbook: list[dict[str, Any]]
+
+
+class SystemConfigMemory(TypedDict, total=False):
+    """
+    TypedDict for system memory configuration.
+
+    Memory settings in the system configuration.
+
+    Attributes:
+        enabled: Whether memory capture is enabled
+        auto_capture_run_results: Whether to automatically capture run results
+        global_file: Path to the global memory file
+        spec_dir: Path to the spec-specific memory directory
+    """
+
+    enabled: bool
+    auto_capture_run_results: bool
+    global_file: str
+    spec_dir: str
+
+
+class SystemConfigModels(TypedDict, total=False):
+    """
+    TypedDict for system models configuration.
+
+    Model profile configurations for different task types.
+
+    Attributes:
+        profiles: Dictionary mapping profile names to model identifiers
+    """
+
+    profiles: dict[str, str]
+
+
+class SystemConfigTools(TypedDict, total=False):
+    """
+    TypedDict for system tools configuration.
+
+    Tool profile configurations for different agent types.
+
+    Attributes:
+        profiles: Dictionary mapping profile names to allowed tool lists
+    """
+
+    profiles: dict[str, list[str]]
+
+
+class SystemConfigRegistry(TypedDict, total=False):
+    """
+    TypedDict for system registry configuration.
+
+    Registry settings for agent discovery and configuration.
+
+    Attributes:
+        acp_agents: List of discovered ACP agents
+    """
+
+    acp_agents: list[dict[str, Any]]
+
+
+class SystemConfig(TypedDict, total=False):
+    """
+    TypedDict for system configuration structure.
+
+    Represents the complete system configuration including memory settings,
+    model profiles, tool configurations, and registry settings.
+
+    Attributes:
+        memory: Memory configuration settings
+        models: Model profile configurations
+        tools: Tool profile configurations
+        registry: Registry settings including agent discovery
+    """
+
+    memory: SystemConfigMemory
+    models: SystemConfigModels
+    tools: SystemConfigTools
+    registry: SystemConfigRegistry
+
+
+class TaskData(TypedDict, total=False):
+    """
+    TypedDict for task data structure.
+
+    Represents a single task within a tasks file, including its status,
+    dependencies, acceptance criteria, and metadata.
+
+    Attributes:
+        id: Unique task identifier
+        title: Task title
+        status: Task status from VALID_TASK_STATUSES
+        depends_on: List of task IDs this task depends on
+        owner_role: Role responsible for this task
+        acceptance_criteria: List of acceptance criteria for the task
+        notes: List of notes associated with the task
+        description: Optional detailed description
+        priority: Optional task priority
+        created_at: Optional ISO timestamp of creation
+        updated_at: Optional ISO timestamp of last update
+        assigned_agent: Optional agent assigned to the task
+        labels: Optional list of labels
+        metadata: Optional additional metadata
+    """
+
+    id: str
+    title: str
+    status: str
+    depends_on: list[str]
+    owner_role: str
+    acceptance_criteria: list[str]
+    notes: list[dict[str, Any]]
+    description: str
+    priority: int
+    created_at: str
+    updated_at: str
+    assigned_agent: str
+    labels: list[str]
+    metadata: dict[str, Any]
+
+
+class TasksData(TypedDict, total=False):
+    """
+    TypedDict for tasks data structure.
+
+    Represents the complete tasks file for a spec, including metadata
+    and the list of all tasks.
+
+    Attributes:
+        spec_slug: Spec slug identifier
+        updated_at: ISO timestamp of last update
+        tasks: List of task dictionaries
+    """
+
+    spec_slug: str
+    updated_at: str
+    tasks: list[TaskData]
 
 
 def now_utc() -> datetime:
@@ -124,24 +308,6 @@ def now_stamp() -> str:
         Timestamp string in format YYYYMMDDTHHMMSSZ
     """
     return now_utc().strftime("%Y%m%dT%H%M%SZ")
-
-
-def parse_stamp(value: str) -> datetime | None:
-    """Parse an Autoflow timestamp into a UTC datetime."""
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
-    except ValueError:
-        return None
-
-
-def tmux_session_exists(session_name: str) -> bool:
-    """Return True when a tmux session exists."""
-    if not session_name or not shutil.which("tmux"):
-        return False
-    result = run_cmd(["tmux", "has-session", "-t", session_name], check=False)
-    return result.returncode == 0
 
 
 def slugify(value: str) -> str:
@@ -219,7 +385,6 @@ def write_json(path: Path, data: Any) -> None:
     """
     Write data to a JSON file.
 
-    Sanitizes sensitive data before writing to prevent information disclosure.
     Creates parent directories if they don't exist. Writes with indentation
     and ensures ASCII encoding.
 
@@ -227,34 +392,8 @@ def write_json(path: Path, data: Any) -> None:
         path: Path to the JSON file to write
         data: Data to serialize as JSON
     """
-    resolved_path = path.resolve()
-    preserve_runtime_config = resolved_path in {
-        SYSTEM_CONFIG_FILE.resolve(),
-        AGENTS_FILE.resolve(),
-    } or (
-        resolved_path.name == "run.json"
-        and resolved_path.parent.parent == RUNS_DIR.resolve()
-    )
-    sanitized_data = data if preserve_runtime_config else (
-        sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
-    )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(sanitized_data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-
-def print_json(data: Any) -> None:
-    """
-    Print JSON data to stdout with sanitization.
-
-    Sanitizes sensitive data before printing to prevent information disclosure.
-
-    Args:
-        data: JSON-serializable data to print
-    """
-    # Sanitize data to remove sensitive information
-    # Use sanitize_value to handle both dicts and lists containing sensitive data
-    sanitized_data = sanitize_dict(data) if isinstance(data, dict) else sanitize_value(data) if isinstance(data, list) else data
-    print(json.dumps(sanitized_data, indent=2, ensure_ascii=True))
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
 def read_json(path: Path) -> Any:
@@ -287,18 +426,7 @@ def ensure_state() -> None:
     - Memory directory
     - Strategy memory directory
     """
-    for path in [
-        STATE_DIR,
-        SPECS_DIR,
-        TASKS_DIR,
-        RUNS_DIR,
-        LOGS_DIR,
-        WORKTREES_DIR,
-        MEMORY_DIR,
-        STRATEGY_MEMORY_DIR,
-        REPOSITORIES_DIR,
-        DEPENDENCIES_DIR,
-    ]:
+    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -377,27 +505,19 @@ class AgentSpec:
             configuration fields including name, command, args, resume settings,
             protocol, model, tools, and transport configuration.
         """
-        data = {
+        return {
             "name": self.name,
             "command": self.command,
             "args": self.args,
+            "resume": self.resume or {},
             "protocol": self.protocol,
+            "model": self.model,
+            "model_profile": self.model_profile,
+            "tools": self.tools or [],
+            "tool_profile": self.tool_profile,
+            "memory_scopes": self.memory_scopes or [],
+            "transport": self.transport or {},
         }
-        if self.resume:
-            data["resume"] = self.resume
-        if self.model:
-            data["model"] = self.model
-        if self.model_profile:
-            data["model_profile"] = self.model_profile
-        if self.tools:
-            data["tools"] = self.tools
-        if self.tool_profile:
-            data["tool_profile"] = self.tool_profile
-        if self.memory_scopes:
-            data["memory_scopes"] = self.memory_scopes
-        if self.transport:
-            data["transport"] = self.transport
-        return data
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -438,12 +558,7 @@ def resolve_root_path(raw: str | Path) -> Path:
         Absolute Path object
     """
     path = Path(raw)
-    if not path.is_absolute():
-        return ROOT / path
-    if ".autoflow" in path.parts and not path.is_relative_to(ROOT):
-        marker = path.parts.index(".autoflow")
-        return STATE_DIR.joinpath(*path.parts[marker + 1 :])
-    return path
+    return path if path.is_absolute() else ROOT / path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
@@ -482,31 +597,12 @@ def load_agents() -> dict[str, AgentSpec]:
     Reads the agents.json file, resolves model and tool profiles from
     system configuration, and instantiates AgentSpec objects for each agent.
 
-    Caching Behavior:
-        This function uses an in-memory cache to avoid repeated disk I/O.
-        On first call, it loads the agents from disk and caches them.
-        Subsequent calls return the cached value directly (O(1) lookup).
-        Use invalidate_agents_cache() to clear the cache after
-        modifying agents.json.
-
-    Performance:
-        - First call: O(n) filesystem read and JSON parsing
-        - Subsequent calls: O(1) memory lookup
-        - Typical speedup: 10-20x for repeated calls
-
     Returns:
         Dictionary mapping agent names to AgentSpec objects
 
     Raises:
         SystemExit: If agents.json file does not exist
     """
-    global _agents_config_cache
-
-    # Return cached value if available (cache hit)
-    if _agents_config_cache is not None:
-        return _agents_config_cache
-
-    # Load from disk and cache the result
     if not AGENTS_FILE.exists():
         raise SystemExit(
             f"missing {AGENTS_FILE}. copy config/agents.example.json to .autoflow/agents.json first"
@@ -529,8 +625,7 @@ def load_agents() -> dict[str, AgentSpec]:
             memory_scopes=list(resolved.get("memory_scopes", [])) if resolved.get("memory_scopes") else None,
             transport=resolved.get("transport"),
         )
-    _agents_config_cache = agents
-    return _agents_config_cache
+    return agents
 
 
 def spec_dir(slug: str) -> Path:
@@ -563,21 +658,18 @@ def task_file(spec_slug: str) -> Path:
     return TASKS_DIR / f"{spec_slug}.json"
 
 
-def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
+def worktree_path(spec_slug: str) -> Path:
     """
     Get the worktree path for a spec.
 
     Args:
         spec_slug: Spec slug identifier
-        repository: Optional repository ID for multi-repo worktrees
 
     Returns:
         Path to the worktree directory
     """
     if not validate_slug_safe(spec_slug):
         raise SystemExit(f"invalid spec slug: {spec_slug}")
-    if repository:
-        return WORKTREES_DIR / repository / spec_slug
     return WORKTREES_DIR / spec_slug
 
 
@@ -627,33 +719,7 @@ def spec_files(slug: str) -> dict[str, Path]:
     }
 
 
-def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
-    """
-    Load metadata for a spec.
-
-    Args:
-        spec_slug: Spec slug identifier
-
-    Returns:
-        Dictionary containing the spec metadata
-
-    Raises:
-        SystemExit: If the spec does not exist
-    """
-    path = spec_files(spec_slug)["metadata"]
-    if not path.exists():
-        raise SystemExit(f"unknown spec: {spec_slug}")
-    return read_json(path)
-
-
-def save_spec_metadata(spec_slug: str, metadata: dict[str, Any]) -> Path:
-    metadata["updated_at"] = now_stamp()
-    path = spec_files(spec_slug)["metadata"]
-    write_json(path, metadata)
-    return path
-
-
-def review_state_default() -> dict[str, Any]:
+def review_state_default() -> ReviewState:
     """
     Get the default review state structure.
 
@@ -702,7 +768,7 @@ def read_json_or_default(path: Path, default: Any) -> Any:
         return default
 
 
-def system_config_default() -> dict[str, Any]:
+def system_config_default() -> SystemConfig:
     """
     Get the default system configuration.
 
@@ -719,7 +785,7 @@ def system_config_default() -> dict[str, Any]:
         - registry: Registry settings including acp_agents list (dict)
     """
     if SYSTEM_CONFIG_TEMPLATE.exists():
-        return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
+        return cast(SystemConfig, read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {}))
     return {
         "memory": {
             "enabled": True,
@@ -757,18 +823,6 @@ def load_system_config() -> dict[str, Any]:
 
     The merge is done using deep_merge, so local values override defaults.
 
-    Caching Behavior:
-        This function uses an in-memory cache to avoid repeated disk I/O.
-        On first call, it loads the config from disk and caches it.
-        Subsequent calls return the cached value directly (O(1) lookup).
-        Use invalidate_system_config_cache() to clear the cache after
-        modifying system.json.
-
-    Performance:
-        - First call: O(n) filesystem read and JSON parsing
-        - Subsequent calls: O(1) memory lookup
-        - Typical speedup: 10-20x for repeated calls
-
     Returns:
         Merged system configuration dictionary with the following structure:
         - memory: Memory settings including default_scopes, enabled flag,
@@ -777,18 +831,11 @@ def load_system_config() -> dict[str, Any]:
         - tools: Tool profile configurations with profiles for different agent types (dict)
         - registry: Registry settings including acp_agents list (dict)
     """
-    global _system_config_cache
-
-    # Return cached value if available (cache hit)
-    if _system_config_cache is not None:
-        return _system_config_cache
-
-    # Load from disk and cache the result
-    config = system_config_default()
+    config = cast(dict[str, Any], system_config_default())
     if SYSTEM_CONFIG_FILE.exists():
         local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
         config = deep_merge(config, local)
-    _system_config_cache = deep_merge(
+    return deep_merge(
         {
             "memory": {"default_scopes": ["spec"]},
             "models": {"profiles": {}},
@@ -797,7 +844,6 @@ def load_system_config() -> dict[str, Any]:
         },
         config,
     )
-    return _system_config_cache
 
 
 def memory_file(scope: str, spec_slug: str | None = None) -> Path:
@@ -964,7 +1010,7 @@ def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
     raise SystemExit("spec scope requires a spec slug")
 
 
-def strategy_memory_default() -> dict[str, Any]:
+def strategy_memory_default() -> StrategyMemory:
     """
     Get the default structure for a strategy memory store.
 
@@ -1036,7 +1082,7 @@ def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, 
         >>> len(spec_memory["reflections"])
         3
     """
-    return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
+    return cast(dict[str, Any], read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default()))
 
 
 def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
@@ -1421,7 +1467,7 @@ def load_review_state(spec_slug: str) -> dict[str, Any]:
         - spec_hash: Hash of the spec at approval time (str)
         - review_count: Number of reviews performed (int)
     """
-    return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
+    return cast(dict[str, Any], read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default()))
 
 
 def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
@@ -1444,192 +1490,68 @@ def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
     write_json(spec_files(spec_slug)["review_state"], state)
 
 
-def load_tasks(spec_slug: str) -> dict[str, Any]:
+def load_tasks(spec_slug: str) -> TasksData:
     """
-    Load the tasks file for a spec using a lazy-loaded cache.
+    Load the tasks file for a spec.
 
     Reads and parses the tasks JSON file containing all tasks, their status,
     and metadata. Exits with an error if the tasks file doesn't exist.
-
-    Cache Behavior:
-        This function uses an in-memory cache indexed by spec_slug to avoid
-        repeated disk I/O. On first call for a spec_slug, it loads the tasks
-        from disk. Subsequent calls return the cached data directly from memory.
 
     Args:
         spec_slug: Spec slug identifier
 
     Returns:
-        Tasks dictionary with the following structure:
+        TasksData dictionary with the following structure:
+        - spec_slug: Spec slug identifier (str)
+        - updated_at: ISO timestamp of last update (str)
         - tasks: List of task dictionaries, each containing:
             - id: Unique task identifier (str)
             - title: Task title (str)
             - status: Task status from VALID_TASK_STATUSES (str)
-            - ...additional task metadata
-        - ...other top-level keys
+            - depends_on: List of task IDs this task depends on (list[str])
+            - owner_role: Role responsible for this task (str)
+            - acceptance_criteria: List of acceptance criteria (list[str])
+            - notes: List of notes associated with the task (list[str])
+            - ...additional optional task metadata
 
     Raises:
         SystemExit: If the tasks file doesn't exist
     """
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-
-    _populate_tasks_cache(spec_slug)
-    if spec_slug in _cache_loaded_task_specs:
-        return _tasks_metadata_cache.get(spec_slug, {})
-
     path = task_file(spec_slug)
     if not path.exists():
         raise SystemExit(f"missing task file: {path}")
-    tasks_data = read_json(path)
-    _tasks_metadata_cache[spec_slug] = tasks_data
-    _cache_loaded_task_specs.add(spec_slug)
-    return tasks_data
+    return cast(TasksData, read_json(path))
 
 
-def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
+def task_lookup(data: TasksData, task_id: str) -> TaskData:
     """
-    Parse a dependency reference into (repository_id, task_id).
+    Look up a task by ID within a tasks dictionary.
+
+    Searches through the tasks list to find a task with the matching ID.
+    This is useful for retrieving full task details given only a task ID.
 
     Args:
-        dep_ref: Dependency reference, either "task-id" or "repo-id/task-id"
+        data: TasksData dictionary containing a list of task objects
+        task_id: Unique identifier of the task to find
 
     Returns:
-        Tuple of (repository_id, task_id). repository_id is None for same-repo deps.
-
-    Examples:
-        >>> parse_dependency_ref("T1")
-        (None, 'T1')
-        >>> parse_dependency_ref("backend/T1")
-        ('backend', 'T1')
-    """
-    if "/" in dep_ref:
-        parts = dep_ref.split("/", 1)
-        return parts[0], parts[1]
-    return None, dep_ref
-
-
-def load_tasks_from_repository(repository_id: str, spec_slug: str) -> dict[str, Any]:
-    """
-    Load tasks from a spec in another repository.
-
-    Args:
-        repository_id: Repository ID containing the spec
-        spec_slug: Spec slug to load tasks from
-
-    Returns:
-        Tasks data dictionary
+        TaskData dictionary containing all task details:
+        - id: Unique task identifier (str)
+        - title: Task title (str)
+        - status: Task status (str)
+        - depends_on: List of task IDs this task depends on (list[str])
+        - owner_role: Role responsible for this task (str)
+        - acceptance_criteria: List of acceptance criteria (list[str])
+        - notes: List of notes associated with the task (list[str])
+        - ...additional optional task metadata
 
     Raises:
-        SystemExit: If repository or task file doesn't exist
+        SystemExit: If no task with the given ID is found
     """
-    # Validate repository exists
-    repo_manager = repository_manager()
-    if not repo_manager.repository_exists(repository_id):
-        raise SystemExit(
-            f"cannot load dependency: repository '{repository_id}' not found"
-        )
-
-    # Load repository configuration
-    repo_data = repo_manager.load_repository(repository_id)
-    if not repo_data:
-        raise SystemExit(f"cannot load dependency: repository '{repository_id}' not found")
-
-    # Resolve repository path
-    from autoflow.core.repository import Repository
-    repo = Repository(**repo_data)
-    repo_path = repo.get_resolved_path()
-
-    # Construct path to task file in other repository
-    other_tasks_file = repo_path / ".autoflow" / "tasks" / f"{spec_slug}.json"
-
-    if not other_tasks_file.exists():
-        raise SystemExit(
-            f"cannot load dependency: task file not found for spec '{spec_slug}' "
-            f"in repository '{repository_id}' at {other_tasks_file}"
-        )
-
-    return read_json(other_tasks_file)
-
-
-def task_lookup(data: dict[str, Any], task_id: str, spec_slug: str | None = None) -> dict[str, Any]:
-    """
-    Look up a task by ID, supporting cross-repository references.
-
-    Args:
-        data: Current spec's tasks data
-        task_id: Task ID, either "T1" or "repo-id/spec-slug/T1"
-        spec_slug: Current spec slug (required for cross-repo lookups)
-
-    Returns:
-        Task dictionary
-
-    Raises:
-        SystemExit: If task is not found
-    """
-    # Check if this is a cross-repo reference (format: repo-id/spec-slug/task-id)
-    if task_id.count("/") >= 2:
-        parts = task_id.split("/")
-        repo_id = parts[0]
-        other_spec_slug = parts[1]
-        other_task_id = "/".join(parts[2:])  # Handle case where task ID contains /
-
-        # Load tasks from other repository
-        other_tasks = load_tasks_from_repository(repo_id, other_spec_slug)
-        for task in other_tasks.get("tasks", []):
-            if task["id"] == other_task_id:
-                return task
-        raise SystemExit(
-            f"unknown task: {task_id} (in spec '{other_spec_slug}' "
-            f"in repository '{repo_id}')"
-        )
-
-    # Same-repo lookup
     for task in data.get("tasks", []):
         if task["id"] == task_id:
             return task
     raise SystemExit(f"unknown task: {task_id}")
-
-
-def replace_markdown_section(markdown: str, heading: str, content: str) -> str:
-    lines = markdown.splitlines()
-    target = f"## {heading}".strip()
-    start = None
-    for index, line in enumerate(lines):
-        if line.strip() == target:
-            start = index
-            break
-    if start is None:
-        return markdown.rstrip() + f"\n\n## {heading}\n\n{content.strip()}\n"
-    end = len(lines)
-    for index in range(start + 1, len(lines)):
-        if lines[index].startswith("## "):
-            end = index
-            break
-    replacement = [target, "", content.strip()]
-    new_lines = lines[:start] + replacement + lines[end:]
-    return "\n".join(new_lines).rstrip() + "\n"
-
-
-def normalize_worktree_metadata(spec_slug: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload = dict(metadata or load_spec_metadata(spec_slug))
-    worktree = dict(payload.get("worktree", {}))
-    expected = worktree_path(spec_slug)
-    current_path = worktree.get("path", "")
-    branch = worktree.get("branch", worktree_branch(spec_slug))
-    base_branch = worktree.get("base_branch", detect_base_branch())
-    resolved_path = ""
-    if expected.exists():
-        resolved_path = str(expected)
-    elif current_path:
-        current = Path(current_path)
-        if current.exists():
-            resolved_path = str(current)
-    payload["worktree"] = {
-        "path": resolved_path,
-        "branch": branch,
-        "base_branch": base_branch,
-    }
-    return payload
 
 
 def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -1742,9 +1664,12 @@ def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
         >>> len(data["findings"])
         3
     """
-    return read_json_or_default(
-        spec_files(spec_slug)["qa_fix_request_json"],
-        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+    return cast(
+        dict[str, Any],
+        read_json_or_default(
+            spec_files(spec_slug)["qa_fix_request_json"],
+            {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
+        ),
     )
 
 
@@ -1801,8 +1726,8 @@ def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> l
                     "title": finding.get("title") or "Follow-up required",
                     "body": finding.get("body") or summary,
                     "file": finding.get("file", ""),
-                    "line": int(start_line) if start_line not in (None, "") else None,
-                    "end_line": int(end_line) if end_line not in (None, "") else None,
+                    "line": int(str(start_line)) if start_line not in (None, "") else None,
+                    "end_line": int(str(end_line)) if end_line not in (None, "") else None,
                     "severity": finding.get("severity", "medium"),
                     "category": finding.get("category", "general"),
                     "suggested_fix": finding.get("suggested_fix", ""),
@@ -2164,7 +2089,7 @@ def review_status_summary(spec_slug: str) -> dict[str, Any]:
     }
 
 
-def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_state_updated") -> None:
+def save_tasks(spec_slug: str, data: TasksData, *, reason: str = "task_state_updated") -> None:
     """
     Save task data for a spec and synchronize review state.
 
@@ -2174,12 +2099,14 @@ def save_tasks(spec_slug: str, data: dict[str, Any], *, reason: str = "task_stat
 
     Args:
         spec_slug: Slug identifier for the spec
-        data: Task data dictionary to save
+        data: TasksData dictionary to save containing:
+            - spec_slug: Spec slug identifier
+            - updated_at: ISO timestamp of last update
+            - tasks: List of task dictionaries
         reason: Optional reason for task state update (default: "task_state_updated")
     """
     data["updated_at"] = now_stamp()
     write_json(task_file(spec_slug), data)
-    invalidate_tasks_cache()
     sync_review_state(spec_slug, reason=reason)
 
 
@@ -2422,28 +2349,6 @@ def discovered_agent_to_config(agent: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ============================================================================
-# CONFIG FILE WRITE LOCATIONS - For Cache Invalidation
-# ============================================================================
-#
-# This section documents all locations where config files are written.
-# Cache invalidation (invalidate_config_cache) must be called after each write.
-#
-# SYSTEM_CONFIG_FILE (system.json) write locations:
-#   - Line 4025: init_system_config() function
-#     Command: python3 scripts/autoflow.py init-system-config
-#     Purpose: Initialize system configuration with defaults
-#
-# AGENTS_FILE (agents.json) write locations:
-#   - Line 2372: sync_discovered_agents() function
-#     Command: python3 scripts/autoflow.py sync-agents [--overwrite]
-#     Purpose: Sync agents from discovery registry into agents.json
-#
-# No other write operations to SYSTEM_CONFIG_FILE or AGENTS_FILE found.
-#
-# ============================================================================
-
-
 def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     """
     Sync discovered agents from the registry into the agents configuration file.
@@ -2464,7 +2369,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
     """
     ensure_state()
     discovered = discover_agents_registry()
-    existing = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
+    existing: dict[str, Any] = {"defaults": {"workspace": ".", "shell": "bash"}, "agents": {}}
     if AGENTS_FILE.exists():
         existing = read_json_or_default(AGENTS_FILE, existing)
         existing.setdefault("defaults", {"workspace": ".", "shell": "bash"})
@@ -2478,10 +2383,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
         merged[name] = discovered_agent_to_config(agent)
         added.append(name)
     payload = {"defaults": existing["defaults"], "agents": merged}
-    # NOTE: This writes to AGENTS_FILE (agents.json)
-    # Cache invalidation required: call invalidate_config_cache() after this write
     write_json(AGENTS_FILE, payload)
-    invalidate_config_cache()
     return {
         "agents_file": str(AGENTS_FILE),
         "added": added,
@@ -2525,10 +2427,6 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # Cache data structures
 _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
-_system_config_cache: dict[str, Any] | None = None
-_agents_config_cache: dict[str, AgentSpec] | None = None
-_tasks_metadata_cache: dict[str, dict[str, Any]] = {}
-_cache_loaded_task_specs: set[str] = set()
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2569,7 +2467,7 @@ def _populate_run_cache_for_spec(spec_slug: str) -> None:
 
     # First pass: discover all specs and collect their run IDs
     # This enables opportunistic caching of all specs in one scan
-    spec_runs = {}
+    spec_runs: dict[str, list[dict[str, Any]]] = {}
     for run_dir in sorted(RUNS_DIR.iterdir()):
         if not run_dir.is_dir():
             continue
@@ -2645,177 +2543,6 @@ def invalidate_run_cache() -> None:
     _cache_loaded_specs.clear()
 
 
-def _populate_system_config_cache() -> None:
-    """Load system configuration into the cache.
-
-    This implements lazy-loading: system config is only loaded from disk when needed.
-    Subsequent calls will use the cached data (O(1) lookup).
-
-    Cache Behavior:
-        If _system_config_cache is not None, we've already loaded the config,
-        so we return immediately (cache hit). Otherwise, we load the config from
-        disk using load_system_config() and store it in the cache.
-
-    Note: Unlike run metadata cache, there's only one system config, so this
-    is a simple load-once pattern without opportunistic caching.
-    """
-    global _system_config_cache
-
-    # Skip if already loaded (cache hit)
-    if _system_config_cache is not None:
-        return
-
-    # Load system config from disk
-    _system_config_cache = load_system_config()
-
-
-def invalidate_system_config_cache() -> None:
-    """Invalidate the system configuration cache.
-
-    Call this function whenever the system configuration is modified to ensure
-    the cache remains consistent with the filesystem state.
-
-    Cache Invalidation Strategy:
-        - Simple: set the cached data to None
-        - Safe: ensures cache consistency after config modification
-        - Lazy: data is reloaded on next access (not immediately)
-
-    Note: System config modifications are rare, so aggressive invalidation
-    is acceptable. The cache will be repopulated on the next access.
-    """
-    global _system_config_cache
-    _system_config_cache = None
-
-
-def _populate_agents_cache() -> None:
-    """Load agents configuration into the cache.
-
-    This implements lazy-loading: agents config is only loaded from disk when needed.
-    Subsequent calls will use the cached data (O(1) lookup).
-
-    Cache Behavior:
-        If _agents_config_cache is not None, we've already loaded the agents,
-        so we return immediately (cache hit). Otherwise, we load the agents from
-        disk using load_agents() and store it in the cache.
-
-    Note: Unlike run metadata cache, there's only one agents config, so this
-    is a simple load-once pattern without opportunistic caching.
-
-    The cached data is a dictionary mapping agent names to AgentSpec objects.
-    """
-    global _agents_config_cache
-
-    # Skip if already loaded (cache hit)
-    if _agents_config_cache is not None:
-        return
-
-    # Load agents config from disk
-    _agents_config_cache = load_agents()
-
-
-def invalidate_agents_cache() -> None:
-    """Invalidate the agents configuration cache.
-
-    Call this function whenever the agents configuration is modified to ensure
-    the cache remains consistent with the filesystem state.
-
-    Cache Invalidation Strategy:
-        - Simple: set the cached data to None
-        - Safe: ensures cache consistency after config modification
-        - Lazy: data is reloaded on next access (not immediately)
-
-    Note: Agents config modifications are rare (e.g., sync-agents command),
-    so aggressive invalidation is acceptable. The cache will be repopulated
-    on the next access.
-    """
-    global _agents_config_cache
-    _agents_config_cache = None
-
-
-def invalidate_config_cache() -> None:
-    """Invalidate all configuration caches.
-
-    Call this function whenever any configuration is modified to ensure
-    all caches remain consistent with the filesystem state. This is a
-    comprehensive invalidation that clears both system and agents caches.
-
-    Cache Invalidation Strategy:
-        - Comprehensive: clears all config-related caches
-        - Safe: ensures cache consistency after any config modification
-        - Lazy: data is reloaded on next access (not immediately)
-        - Called by: commands that modify system or agents configuration
-
-    Note: Configuration modifications are rare (e.g., init-system-config,
-    sync-agents), so aggressive invalidation is acceptable. The caches will
-    be repopulated on the next access.
-    """
-    invalidate_system_config_cache()
-    invalidate_agents_cache()
-
-
-def invalidate_tasks_cache() -> None:
-    """Invalidate the task metadata cache."""
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-    _tasks_metadata_cache.clear()
-    _cache_loaded_task_specs.clear()
-
-
-def _populate_tasks_cache(spec_slug: str) -> None:
-    """Load task metadata for a specific spec_slug into the cache.
-
-    This implements lazy-loading: tasks are only loaded from disk when needed.
-    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
-
-    Opportunistic Caching:
-        Since we must scan all task files to find tasks for the requested spec,
-        we opportunistically cache tasks for ALL specs encountered during the scan.
-        This means the first call for any spec effectively caches tasks for all specs,
-        making subsequent calls for other specs essentially free (O(1) lookup).
-
-    Cache Invalidation:
-        If the spec is already in _cache_loaded_task_specs, we skip the filesystem scan
-        entirely and return immediately. This ensures that after the first load,
-        all subsequent calls are pure memory lookups.
-
-    Args:
-        spec_slug: The spec identifier to load tasks for.
-    """
-    global _tasks_metadata_cache, _cache_loaded_task_specs
-
-    # Skip if this spec has already been loaded (cache hit)
-    if spec_slug in _cache_loaded_task_specs:
-        return
-
-    # Ensure the spec has an entry in the cache
-    if spec_slug not in _tasks_metadata_cache:
-        _tasks_metadata_cache[spec_slug] = {}
-
-    # Load tasks from filesystem for this spec
-    # Note: We must scan all task files to find tasks matching this spec
-    if not TASKS_DIR.exists():
-        _cache_loaded_task_specs.add(spec_slug)
-        return
-
-    # First pass: discover all specs and collect their task data
-    # This enables opportunistic caching of all specs in one scan
-    spec_tasks = {}
-    for task_file_path in sorted(TASKS_DIR.iterdir()):
-        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
-            continue
-        # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
-        file_spec = task_file_path.stem
-        if file_spec:
-            task_data = read_json(task_file_path)
-            if task_data:
-                spec_tasks[file_spec] = task_data
-
-    # Second pass: add all discovered tasks to cache
-    # This implements opportunistic caching for all specs encountered
-    for discovered_spec, tasks in spec_tasks.items():
-        _tasks_metadata_cache[discovered_spec] = tasks
-        _cache_loaded_task_specs.add(discovered_spec)
-
-
 def run_metadata_iter() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
@@ -2868,8 +2595,7 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
     return [
         item
         for item in _run_metadata_cache.get(spec_slug, [])
-        if item.get("status") not in INACTIVE_RUN_STATUSES
-        and not run_is_stale(item)
+        if item.get("status") != "completed"
     ]
 
 
@@ -2901,68 +2627,6 @@ def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[
 
     # Sort by created_at and return last `limit` items
     return sorted(history, key=lambda item: item.get("created_at", ""))[-limit:]
-
-
-def run_metadata_path(run_id: str) -> Path:
-    return RUNS_DIR / run_id / "run.json"
-
-
-def load_run_metadata(run_id: str) -> dict[str, Any]:
-    path = run_metadata_path(run_id)
-    if not path.exists():
-        raise SystemExit(f"unknown run: {run_id}")
-    return read_json(path)
-
-
-def write_run_metadata(run_id: str, metadata: dict[str, Any]) -> None:
-    metadata["updated_at"] = now_stamp()
-    write_json(run_metadata_path(run_id), metadata)
-    invalidate_run_cache()
-
-
-def run_last_activity(metadata: dict[str, Any]) -> datetime | None:
-    for field in ("heartbeat_at", "updated_at", "created_at"):
-        parsed = parse_stamp(metadata.get(field, ""))
-        if parsed:
-            return parsed
-    return None
-
-
-def run_stale_reason(
-    metadata: dict[str, Any],
-    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
-) -> str:
-    if metadata.get("status") not in RUN_LEASE_ACTIVE_STATUSES:
-        return ""
-    session_name = metadata.get("tmux_session", "")
-    if session_name and not tmux_session_exists(session_name):
-        return "tmux_session_missing"
-    last_activity = run_last_activity(metadata)
-    if not last_activity:
-        return "missing_heartbeat"
-    age_seconds = (now_utc() - last_activity).total_seconds()
-    if age_seconds > stale_after_seconds:
-        return "heartbeat_expired"
-    return ""
-
-
-def run_is_stale(
-    metadata: dict[str, Any],
-    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
-) -> bool:
-    return bool(run_stale_reason(metadata, stale_after_seconds=stale_after_seconds))
-
-
-def stale_runs_for_spec(
-    spec_slug: str,
-    stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
-) -> list[dict[str, Any]]:
-    _populate_run_cache_for_spec(spec_slug)
-    return [
-        item
-        for item in _run_metadata_cache.get(spec_slug, [])
-        if run_is_stale(item, stale_after_seconds=stale_after_seconds)
-    ]
 
 
 def latest_handoffs(spec_slug: str, limit: int = 3) -> list[Path]:
@@ -3223,27 +2887,6 @@ def default_tasks() -> list[dict[str, Any]]:
     ]
 
 
-def validate_spec_repository(repository_id: str) -> None:
-    """
-    Validate that a repository reference exists.
-
-    Args:
-        repository_id: The repository ID to validate
-
-    Raises:
-        SystemExit: If the repository doesn't exist
-    """
-    if not repository_id:
-        return
-
-    repo_manager = repository_manager()
-    if not repo_manager.repository_exists(repository_id):
-        raise SystemExit(
-            f"repository '{repository_id}' not found. "
-            f"Use 'repo-add' to register it first, or omit --repository to use the default repository."
-        )
-
-
 def create_spec(args: argparse.Namespace) -> None:
     """
     Create a new spec directory with markdown, metadata, and initial task files.
@@ -3325,14 +2968,11 @@ Describe the problem this system is solving.
             "base_branch": detect_base_branch(),
         },
     }
-    if getattr(args, "repository", None):
-        validate_spec_repository(args.repository)
-        metadata["repository"] = args.repository
     handoff = "# Handoff\n\nInitial spec created. Next role should refine scope and derive tasks.\n"
     files["spec"].write_text(spec_markdown, encoding="utf-8")
     files["handoff"].write_text(handoff, encoding="utf-8")
     write_json(files["metadata"], metadata)
-    save_review_state(slug, review_state_default())
+    save_review_state(slug, cast(dict[str, Any], review_state_default()))
     if not task_file(slug).exists():
         write_json(
             task_file(slug),
@@ -3344,91 +2984,6 @@ Describe the problem this system is solving.
         )
     record_event(slug, "spec.created", {"title": args.title})
     print(str(files["dir"]))
-
-
-def init_tasks_cmd(args: argparse.Namespace) -> None:
-    ensure_state()
-    load_spec_metadata(args.spec)
-    path = task_file(args.spec)
-    created = False
-    if not path.exists() or args.force:
-        write_json(
-            path,
-            {
-                "spec_slug": args.spec,
-                "updated_at": now_stamp(),
-                "tasks": default_tasks(),
-            },
-        )
-        sync_review_state(args.spec, reason="tasks_initialized")
-        record_event(args.spec, "tasks.initialized", {"force": args.force})
-        created = True
-    payload = load_tasks(args.spec)
-    print(
-        json.dumps(
-            {
-                "spec": args.spec,
-                "tasks_file": str(path),
-                "created": created,
-                "task_count": len(payload.get("tasks", [])),
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
-
-
-def show_spec(args: argparse.Namespace) -> None:
-    metadata = normalize_worktree_metadata(args.slug)
-    files = spec_files(args.slug)
-    payload = {
-        "metadata": metadata,
-        "review_status": review_status_summary(args.slug),
-        "tasks": load_tasks(args.slug),
-        "spec_markdown": files["spec"].read_text(encoding="utf-8"),
-    }
-    print(json.dumps(payload, indent=2, ensure_ascii=True))
-
-
-def update_spec(args: argparse.Namespace) -> None:
-    metadata = load_spec_metadata(args.slug)
-    files = spec_files(args.slug)
-    spec_markdown = files["spec"].read_text(encoding="utf-8")
-    changes = []
-    if args.title:
-        metadata["title"] = args.title
-        lines = spec_markdown.splitlines()
-        if lines and lines[0].startswith("# "):
-            lines[0] = f"# {args.title}"
-            spec_markdown = "\n".join(lines).rstrip() + "\n"
-        changes.append("title")
-    if args.summary:
-        metadata["summary"] = args.summary
-        spec_markdown = replace_markdown_section(spec_markdown, "Summary", args.summary)
-        changes.append("summary")
-    if args.status:
-        metadata["status"] = args.status
-        changes.append("status")
-    if args.append:
-        spec_markdown = spec_markdown.rstrip() + (
-            f"\n\n## Updates\n\n### {now_stamp()}\n\n{args.append.strip()}\n"
-        )
-        changes.append("append")
-    files["spec"].write_text(spec_markdown, encoding="utf-8")
-    save_spec_metadata(args.slug, normalize_worktree_metadata(args.slug, metadata))
-    sync_review_state(args.slug, reason="spec_updated")
-    record_event(args.slug, "spec.updated", {"changes": changes or ["touch"]})
-    print(
-        json.dumps(
-            {
-                "slug": args.slug,
-                "changed_fields": changes,
-                "metadata": normalize_worktree_metadata(args.slug),
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
 
 
 def list_tasks(args: argparse.Namespace) -> None:
@@ -3445,10 +3000,10 @@ def list_tasks(args: argparse.Namespace) -> None:
         Prints JSON task list to stdout
     """
     tasks = load_tasks(args.spec)
-    print_json(tasks)
+    print(json.dumps(tasks, indent=2, ensure_ascii=True))
 
 
-def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | None:
+def next_task_data(spec_slug: str, role: str | None = None) -> TaskData | None:
     """
     Find the next available task for a given role.
 
@@ -3463,7 +3018,7 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
             available task. If "reviewer", returns tasks in review status.
 
     Returns:
-        Task dictionary if an available task is found, None otherwise
+        TaskData dictionary if an available task is found, None otherwise
 
     Side Effects:
         None
@@ -3480,8 +3035,7 @@ def next_task_data(spec_slug: str, role: str | None = None) -> dict[str, Any] | 
                 continue
         blocked = False
         for dep in task.get("depends_on", []):
-            # task_lookup now handles both same-repo and cross-repo dependencies
-            dep_task = task_lookup(tasks, dep, spec_slug=spec_slug)
+            dep_task = task_lookup(tasks, dep)
             if dep_task["status"] != "done":
                 blocked = True
                 break
@@ -3509,7 +3063,7 @@ def next_task(args: argparse.Namespace) -> None:
     if not task:
         print("{}")
         return
-    print_json(task)
+    print(json.dumps(task, indent=2, ensure_ascii=True))
 
 
 def set_task_status(args: argparse.Namespace) -> None:
@@ -3541,48 +3095,6 @@ def set_task_status(args: argparse.Namespace) -> None:
     )
     save_tasks(args.spec, data, reason="task_status_updated")
     record_event(args.spec, "task.status_updated", {"task": args.task, "status": args.status})
-    print_json(task)
-
-
-def update_task_cmd(args: argparse.Namespace) -> None:
-    data = load_tasks(args.spec)
-    task = task_lookup(data, args.task)
-    changed_fields = []
-    if args.status:
-        if args.status not in VALID_TASK_STATUSES:
-            raise SystemExit(f"invalid status: {args.status}")
-        task["status"] = args.status
-        changed_fields.append("status")
-    if args.title:
-        task["title"] = args.title
-        changed_fields.append("title")
-    if args.owner_role:
-        task["owner_role"] = args.owner_role
-        changed_fields.append("owner_role")
-    if args.append_criterion:
-        task.setdefault("acceptance_criteria", []).append(args.append_criterion)
-        changed_fields.append("acceptance_criteria")
-    if args.note:
-        task.setdefault("notes", []).append({"at": now_stamp(), "note": args.note})
-        changed_fields.append("notes")
-    elif args.status:
-        task.setdefault("notes", []).append({"at": now_stamp(), "note": f"status set to {args.status}"})
-    if not changed_fields:
-        raise SystemExit("no task update provided")
-    save_tasks(args.spec, data, reason="task_updated")
-    record_event(args.spec, "task.updated", {"task": args.task, "fields": changed_fields})
-    print(json.dumps(task, indent=2, ensure_ascii=True))
-
-
-def reset_task_cmd(args: argparse.Namespace) -> None:
-    data = load_tasks(args.spec)
-    task = task_lookup(data, args.task)
-    task["status"] = "todo"
-    task.setdefault("notes", []).append(
-        {"at": now_stamp(), "note": args.note or "task reset to todo"}
-    )
-    save_tasks(args.spec, data, reason="task_reset")
-    record_event(args.spec, "task.reset", {"task": args.task})
     print(json.dumps(task, indent=2, ensure_ascii=True))
 
 
@@ -3689,7 +3201,7 @@ def approve_spec(args: argparse.Namespace) -> None:
     state["invalidated_reason"] = ""
     save_review_state(args.spec, state)
     record_event(args.spec, "review.approved", {"approved_by": args.approved_by})
-    print_json(review_status_summary(args.spec))
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
 
 
 def invalidate_review(args: argparse.Namespace) -> None:
@@ -3721,7 +3233,7 @@ def invalidate_review(args: argparse.Namespace) -> None:
     state["spec_hash"] = ""
     save_review_state(args.spec, state)
     record_event(args.spec, "review.invalidated", {"reason": args.reason})
-    print_json(review_status_summary(args.spec))
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
 
 
 def show_review_status(args: argparse.Namespace) -> None:
@@ -3755,7 +3267,7 @@ def show_review_status(args: argparse.Namespace) -> None:
             - invalidated_at: Timestamp when approval was invalidated (if applicable)
             - invalidated_reason: Reason for invalidation (if applicable)
     """
-    print_json(review_status_summary(args.spec))
+    print(json.dumps(review_status_summary(args.spec), indent=2, ensure_ascii=True))
 
 
 def build_prompt(
@@ -3764,7 +3276,6 @@ def build_prompt(
     task_id: str | None,
     agent: AgentSpec,
     resume_from: str | None = None,
-    run_id: str | None = None,
 ) -> str:
     """
     Build a comprehensive execution prompt for an AI agent.
@@ -3783,7 +3294,6 @@ def build_prompt(
         task_id: Specific task ID to execute, or None to auto-select next task
         agent: Agent specification with configuration, tools, and memory scopes
         resume_from: Optional run ID to resume from for recovery
-        run_id: Optional run ID so the prompt can include the completion artifact path
 
     Returns:
         Complete prompt string with all context sections for agent execution
@@ -3795,13 +3305,12 @@ def build_prompt(
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
-    selected_task = task_lookup(tasks, task_id, spec_slug=spec_slug) if task_id else next_task_data(spec_slug, role)
+    selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
     review_summary = review_status_summary(spec_slug)
     fix_request = load_fix_request(spec_slug)
     fix_request_data = load_fix_request_data(spec_slug)
     memory_context = load_memory_context(spec_slug, agent.memory_scopes)
     strategy_context = render_strategy_context(spec_slug)
-    agent_result_path = str(RUNS_DIR / run_id / AGENT_RESULT_FILE) if run_id else ""
     handoff_sections = []
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
@@ -3819,20 +3328,18 @@ def build_prompt(
             "",
             "## Backend configuration",
             json.dumps(
-                sanitize_dict(
-                    {
-                        "agent": agent.name,
-                        "protocol": agent.protocol,
-                        "command": agent.command,
-                        "model": agent.model,
-                        "model_profile": agent.model_profile,
-                        "tools": agent.tools or [],
-                        "tool_profile": agent.tool_profile,
-                        "memory_scopes": agent.memory_scopes or [],
-                        "native_resume_supported": bool(agent.resume),
-                        "transport": agent.transport or {},
-                    }
-                ),
+                {
+                    "agent": agent.name,
+                    "protocol": agent.protocol,
+                    "command": agent.command,
+                    "model": agent.model,
+                    "model_profile": agent.model_profile,
+                    "tools": agent.tools or [],
+                    "tool_profile": agent.tool_profile,
+                    "memory_scopes": agent.memory_scopes or [],
+                    "native_resume_supported": bool(agent.resume),
+                    "transport": agent.transport or {},
+                },
                 indent=2,
                 ensure_ascii=True,
             ),
@@ -3855,30 +3362,6 @@ def build_prompt(
             "",
             "## Resume context",
             resume_context(resume_from),
-            "",
-            "## Completion contract",
-            (
-                "When you finish, write a JSON file to "
-                f"{agent_result_path} with this shape:\n"
-                "{\n"
-                '  "result": "success|needs_changes|blocked|failed",\n'
-                '  "summary": "concise execution summary",\n'
-                '  "findings": [\n'
-                "    {\n"
-                '      "file": "path/to/file",\n'
-                '      "line": 10,\n'
-                '      "severity": "low|medium|high|critical",\n'
-                '      "category": "tests|bug|security|workflow|docs",\n'
-                '      "title": "short finding title",\n'
-                '      "body": "what is wrong and why",\n'
-                '      "suggested_fix": "optional next action"\n'
-                "    }\n"
-                "  ]\n"
-                "}\n"
-                "Always write the file before exiting. Use an empty findings array when there are no findings."
-            )
-            if agent_result_path
-            else "No completion artifact path was assigned for this run.",
             "",
             "## QA fix request (structured)",
             json.dumps(fix_request_data, indent=2, ensure_ascii=True),
@@ -3942,70 +3425,23 @@ def create_run_record(
         run_dir = RUNS_DIR / run_id
         suffix += 1
     run_dir.mkdir(parents=True, exist_ok=False)
-    branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
-    target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
-    run_json_path = run_dir / "run.json"
-    run_script = run_dir / "run.sh"
     prompt_path = run_dir / "prompt.md"
-    agent_result_path = run_dir / AGENT_RESULT_FILE
-    command = [agent.command, *agent.args, str(prompt_path)]
     prompt_path.write_text(
-        build_prompt(
-            spec_slug,
-            role,
-            task_id,
-            agent,
-            resume_from=resume_from,
-            run_id=run_id,
-        ),
+        build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
         encoding="utf-8",
     )
-    prompt_hash = hash_file_content(prompt_path)
+    branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
+    target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
+    command = [agent.command, *agent.args, str(prompt_path)]
+    run_json_path = run_dir / "run.json"
+    run_script = run_dir / "run.sh"
     run_script.write_text(
         "\n".join(
             [
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
                 f"cd {shlex.quote(str(target_workdir))}",
-                'session_name="${AUTOFLOW_TMUX_SESSION:-}"',
-                f"export AUTOFLOW_RUN_ID={shlex.quote(run_id)}",
-                f"export AUTOFLOW_RUN_DIR={shlex.quote(str(run_dir))}",
-                f"export AUTOFLOW_AGENT_RESULT={shlex.quote(str(agent_result_path))}",
-                "heartbeat_status() {",
-                '  local status="$1"',
-                "  shift || true",
-                f"  local cmd=(python3 {shlex.quote(str(ROOT / 'scripts' / 'autoflow.py'))} heartbeat-run --run {shlex.quote(run_id)} --status \"$status\")",
-                '  if [[ -n "${session_name}" ]]; then',
-                '    cmd+=(--session "${session_name}")',
-                "  fi",
-                '  if [[ $# -gt 0 ]]; then',
-                '    cmd+=("$@")',
-                "  fi",
-                '  "${cmd[@]}" >/dev/null 2>&1 || true',
-                "}",
-                "heartbeat_status running",
-                "(",
-                "  while true; do",
-                f"    sleep {DEFAULT_HEARTBEAT_INTERVAL_SECONDS}",
-                "    heartbeat_status running",
-                "  done",
-                ") &",
-                "heartbeat_pid=$!",
-                f"if {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}; then",
-                "  exit_code=0",
-                "else",
-                "  exit_code=$?",
-                "fi",
-                'kill "${heartbeat_pid}" >/dev/null 2>&1 || true',
-                'wait "${heartbeat_pid}" 2>/dev/null || true',
-                'heartbeat_status exited --exit-code "${exit_code}"',
-                (
-                    f"python3 {shlex.quote(str(ROOT / 'scripts' / 'autoflow.py'))} "
-                    f"finalize-run --run {shlex.quote(run_id)} "
-                    f"--exit-code \"${{exit_code}}\" "
-                    f"--result-file {shlex.quote(str(agent_result_path))}"
-                ),
-                'exit "${exit_code}"',
+                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}",
                 "",
             ]
         ),
@@ -4014,7 +3450,6 @@ def create_run_record(
     summary_path = run_dir / "summary.md"
     summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
     os.chmod(run_script, 0o755)
-    run_script_hash = hash_file_content(run_script)
     metadata = {
         "id": run_id,
         "spec": spec_slug,
@@ -4024,13 +3459,8 @@ def create_run_record(
         "branch": branch,
         "workdir": str(target_workdir),
         "created_at": now_stamp(),
-        "heartbeat_at": now_stamp(),
         "command_preview": command,
         "status": "created",
-        "heartbeat_interval_seconds": DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
-        "stale_after_seconds": DEFAULT_STALE_AFTER_SECONDS,
-        "tmux_session": "",
-        "agent_result_path": str(agent_result_path),
         "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
@@ -4040,10 +3470,6 @@ def create_run_record(
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
-        },
-        "integrity": {
-            "prompt.md": prompt_hash,
-            "run.sh": run_script_hash,
         },
     }
     write_json(run_json_path, metadata)
@@ -4089,7 +3515,7 @@ def create_run(args: argparse.Namespace) -> None:
             raise SystemExit("no ready task for this role")
         chosen_task = next_candidate["id"]
     tasks = load_tasks(args.spec)
-    task = task_lookup(tasks, chosen_task, spec_slug=args.spec)
+    task = task_lookup(tasks, chosen_task)
     expected_role = "reviewer" if task["status"] == "in_review" and args.role == "reviewer" else task["owner_role"]
     if expected_role != args.role:
         raise SystemExit(f"task {chosen_task} belongs to role {task['owner_role']}, not {args.role}")
@@ -4137,7 +3563,7 @@ def resume_run(args: argparse.Namespace) -> None:
             "spec review approval is not valid; approve the current planning contract before resuming implementation"
         )
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
     task["status"] = "in_progress"
     task.setdefault("notes", []).append({"at": now_stamp(), "note": f"retry created from {args.run}"})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
@@ -4151,170 +3577,6 @@ def resume_run(args: argparse.Namespace) -> None:
     )
     record_event(metadata["spec"], "run.resumed", {"from": args.run, "task": metadata["task"]})
     print(str(new_run))
-
-
-def heartbeat_run_cmd(args: argparse.Namespace) -> None:
-    metadata = load_run_metadata(args.run)
-    if metadata.get("status") in {"completed", "cancelled", "cleaned"}:
-        print_json({"run": args.run, "status": metadata.get("status", "")})
-        return
-    if args.status:
-        metadata["status"] = args.status
-    metadata["heartbeat_at"] = now_stamp()
-    if args.session:
-        metadata["tmux_session"] = args.session
-    if args.exit_code is not None:
-        metadata["last_exit_at"] = now_stamp()
-        metadata["exit_code"] = args.exit_code
-    write_run_metadata(args.run, metadata)
-    print_json(
-        {
-            "run": args.run,
-            "status": metadata.get("status", ""),
-            "heartbeat_at": metadata.get("heartbeat_at", ""),
-            "tmux_session": metadata.get("tmux_session", ""),
-        }
-    )
-
-
-def recover_run_record(run_id: str, reason: str, dispatch: bool = False) -> dict[str, Any]:
-    metadata = load_run_metadata(run_id)
-    if metadata.get("status") in {"completed", "cancelled", "cleaned", "recovered"}:
-        raise SystemExit(f"run {run_id} cannot be recovered from status {metadata.get('status', '')}")
-    review_summary = review_status_summary(metadata["spec"])
-    if metadata["role"] in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
-        raise SystemExit(
-            "spec review approval is not valid; approve the current planning contract before recovering implementation"
-        )
-    tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
-    task["status"] = "in_progress"
-    task.setdefault("notes", []).append(
-        {"at": now_stamp(), "note": f"recovery created from {run_id}: {reason}"}
-    )
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
-
-    metadata["status"] = "recovered"
-    metadata["recovered_at"] = now_stamp()
-    metadata["recovery_reason"] = reason
-    write_run_metadata(run_id, metadata)
-
-    new_run_dir = create_run_record(
-        metadata["spec"],
-        metadata["role"],
-        metadata["agent"],
-        metadata["task"],
-        branch=metadata.get("branch"),
-        resume_from=run_id,
-    )
-    new_run_id = new_run_dir.name
-    new_metadata = load_run_metadata(new_run_id)
-    new_metadata["recovery_reason"] = reason
-    write_run_metadata(new_run_id, new_metadata)
-
-    session_name = ""
-    if dispatch:
-        session_name = run_cmd(
-            ["bash", str(ROOT / "scripts" / "tmux-start.sh"), str(new_run_dir / "run.sh")]
-        ).stdout.strip()
-        if session_name:
-            new_metadata = load_run_metadata(new_run_id)
-            new_metadata["tmux_session"] = session_name
-            write_run_metadata(new_run_id, new_metadata)
-
-    record_event(
-        metadata["spec"],
-        "run.recovered",
-        {
-            "from": run_id,
-            "to": new_run_id,
-            "task": metadata["task"],
-            "role": metadata["role"],
-            "dispatch": dispatch,
-            "reason": reason,
-        },
-    )
-    return {
-        "run": run_id,
-        "new_run": new_run_id,
-        "reason": reason,
-        "dispatched": dispatch,
-        "tmux_session": session_name,
-    }
-
-
-def recover_run_cmd(args: argparse.Namespace) -> None:
-    print_json(recover_run_record(args.run, args.reason or "manual_recover", dispatch=args.dispatch))
-
-
-def sweep_runs_cmd(args: argparse.Namespace) -> None:
-    ensure_state()
-    stale_after = max(1, int(args.stale_after))
-    tasks = load_tasks(args.spec)
-    task_updates = []
-    marked_stale = []
-    recovered = []
-
-    for metadata in list(run_metadata_iter()):
-        if metadata.get("spec") != args.spec:
-            continue
-        if metadata.get("status") not in args.include_status:
-            continue
-        reason = run_stale_reason(metadata, stale_after_seconds=stale_after)
-        if not reason:
-            continue
-
-        if args.auto_recover:
-            recovered.append(
-                recover_run_record(
-                    metadata["id"],
-                    reason=f"stale:{reason}",
-                    dispatch=args.dispatch_recovery,
-                )
-            )
-            continue
-
-        payload = load_run_metadata(metadata["id"])
-        payload["status"] = args.target_status
-        payload["stale_at"] = now_stamp()
-        payload["stale_reason"] = reason
-        write_run_metadata(metadata["id"], payload)
-        marked_stale.append(
-            {
-                "run": metadata["id"],
-                "reason": reason,
-                "status": args.target_status,
-            }
-        )
-        task = task_lookup(tasks, payload["task"], spec_slug=args.spec)
-        if task.get("status") == "in_progress":
-            fallback_status = args.task_status or ("in_review" if payload.get("role") == "reviewer" else "todo")
-            task["status"] = fallback_status
-            task.setdefault("notes", []).append(
-                {
-                    "at": now_stamp(),
-                    "note": f"run {metadata['id']} marked {args.target_status}; task returned to {fallback_status}",
-                }
-            )
-            task_updates.append({"task": payload["task"], "status": fallback_status})
-        record_event(
-            args.spec,
-            "run.stale",
-            {"run": metadata["id"], "reason": reason, "status": args.target_status},
-        )
-
-    if task_updates:
-        save_tasks(args.spec, tasks, reason="run_sweep")
-
-    print_json(
-        {
-            "spec": args.spec,
-            "stale_after": stale_after,
-            "marked_stale": marked_stale,
-            "recovered": recovered,
-            "task_updates": task_updates,
-        }
-    )
 
 
 def complete_run(args: argparse.Namespace) -> None:
@@ -4339,75 +3601,57 @@ def complete_run(args: argparse.Namespace) -> None:
     Raises:
         SystemExit: If result is invalid or run ID is unknown
     """
-    findings = parse_findings(args)
-    print_json(complete_run_record(args.run, args.result, args.summary, findings=findings))
-
-
-def complete_run_record(
-    run_id: str,
-    result: str,
-    summary: str | None = None,
-    findings: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    if result not in RUN_RESULTS:
-        raise SystemExit(f"invalid result: {result}")
-    run_dir = RUNS_DIR / run_id
+    if args.result not in RUN_RESULTS:
+        raise SystemExit(f"invalid result: {args.result}")
+    run_dir = RUNS_DIR / args.run
     metadata_path = run_dir / "run.json"
     if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {run_id}")
+        raise SystemExit(f"unknown run: {args.run}")
     metadata = read_json(metadata_path)
-    findings = findings or []
+    findings = parse_findings(args)
     metadata["status"] = "completed"
-    metadata["result"] = result
+    metadata["result"] = args.result
     metadata["completed_at"] = now_stamp()
-    metadata["findings_count"] = len(findings)
+    metadata["findings_count"] = len(findings or [])
     write_json(metadata_path, metadata)
-    summary = summary or f"Run {run_id} completed with result {result}."
+    summary = args.summary or f"Run {args.run} completed with result {args.result}."
     (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
 
     tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"], spec_slug=metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
     if metadata["role"] == "reviewer":
-        next_status = "done" if result == "success" else result
-    elif result == "success":
+        next_status = "done" if args.result == "success" else args.result
+    elif args.result == "success":
         next_status = "in_review"
     else:
-        next_status = result
+        next_status = args.result
     status_map = {
         "success": next_status,
         "needs_changes": "needs_changes",
         "blocked": "blocked",
         "failed": "blocked",
     }
-    task["status"] = status_map[result]
+    task["status"] = status_map[args.result]
     task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
     save_tasks(metadata["spec"], tasks, reason="task_status_updated")
     next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
     fix_request_path = ""
-    if metadata["role"] == "reviewer" and result in {"needs_changes", "blocked", "failed"}:
-        fix_request_path = str(
-            write_fix_request(
-                metadata["spec"],
-                metadata["task"],
-                summary,
-                result,
-                findings=findings,
-            )
-        )
-    if metadata["role"] == "implementation-runner" and result == "success":
+    if metadata["role"] == "reviewer" and args.result in {"needs_changes", "blocked", "failed"}:
+        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result, findings=findings))
+    if metadata["role"] == "implementation-runner" and args.result == "success":
         clear_fix_request(metadata["spec"])
-    strategy_paths = record_reflection(metadata["spec"], metadata, result, summary, findings=findings)
+    strategy_paths = record_reflection(metadata["spec"], metadata, args.result, summary, findings=findings)
     memory_cfg = load_system_config().get("memory", {})
     if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
         for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
             append_memory(
                 scope,
-                f"role={metadata['role']}\nresult={result}\nsummary={summary}",
+                f"role={metadata['role']}\nresult={args.result}\nsummary={summary}",
                 spec_slug=metadata["spec"],
-                title=f"{metadata['task']} {metadata['role']} {result}",
+                title=f"{metadata['task']} {metadata['role']} {args.result}",
             )
     handoff_path = write_handoff(
-        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, result
+        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
     )
     record_event(
         metadata["spec"],
@@ -4416,73 +3660,23 @@ def complete_run_record(
             "run": metadata["id"],
             "task": metadata["task"],
             "role": metadata["role"],
-            "result": result,
+            "result": args.result,
             "fix_request": fix_request_path,
         },
     )
-    return {
-        "run": metadata["id"],
-        "task_status": task["status"],
-        "handoff": str(handoff_path),
-        "fix_request": fix_request_path,
-        "strategy_memory": [str(path) for path in strategy_paths],
-    }
-
-
-def load_agent_result_payload(result_file: Path) -> tuple[str, str, list[dict[str, Any]], str]:
-    if not result_file.exists():
-        raise FileNotFoundError(result_file)
-    raw = read_json(result_file)
-    if not isinstance(raw, dict):
-        raise ValueError("agent result payload must be a JSON object")
-    result = str(raw.get("result", "")).strip()
-    if result not in RUN_RESULTS:
-        raise ValueError("agent result payload must contain a valid result")
-    summary = str(raw.get("summary", "")).strip() or f"Agent reported result {result}."
-    findings = raw.get("findings", [])
-    if findings is None:
-        findings = []
-    if not isinstance(findings, list):
-        raise ValueError("agent result findings must be a list")
-    normalized = normalize_findings(summary, findings) if findings else []
-    return result, summary, normalized, str(result_file)
-
-
-def finalize_run_record(
-    run_id: str,
-    exit_code: int,
-    result_file: str = "",
-) -> dict[str, Any]:
-    result_path = Path(result_file) if result_file else (RUNS_DIR / run_id / AGENT_RESULT_FILE)
-    source = "fallback"
-    details = ""
-    findings: list[dict[str, Any]] = []
-    try:
-        result, summary, findings, details = load_agent_result_payload(result_path)
-        source = "agent_result"
-    except FileNotFoundError:
-        if exit_code == 0:
-            result = "failed"
-            summary = (
-                f"Agent exited successfully but did not write {AGENT_RESULT_FILE}; "
-                "treating the run as failed."
-            )
-        else:
-            result = "failed"
-            summary = f"Agent exited with code {exit_code} before producing {AGENT_RESULT_FILE}."
-    except Exception as exc:
-        result = "failed"
-        summary = f"Invalid agent result payload in {result_path}: {exc}"
-    payload = complete_run_record(run_id, result, summary, findings=findings)
-    payload["exit_code"] = exit_code
-    payload["result_source"] = source
-    if details:
-        payload["result_file"] = details
-    return payload
-
-
-def finalize_run_cmd(args: argparse.Namespace) -> None:
-    print_json(finalize_run_record(args.run, int(args.exit_code), result_file=args.result_file or ""))
+    print(
+        json.dumps(
+            {
+                "run": metadata["id"],
+                "task_status": task["status"],
+                "handoff": str(handoff_path),
+                "fix_request": fix_request_path,
+                "strategy_memory": [str(path) for path in strategy_paths],
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
 
 
 def cancel_run(args: argparse.Namespace) -> None:
@@ -4540,7 +3734,7 @@ def show_task_history(args: argparse.Namespace) -> None:
             - spec: Slug identifier of the spec
             - task: ID of the task to get history for
     """
-    print_json(task_run_history(args.spec, args.task))
+    print(json.dumps(task_run_history(args.spec, args.task), indent=2, ensure_ascii=True))
 
 
 def show_events(args: argparse.Namespace) -> None:
@@ -4556,7 +3750,7 @@ def show_events(args: argparse.Namespace) -> None:
             - spec: Slug identifier of the spec
             - limit: Maximum number of events to return (default: 20)
     """
-    print_json(load_events(args.spec, args.limit))
+    print(json.dumps(load_events(args.spec, args.limit), indent=2, ensure_ascii=True))
 
 
 def show_fix_request(args: argparse.Namespace) -> None:
@@ -4574,7 +3768,7 @@ def show_fix_request(args: argparse.Namespace) -> None:
     Notes:
         Returns a default empty structure if the fix request file doesn't exist.
     """
-    print_json(load_fix_request_data(args.spec))
+    print(json.dumps(load_fix_request_data(args.spec), indent=2, ensure_ascii=True))
 
 
 def create_fix_request_cmd(args: argparse.Namespace) -> None:
@@ -4617,7 +3811,7 @@ def show_system_config(_: argparse.Namespace) -> None:
     - tools: Tool profile configurations
     - registry: Registry settings
     """
-    print_json(load_system_config())
+    print(json.dumps(load_system_config(), indent=2, ensure_ascii=True))
 
 
 def init_system_config(_: argparse.Namespace) -> None:
@@ -4639,10 +3833,7 @@ def init_system_config(_: argparse.Namespace) -> None:
     """
     ensure_state()
     if not SYSTEM_CONFIG_FILE.exists():
-        # NOTE: This writes to SYSTEM_CONFIG_FILE (system.json)
-        # Cache invalidation required: call invalidate_config_cache() after this write
         write_json(SYSTEM_CONFIG_FILE, system_config_default())
-        invalidate_config_cache()
     print(str(SYSTEM_CONFIG_FILE))
 
 
@@ -4664,7 +3855,7 @@ def discover_agents_cmd(_: argparse.Namespace) -> None:
     The discovery results are also cached to .autoflow/discovered_agents.json
     for persistence and use by other commands.
     """
-    print_json(discover_agents_registry())
+    print(json.dumps(discover_agents_registry(), indent=2, ensure_ascii=True))
 
 
 def sync_agents_cmd(args: argparse.Namespace) -> None:
@@ -4687,7 +3878,7 @@ def sync_agents_cmd(args: argparse.Namespace) -> None:
             replaces existing agent configurations with discovered ones.
             If False, preserves existing configurations and only adds new agents.
     """
-    print_json(sync_discovered_agents(overwrite=args.overwrite))
+    print(json.dumps(sync_discovered_agents(overwrite=args.overwrite), indent=2, ensure_ascii=True))
 
 
 def write_memory_cmd(args: argparse.Namespace) -> None:
@@ -4755,15 +3946,30 @@ def show_strategy_cmd(args: argparse.Namespace) -> None:
             - recent_reflections: Last 5 reflection entries
             - stats: Strategy statistics and metrics
     """
-    print_json(strategy_summary(args.spec))
+    print(json.dumps(strategy_summary(args.spec), indent=2, ensure_ascii=True))
 
 
 def add_planner_note_cmd(args: argparse.Namespace) -> None:
-    content = args.content or args.note or ""
-    if not content:
-        raise SystemExit("planner note content is required")
-    title = args.title or "Planner note"
-    path = add_planner_note(args.spec, title, content, category=args.category, scope=args.scope)
+    """
+    Add a planner note to strategy memory.
+
+    Creates a timestamped, categorized planner note for tracking strategic
+    decisions, observations, or guidance. Notes are retained in memory
+    with the last 25 notes preserved. Can be scoped globally or to a
+    specific spec.
+
+    Args:
+        args: Namespace containing:
+            - spec: Spec slug for scoping the note
+            - title: Short title describing the note
+            - content: Detailed content of the note
+            - category: Category for organizing notes (default: "strategy")
+            - scope: Memory scope - "global" or "spec" (default: "spec")
+
+    Output:
+        Prints the path to the updated strategy memory file
+    """
+    path = add_planner_note(args.spec, args.title, args.content, category=args.category, scope=args.scope)
     print(str(path))
 
 
@@ -4822,7 +4028,7 @@ def export_taskmaster_cmd(args: argparse.Namespace) -> None:
         write_json(output, payload)
         print(str(output))
         return
-    print_json(payload)
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
 def normalize_imported_task(entry: dict[str, Any], index: int) -> dict[str, Any]:
@@ -4898,10 +4104,9 @@ def import_taskmaster_cmd(args: argparse.Namespace) -> None:
         "tasks": normalized,
     }
     write_json(task_file(args.spec), data)
-    invalidate_tasks_cache()
     sync_review_state(args.spec, reason="taskmaster_import")
     record_event(args.spec, "taskmaster.imported", {"task_count": len(normalized), "source": args.input})
-    print_json({"spec": args.spec, "task_count": len(normalized)})
+    print(json.dumps({"spec": args.spec, "task_count": len(normalized)}, indent=2, ensure_ascii=True))
 
 
 def create_worktree(args: argparse.Namespace) -> None:
@@ -4938,29 +4143,19 @@ def create_worktree(args: argparse.Namespace) -> None:
          "base_branch": "main"}
     """
     ensure_state()
-    repository = getattr(args, "repository", None)
-    if repository:
-        validate_spec_repository(repository)
-    path = worktree_path(args.spec, repository=repository)
+    path = worktree_path(args.spec)
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
-    metadata = load_spec_metadata(args.spec)
-
-    if args.force and path.exists():
-        run_cmd(["git", "worktree", "remove", "--force", str(path)], check=False)
-        shutil.rmtree(path, ignore_errors=True)
+    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
 
     if path.exists():
-        worktree_metadata = {
+        metadata["worktree"] = {
             "path": str(path),
             "branch": branch,
             "base_branch": base_branch,
         }
-        if repository:
-            worktree_metadata["repository"] = repository
-        metadata["worktree"] = worktree_metadata
-        save_spec_metadata(args.spec, metadata)
-        print_json(metadata["worktree"])
+        write_json(spec_files(args.spec)["metadata"], metadata)
+        print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
         return
 
     branch_exists = run_cmd(
@@ -4972,17 +4167,14 @@ def create_worktree(args: argparse.Namespace) -> None:
     else:
         run_cmd(["git", "worktree", "add", "-b", branch, str(path), base_branch])
 
-    worktree_metadata = {
+    metadata["worktree"] = {
         "path": str(path),
         "branch": branch,
         "base_branch": base_branch,
     }
-    if repository:
-        worktree_metadata["repository"] = repository
-    metadata["worktree"] = worktree_metadata
-    save_spec_metadata(args.spec, metadata)
+    write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.created", metadata["worktree"])
-    print_json(metadata["worktree"])
+    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
 
 
 def remove_worktree(args: argparse.Namespace) -> None:
@@ -4995,39 +4187,37 @@ def remove_worktree(args: argparse.Namespace) -> None:
     Args:
         args: Namespace with attributes:
             - spec: Spec slug identifier
-            - repository: Optional repository ID for multi-repo worktrees
             - delete_branch: If True, delete the associated git branch
+              (defaults to False from argparse)
 
     Side Effects:
         - Removes git worktree directory if it exists
         - Deletes the associated branch if delete_branch is True
         - Updates spec metadata to clear worktree path
         - Records worktree.removed event
+
+    Example:
+        >>> args = argparse.Namespace(spec="feature-auth", delete_branch=True)
+        >>> remove_worktree(args)
+        {"path": "", "branch": "codex/feature-auth", "base_branch": "main"}
     """
-    repository = getattr(args, "repository", None)
-    if repository:
-        validate_spec_repository(repository)
-    path = worktree_path(args.spec, repository=repository)
+    path = worktree_path(args.spec)
     branch = worktree_branch(args.spec)
     if path.exists():
         run_cmd(["git", "worktree", "remove", "--force", str(path)])
     if args.delete_branch:
         run_cmd(["git", "branch", "-D", branch], check=False)
-    worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
-    if repository:
-        worktree_metadata["repository"] = repository
-    metadata["worktree"] = worktree_metadata
-    metadata = load_spec_metadata(args.spec)
-    metadata["worktree"] = worktree_metadata
-    save_spec_metadata(args.spec, metadata)
+    metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
+    metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    write_json(spec_files(args.spec)["metadata"], metadata)
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
-    print_json(metadata["worktree"])
+    print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
 
 
 def list_specs(_: argparse.Namespace) -> None:
     items = []
     for metadata_path in SPECS_DIR.glob("*/metadata.json"):
-        metadata = normalize_worktree_metadata(metadata_path.parent.name, read_json(metadata_path))
+        metadata = read_json(metadata_path)
         slug = metadata.get("slug", metadata_path.parent.name)
         review_state = load_review_state(slug)
         items.append(
@@ -5087,14 +4277,14 @@ def list_worktrees(_: argparse.Namespace) -> None:
     """
     items = []
     for metadata_path in sorted(SPECS_DIR.glob("*/metadata.json")):
-        metadata = normalize_worktree_metadata(metadata_path.parent.name, read_json(metadata_path))
+        metadata = read_json(metadata_path)
         items.append(
             {
                 "spec": metadata.get("slug", metadata_path.parent.name),
                 "worktree": metadata.get("worktree", {}),
             }
         )
-    print_json(items)
+    print(json.dumps(items, indent=2, ensure_ascii=True))
 
 
 def workflow_state(args: argparse.Namespace) -> None:
@@ -5130,11 +4320,10 @@ def workflow_state(args: argparse.Namespace) -> None:
     data = load_tasks(args.spec)
     review_summary = review_status_summary(args.spec)
     active_runs = active_runs_for_spec(args.spec)
-    stale_runs = stale_runs_for_spec(args.spec)
     ready = []
     blocked = []
     for task in data.get("tasks", []):
-        deps_done = all(task_lookup(data, dep, spec_slug=args.spec)["status"] == "done" for dep in task.get("depends_on", []))
+        deps_done = all(task_lookup(data, dep)["status"] == "done" for dep in task.get("depends_on", []))
         entry = {
             "id": task["id"],
             "title": task["title"],
@@ -5159,18 +4348,17 @@ def workflow_state(args: argparse.Namespace) -> None:
     payload = {
         "spec": args.spec,
         "review_status": review_summary,
-        "worktree": normalize_worktree_metadata(args.spec).get("worktree", {}),
+        "worktree": read_json_or_default(spec_files(args.spec)["metadata"], {}).get("worktree", {}),
         "fix_request_present": bool(load_fix_request(args.spec)),
         "fix_request": load_fix_request_data(args.spec),
         "strategy_summary": strategy_summary(args.spec),
         "active_runs": active_runs,
-        "stale_runs": stale_runs,
         "ready_tasks": ready,
         "blocked_or_active_tasks": blocked,
         "blocking_reason": blocking_reason,
         "recommended_next_action": None if active_runs else next_entry,
     }
-    print_json(payload)
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
 def show_status(_: argparse.Namespace) -> None:
@@ -5195,7 +4383,7 @@ def show_status(_: argparse.Namespace) -> None:
     specs = sorted(p.name for p in SPECS_DIR.iterdir() if p.is_dir())
     runs = sorted(p.name for p in RUNS_DIR.iterdir() if p.is_dir())
     status = {"specs": specs, "runs": runs}
-    print_json(status)
+    print(json.dumps(status, indent=2, ensure_ascii=True))
 
 
 def list_runs(args: argparse.Namespace) -> None:
@@ -5213,295 +4401,6 @@ def list_runs(args: argparse.Namespace) -> None:
         runs = [r for r in runs if r.get("agent") == args.agent]
 
     print(json.dumps(runs, indent=2, ensure_ascii=True))
-
-
-def repo_add_cmd(args: argparse.Namespace) -> None:
-    """Add a repository to the registry."""
-    ensure_state()
-    repo_id = args.id
-    repo_file = REPOSITORIES_DIR / f"{repo_id}.json"
-
-    if repo_file.exists():
-        raise SystemExit(f"repository already exists: {repo_id}")
-
-    # Build repository data
-    repo_data = {
-        "id": repo_id,
-        "name": args.name,
-        "path": args.path,
-        "url": args.url if args.url else None,
-        "description": args.description if args.description else None,
-        "enabled": True,
-        "branch": {
-            "default": args.branch if args.branch else "main",
-            "current": None,
-            "protected": ["main", "master"]
-        }
-    }
-
-    write_json(repo_file, repo_data)
-    print(f"Repository '{repo_id}' added successfully")
-
-
-def repo_list_cmd(_: argparse.Namespace) -> None:
-    """List all registered repositories."""
-    items = []
-    for repo_path in sorted(REPOSITORIES_DIR.glob("*.json")):
-        repo_data = read_json(repo_path)
-        items.append(repo_data)
-    print(json.dumps(items, indent=2, ensure_ascii=True))
-
-
-def repo_validate_cmd(args: argparse.Namespace) -> None:
-    """Validate repositories and dependencies."""
-    ensure_state()
-
-    # Create repository manager
-    manager = repository_manager()
-
-    # Check if validating specific repository or all
-    if args.repo:
-        # Validate single repository
-        errors = manager.validate(args.repo)
-        if errors:
-            print(f"❌ Repository '{args.repo}' validation failed:")
-            for error in errors:
-                print(f"  - {error}")
-            raise SystemExit(1)
-        else:
-            print(f"✅ Repository '{args.repo}' is valid")
-    else:
-        # Validate all repositories and dependencies
-        print("Validating repositories...")
-        repo_results = manager.validate_all()
-
-        # Count errors
-        total_repos = len(repo_results)
-        invalid_repos = {repo_id: errs for repo_id, errs in repo_results.items() if errs}
-        valid_repos = total_repos - len(invalid_repos)
-
-        # Print repository results
-        if invalid_repos:
-            print(f"\n❌ Found {len(invalid_repos)} invalid repositories:")
-            for repo_id, errors in invalid_repos.items():
-                print(f"\n  {repo_id}:")
-                for error in errors:
-                    print(f"    - {error}")
-        else:
-            if total_repos > 0:
-                print(f"✅ All {total_repos} repositories are valid")
-            else:
-                print("⚠️  No repositories registered")
-
-        # Validate dependencies
-        print("\nValidating dependencies...")
-        dep_errors = manager.validate_dependencies()
-
-        if dep_errors:
-            print(f"❌ Found {len(dep_errors)} dependency errors:")
-            for error in dep_errors:
-                print(f"  - {error}")
-            raise SystemExit(1)
-        else:
-            print("✅ All dependencies are valid")
-
-        # Exit with error if any repositories are invalid
-        if invalid_repos:
-            raise SystemExit(1)
-
-
-def validate_config_cmd(_: argparse.Namespace) -> None:
-    ensure_state()
-    issues: list[str] = []
-    warnings: list[str] = []
-    system_config = load_system_config()
-    checks: dict[str, Any] = {
-        "system_config_file": {
-            "path": str(SYSTEM_CONFIG_FILE),
-            "exists": SYSTEM_CONFIG_FILE.exists(),
-        },
-        "agents_file": {
-            "path": str(AGENTS_FILE),
-            "exists": AGENTS_FILE.exists(),
-        },
-    }
-    if not AGENTS_FILE.exists():
-        issues.append("missing .autoflow/agents.json")
-        agents_payload = {"agents": {}}
-    else:
-        agents_payload = read_json_or_default(AGENTS_FILE, {"agents": {}})
-    model_profiles = system_config.get("models", {}).get("profiles", {})
-    tool_profiles = system_config.get("tools", {}).get("profiles", {})
-    agent_checks = []
-    for name, spec in agents_payload.get("agents", {}).items():
-        entry = {
-            "name": name,
-            "protocol": spec.get("protocol", "cli"),
-            "command": spec.get("command", ""),
-            "valid": True,
-            "issues": [],
-            "warnings": [],
-        }
-        if not entry["command"]:
-            entry["valid"] = False
-            entry["issues"].append("missing command")
-        if spec.get("model_profile") and spec["model_profile"] not in model_profiles:
-            entry["warnings"].append(f"unknown model_profile: {spec['model_profile']}")
-        if spec.get("tool_profile") and spec["tool_profile"] not in tool_profiles:
-            entry["warnings"].append(f"unknown tool_profile: {spec['tool_profile']}")
-        if spec.get("protocol") == "acp" and not spec.get("transport"):
-            entry["valid"] = False
-            entry["issues"].append("missing ACP transport")
-        if not entry["valid"]:
-            issues.extend(f"{name}: {item}" for item in entry["issues"])
-        warnings.extend(f"{name}: {item}" for item in entry["warnings"])
-        agent_checks.append(entry)
-    checks["agents"] = agent_checks
-    print(
-        json.dumps(
-            {
-                "valid": not issues,
-                "issues": issues,
-                "warnings": warnings,
-                "checks": checks,
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
-
-
-def test_agent_cmd(args: argparse.Namespace) -> None:
-    configured = read_json_or_default(AGENTS_FILE, {"agents": {}}).get("agents", {}).get(args.agent)
-    payload = {
-        "agent": args.agent,
-        "configured": bool(configured),
-        "ready": False,
-        "issues": [],
-    }
-    if configured:
-        resolved = resolve_agent_profiles(configured, load_system_config())
-        payload["protocol"] = resolved.get("protocol", "cli")
-        payload["command"] = resolved.get("command", "")
-        payload["model"] = resolved.get("model", "")
-        if payload["protocol"] == "acp":
-            transport = resolved.get("transport", {})
-            payload["transport"] = transport
-            command = transport.get("command", resolved.get("command", ""))
-            payload["path"] = shutil.which(command) or ""
-            payload["ready"] = bool(command) and bool(payload["path"])
-            if not payload["ready"]:
-                payload["issues"].append("ACP transport command is not executable")
-        else:
-            discovered = discover_cli_agent(args.agent, resolved.get("command", ""))
-            if not discovered:
-                payload["issues"].append("CLI agent binary not found")
-            else:
-                payload["path"] = discovered.get("path", "")
-                payload["capabilities"] = discovered.get("capabilities", {})
-                payload["ready"] = True
-    else:
-        discovered = discover_cli_agent(args.agent, args.agent)
-        if not discovered:
-            payload["issues"].append("agent is neither configured nor discoverable by binary name")
-        else:
-            payload.update(
-                {
-                    "protocol": discovered.get("protocol", "cli"),
-                    "command": discovered.get("command", args.agent),
-                    "path": discovered.get("path", ""),
-                    "capabilities": discovered.get("capabilities", {}),
-                    "ready": True,
-                }
-            )
-    print(json.dumps(payload, indent=2, ensure_ascii=True))
-
-
-def capture_memory_cmd(args: argparse.Namespace) -> None:
-    run_dir = RUNS_DIR / args.run
-    metadata_path = run_dir / "run.json"
-    if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {args.run}")
-    metadata = read_json(metadata_path)
-    if metadata.get("status") != "completed":
-        raise SystemExit("capture-memory requires a completed run")
-    summary_path = run_dir / "summary.md"
-    summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
-    scopes = args.scopes or metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]
-    written = []
-    content = "\n".join(
-        [
-            f"run={metadata.get('id', '')}",
-            f"spec={metadata.get('spec', '')}",
-            f"task={metadata.get('task', '')}",
-            f"role={metadata.get('role', '')}",
-            f"result={metadata.get('result', '')}",
-            "",
-            summary or "No summary recorded.",
-        ]
-    )
-    for scope in scopes:
-        written.append(
-            str(
-                append_memory(
-                    scope,
-                    content,
-                    spec_slug=metadata.get("spec", ""),
-                    title=f"{metadata.get('task', '')} {metadata.get('role', '')} {metadata.get('result', '')}".strip(),
-                )
-            )
-        )
-    print(json.dumps({"run": args.run, "scopes": scopes, "written": written}, indent=2, ensure_ascii=True))
-
-
-def cleanup_runs_cmd(args: argparse.Namespace) -> None:
-    cleaned = []
-    tasks = load_tasks(args.spec)
-    task_updates = []
-    for metadata in active_runs_for_spec(args.spec):
-        if metadata.get("status") not in args.include_status:
-            continue
-        run_dir = RUNS_DIR / metadata["id"]
-        run_json = run_dir / "run.json"
-        if not run_json.exists():
-            continue
-        payload = read_json(run_json)
-        payload["status"] = args.target_status
-        payload["cleanup_at"] = now_stamp()
-        payload["cleanup_reason"] = args.reason
-        write_json(run_json, payload)
-        cleaned.append(metadata["id"])
-        task = task_lookup(tasks, payload["task"])
-        if task.get("status") == "in_progress":
-            fallback_status = args.task_status or ("in_review" if payload.get("role") == "reviewer" else "todo")
-            task["status"] = fallback_status
-            task.setdefault("notes", []).append(
-                {
-                    "at": now_stamp(),
-                    "note": f"run {metadata['id']} cleaned up; task returned to {fallback_status}",
-                }
-            )
-            task_updates.append({"task": payload["task"], "status": fallback_status})
-        record_event(
-            args.spec,
-            "run.cleaned",
-            {"run": metadata["id"], "status": args.target_status, "task": payload["task"]},
-        )
-    if task_updates:
-        save_tasks(args.spec, tasks, reason="run_cleanup")
-    invalidate_run_cache()
-    print(
-        json.dumps(
-            {
-                "spec": args.spec,
-                "cleaned_runs": cleaned,
-                "target_status": args.target_status,
-                "task_updates": task_updates,
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -5563,25 +4462,7 @@ def build_parser() -> argparse.ArgumentParser:
     spec_cmd.add_argument("--slug", default="")
     spec_cmd.add_argument("--title", required=True)
     spec_cmd.add_argument("--summary", required=True)
-    spec_cmd.add_argument("--repository", default="", help="repository ID for multi-repo specs")
     spec_cmd.set_defaults(func=create_spec)
-
-    show_spec_cmd = sub.add_parser("show-spec", help="show spec metadata, markdown, review state, and tasks")
-    show_spec_cmd.add_argument("--slug", required=True)
-    show_spec_cmd.set_defaults(func=show_spec)
-
-    update_spec_cmd = sub.add_parser("update-spec", help="update a spec's metadata or append new context")
-    update_spec_cmd.add_argument("--slug", required=True)
-    update_spec_cmd.add_argument("--title", default="")
-    update_spec_cmd.add_argument("--summary", default="")
-    update_spec_cmd.add_argument("--status", default="")
-    update_spec_cmd.add_argument("--append", default="")
-    update_spec_cmd.set_defaults(func=update_spec)
-
-    init_tasks = sub.add_parser("init-tasks", help="initialize default tasks for a spec if missing")
-    init_tasks.add_argument("--spec", required=True)
-    init_tasks.add_argument("--force", action="store_true")
-    init_tasks.set_defaults(func=init_tasks_cmd)
 
     tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
     tasks_cmd.add_argument("--spec", required=True)
@@ -5598,22 +4479,6 @@ def build_parser() -> argparse.ArgumentParser:
     set_task_cmd.add_argument("--status", required=True)
     set_task_cmd.add_argument("--note", default="")
     set_task_cmd.set_defaults(func=set_task_status)
-
-    update_task = sub.add_parser("update-task", help="update task state or metadata using README-compatible flags")
-    update_task.add_argument("--spec", required=True)
-    update_task.add_argument("--task", required=True)
-    update_task.add_argument("--status", default="")
-    update_task.add_argument("--title", default="")
-    update_task.add_argument("--owner-role", default="")
-    update_task.add_argument("--append-criterion", default="")
-    update_task.add_argument("--note", default="")
-    update_task.set_defaults(func=update_task_cmd)
-
-    reset_task = sub.add_parser("reset-task", help="reset a task back to todo")
-    reset_task.add_argument("--spec", required=True)
-    reset_task.add_argument("--task", required=True)
-    reset_task.add_argument("--note", default="")
-    reset_task.set_defaults(func=reset_task_cmd)
 
     handoff_cmd = sub.add_parser("create-handoff", help="write a handoff artifact")
     handoff_cmd.add_argument("--spec", required=True)
@@ -5654,14 +4519,11 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
     worktree_create_cmd.add_argument("--spec", required=True)
     worktree_create_cmd.add_argument("--base-branch", default="")
-    worktree_create_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
-    worktree_create_cmd.add_argument("--force", action="store_true")
     worktree_create_cmd.set_defaults(func=create_worktree)
 
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
     worktree_remove_cmd.add_argument("--spec", required=True)
     worktree_remove_cmd.add_argument("--delete-branch", action="store_true")
-    worktree_remove_cmd.add_argument("--repository", default="", help="repository ID for multi-repo worktrees")
     worktree_remove_cmd.set_defaults(func=remove_worktree)
 
     list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
@@ -5669,22 +4531,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
-
-    repo_add_cmd_parser = sub.add_parser("repo-add", help="register a repository with autoflow")
-    repo_add_cmd_parser.add_argument("--id", required=True, help="unique repository identifier")
-    repo_add_cmd_parser.add_argument("--name", required=True, help="human-readable repository name")
-    repo_add_cmd_parser.add_argument("--path", required=True, help="filesystem path to the repository")
-    repo_add_cmd_parser.add_argument("--url", default="", help="git remote URL (optional)")
-    repo_add_cmd_parser.add_argument("--description", default="", help="repository description (optional)")
-    repo_add_cmd_parser.add_argument("--branch", default="", help="default branch name (default: main)")
-    repo_add_cmd_parser.set_defaults(func=repo_add_cmd)
-
-    repo_list_cmd_parser = sub.add_parser("repo-list", help="list all registered repositories")
-    repo_list_cmd_parser.set_defaults(func=repo_list_cmd)
-
-    repo_validate_cmd_parser = sub.add_parser("repo-validate", help="validate repositories and dependencies")
-    repo_validate_cmd_parser.add_argument("--repo", default="", help="validate specific repository (validates all if not specified)")
-    repo_validate_cmd_parser.set_defaults(func=repo_validate_cmd)
 
     init_system_cmd = sub.add_parser("init-system-config", help="write the local system config scaffold")
     init_system_cmd.set_defaults(func=init_system_config)
@@ -5699,13 +4545,6 @@ def build_parser() -> argparse.ArgumentParser:
     sync_cmd.add_argument("--overwrite", action="store_true")
     sync_cmd.set_defaults(func=sync_agents_cmd)
 
-    validate_cmd = sub.add_parser("validate-config", help="validate Autoflow system and agent config files")
-    validate_cmd.set_defaults(func=validate_config_cmd)
-
-    test_agent = sub.add_parser("test-agent", help="test whether a configured or named agent is actually runnable")
-    test_agent.add_argument("--agent", required=True)
-    test_agent.set_defaults(func=test_agent_cmd)
-
     write_memory = sub.add_parser("write-memory", help="append to global or spec memory")
     write_memory.add_argument("--scope", choices=["global", "spec"], required=True)
     write_memory.add_argument("--spec")
@@ -5718,20 +4557,14 @@ def build_parser() -> argparse.ArgumentParser:
     show_memory.add_argument("--spec")
     show_memory.set_defaults(func=show_memory_cmd)
 
-    capture_memory = sub.add_parser("capture-memory", help="capture memory from a completed run into its configured scopes")
-    capture_memory.add_argument("--run", required=True)
-    capture_memory.add_argument("--scopes", nargs="+")
-    capture_memory.set_defaults(func=capture_memory_cmd)
-
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
     strategy_cmd.set_defaults(func=show_strategy_cmd)
 
     planner_cmd = sub.add_parser("add-planner-note", help="append a planner strategy note to strategy memory")
     planner_cmd.add_argument("--spec", required=True)
-    planner_cmd.add_argument("--title", default="")
-    planner_cmd.add_argument("--content", default="")
-    planner_cmd.add_argument("--note", default="")
+    planner_cmd.add_argument("--title", required=True)
+    planner_cmd.add_argument("--content", required=True)
     planner_cmd.add_argument("--category", default="strategy")
     planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
     planner_cmd.set_defaults(func=add_planner_note_cmd)
@@ -5759,19 +4592,6 @@ def build_parser() -> argparse.ArgumentParser:
     resume_cmd.add_argument("--run", required=True)
     resume_cmd.set_defaults(func=resume_run)
 
-    heartbeat_cmd = sub.add_parser("heartbeat-run", help="update run heartbeat metadata")
-    heartbeat_cmd.add_argument("--run", required=True)
-    heartbeat_cmd.add_argument("--status", default="")
-    heartbeat_cmd.add_argument("--session", default="")
-    heartbeat_cmd.add_argument("--exit-code", type=int)
-    heartbeat_cmd.set_defaults(func=heartbeat_run_cmd)
-
-    recover_cmd = sub.add_parser("recover-run", help="recover a stale or interrupted run")
-    recover_cmd.add_argument("--run", required=True)
-    recover_cmd.add_argument("--reason", default="manual_recover")
-    recover_cmd.add_argument("--dispatch", action="store_true")
-    recover_cmd.set_defaults(func=recover_run_cmd)
-
     complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
     complete_cmd.add_argument("--run", required=True)
     complete_cmd.add_argument("--result", required=True)
@@ -5779,12 +4599,6 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--findings-json", default="")
     complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
-
-    finalize_cmd = sub.add_parser("finalize-run", help="complete a run from an agent result artifact or exit code")
-    finalize_cmd.add_argument("--run", required=True)
-    finalize_cmd.add_argument("--exit-code", required=True, type=int)
-    finalize_cmd.add_argument("--result-file", default="")
-    finalize_cmd.set_defaults(func=finalize_run_cmd)
 
     cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
     cancel_cmd.add_argument("--run", required=True)
@@ -5795,24 +4609,6 @@ def build_parser() -> argparse.ArgumentParser:
     history_cmd.add_argument("--spec", required=True)
     history_cmd.add_argument("--task", required=True)
     history_cmd.set_defaults(func=show_task_history)
-
-    cleanup_runs = sub.add_parser("cleanup-runs", help="mark stale or manual-selected runs as inactive")
-    cleanup_runs.add_argument("--spec", required=True)
-    cleanup_runs.add_argument("--reason", default="manual_cleanup")
-    cleanup_runs.add_argument("--target-status", default="abandoned")
-    cleanup_runs.add_argument("--task-status", default="")
-    cleanup_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
-    cleanup_runs.set_defaults(func=cleanup_runs_cmd)
-
-    sweep_runs = sub.add_parser("sweep-runs", help="detect stale runs and mark or recover them")
-    sweep_runs.add_argument("--spec", required=True)
-    sweep_runs.add_argument("--stale-after", type=int, default=DEFAULT_STALE_AFTER_SECONDS)
-    sweep_runs.add_argument("--target-status", default="stale")
-    sweep_runs.add_argument("--task-status", default="")
-    sweep_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
-    sweep_runs.add_argument("--auto-recover", action="store_true")
-    sweep_runs.add_argument("--dispatch-recovery", action="store_true")
-    sweep_runs.set_defaults(func=sweep_runs_cmd)
 
     events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
     events_cmd.add_argument("--spec", required=True)

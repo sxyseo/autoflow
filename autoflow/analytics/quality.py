@@ -99,7 +99,7 @@ class TestResult:
     duration: float
     timestamp: str
     module: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def pass_rate(self) -> float:
@@ -170,7 +170,7 @@ class ReviewRecord:
     timestamp: str
     reviewer: str | None = None
     module: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""

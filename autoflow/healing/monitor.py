@@ -40,7 +40,7 @@ class MetricReading:
 
     value: float
     timestamp: datetime
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -58,7 +58,7 @@ class HealthAssessment:
     status: WorkflowHealthStatus
     timestamp: datetime
     metrics: dict[str, MetricReading]
-    violations: list[dict]
+    violations: list[dict[str, Any]]
     recommendations: list[str]
 
     @property
@@ -341,7 +341,7 @@ class WorkflowHealthMonitor:
         normalized = normalized.strip()
         return normalized or "unknown_error"
 
-    def check_thresholds(self) -> list[dict]:
+    def check_thresholds(self) -> list[dict[str, Any]]:
         """Check all configured thresholds for violations.
 
         Returns:
@@ -398,7 +398,7 @@ class WorkflowHealthMonitor:
         return violations
 
     def generate_recommendations(
-        self, violations: list[dict]
+        self, violations: list[dict[str, Any]]
     ) -> list[str]:
         """Generate healing recommendations based on violations.
 
@@ -545,7 +545,7 @@ class WorkflowHealthMonitor:
         assessment = self.assess_health()
         return assessment.status != WorkflowHealthStatus.HEALTHY
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """Get current monitoring statistics.
 
         Returns:
@@ -863,7 +863,7 @@ class WorkflowHealthMonitor:
 
         return None
 
-    def get_degradation_summary(self) -> dict:
+    def get_degradation_summary(self) -> dict[str, Any]:
         """Get summary of degradation analysis.
 
         Returns:
