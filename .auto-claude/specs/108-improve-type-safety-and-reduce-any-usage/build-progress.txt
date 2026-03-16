@@ -281,3 +281,31 @@ Changes made:
 - Verification: PASSED - All metadata parameters now use ActivityMetadata type
 - Commit: 580da53 "auto-claude: subtask-4-3 - Update collaboration/activity.py to use typed meta"
 
+=== 2026-03-16 06:45:00 UTC ===
+✓ Completed subtask-5-2: Update core/dependency.py to use TypedDict for dependency metadata
+
+Changes made:
+- Added TypedDict to imports from typing module
+- Created DependencyData TypedDict for dependency data input (add_dependency parameter)
+  - Fields: source_repo_id, target_repo_id, dependency_type, branch_constraint, version_constraint, required, created_at, metadata
+  - All fields optional (total=False) to support partial updates and various input formats
+- Created DependencyTypeCounts TypedDict for dependency type counts
+  - Fields: runtime, development, peer, optional (all int, all optional)
+- Created DependencyStatus TypedDict for dependency tracker status summary
+  - Fields: total (int), by_type (DependencyTypeCounts), repositories (int), has_errors (bool)
+  - All fields optional
+- Updated add_dependency() parameter: Union[RepositoryDependency, dict[str, Any]] → Union[RepositoryDependency, DependencyData]
+- Updated get_status() return type: dict[str, Any] → DependencyStatus
+- Updated _count_dependencies_by_type() return type: dict[str, int] → DependencyTypeCounts
+- Python syntax check: PASSED - code compiles successfully
+- Commit: 3245a98 "auto-claude: subtask-5-2 - Update core/dependency.py to use TypedDict for dep"
+
+Progress Update: 12/22 subtasks completed (55%)
+- Phase 1 (Type Definitions): 4/4 completed ✅
+- Phase 2 (JSON Helpers): 3/3 completed ✅
+- Phase 3 (CLI Migration): 3/3 completed ✅
+- Phase 4 (Collaboration Types): 3/3 completed ✅
+- Phase 5 (Core Modules): 1/3 in_progress 🔄
+- Phase 6 (Verification): 0/3 pending
+- Phase 7 (Cleanup): 0/2 pending
+

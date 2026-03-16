@@ -190,6 +190,39 @@ class JsonData(TypedDict, total=False):
     metadata: MetadataDict
 
 
+# === Repository Types ===
+
+
+class RepositoryDependencyMetadata(TypedDict, total=False):
+    """
+    Metadata for repository dependencies.
+
+    Provides additional information about cross-repository dependencies
+    including validation status, notes, and configuration hints.
+    """
+
+    validation_status: str
+    """Status of dependency validation (e.g., 'valid', 'invalid', 'pending')."""
+
+    last_validated: str
+    """ISO timestamp of last validation check."""
+
+    notes: str
+    """Human-readable notes about this dependency."""
+
+    auto_update: bool
+    """Whether to automatically update this dependency."""
+
+    minimum_version: str
+    """Minimum required version for the dependency."""
+
+    tags: list[str]
+    """Tags for categorizing the dependency."""
+
+    related_tasks: list[str]
+    """Task IDs related to this dependency."""
+
+
 # === Type Aliases for Common Patterns ===
 
 
