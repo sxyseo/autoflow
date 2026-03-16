@@ -21,6 +21,17 @@ from .approval import ApprovalGate, ApprovalToken
 from .coverage import CoverageReport, CoverageTracker
 from .qa_findings import QAFinding, QAFindingReport, QAFindingsManager, SeverityLevel
 
+# Import duplication detection
+try:
+    from autoflow.analysis.duplication_detector import (
+        DuplicationDetector,
+        DuplicationReport,
+        DuplicationThreshold,
+    )
+    DUPLICATION_DETECTION_AVAILABLE = True
+except ImportError:
+    DUPLICATION_DETECTION_AVAILABLE = False
+
 
 @dataclass
 class VerificationResult:
@@ -31,6 +42,7 @@ class VerificationResult:
         success: Whether verification passed all gates
         test_results: Test execution summary
         coverage_report: Coverage analysis results
+        duplication_report: Duplication detection results (optional)
         qa_findings: QA findings collected during verification
         approval_token: Approval token if verification passed
         fix_tasks_generated: Number of fix tasks automatically generated
@@ -43,6 +55,7 @@ class VerificationResult:
     success: bool
     test_results: dict[str, int]
     coverage_report: CoverageReport | None
+    duplication_report: DuplicationReport | None
     qa_findings: QAFindingReport
     approval_token: ApprovalToken | None
     fix_tasks_generated: int = 0
@@ -58,6 +71,11 @@ class VerificationResult:
             "test_results": self.test_results,
             "coverage_report": (
                 self.coverage_report.to_dict() if self.coverage_report else None
+            ),
+            "duplication_report": (
+                self.duplication_report.to_dict()
+                if self.duplication_report and DUPLICATION_DETECTION_AVAILABLE
+                else None
             ),
             "qa_findings": self.qa_findings.to_dict(),
             "approval_token": (
@@ -76,6 +94,7 @@ class VerificationResult:
             "status": "PASS" if self.success else "FAIL",
             "tests": self.test_results,
             "coverage": None,
+            "duplication": None,
             "qa_findings": self.qa_findings.get_summary(),
             "has_approval": self.approval_token is not None,
         }
@@ -86,6 +105,13 @@ class VerificationResult:
                 "branches": self.coverage_report.branches,
                 "functions": self.coverage_report.functions,
                 "lines": self.coverage_report.lines,
+            }
+
+        if self.duplication_report and DUPLICATION_DETECTION_AVAILABLE:
+            summary["duplication"] = {
+                "total_findings": len(self.duplication_report.findings),
+                "total_duplication": self.duplication_report.total_duplication,
+                "files_analyzed": self.duplication_report.files_analyzed,
             }
 
         return summary
@@ -99,6 +125,7 @@ class VerificationConfig:
     Args:
         run_tests: Whether to run tests
         run_coverage: Whether to run coverage analysis
+        run_duplication_detection: Whether to run duplication detection
         check_coverage_thresholds: Whether to enforce coverage thresholds
         generate_qa_findings: Whether to generate QA findings from failures
         grant_approval_on_success: Whether to grant approval on successful verification
@@ -109,6 +136,8 @@ class VerificationConfig:
         test_pattern: Pattern for test discovery
         source_dirs: Source directories for coverage measurement
         test_command: Command to run tests for coverage
+        duplication_threshold: Duplication similarity threshold (0.0-1.0)
+        duplication_max_files: Maximum number of files to analyze for duplication
         blocking_severities: Severity levels that block verification
         work_dir: Working directory for verification
         config_path: Path to QA gates configuration file
@@ -116,6 +145,7 @@ class VerificationConfig:
 
     run_tests: bool = True
     run_coverage: bool = True
+    run_duplication_detection: bool = True
     check_coverage_thresholds: bool = True
     generate_qa_findings: bool = True
     grant_approval_on_success: bool = True
@@ -126,6 +156,8 @@ class VerificationConfig:
     test_pattern: str = "test*.py"
     source_dirs: list[str] = field(default_factory=lambda: ["autoflow"])
     test_command: str = "python -m unittest discover tests/"
+    duplication_threshold: float = 0.7
+    duplication_max_files: int = 50
     blocking_severities: list[str] = field(default_factory=lambda: ["CRITICAL", "HIGH"])
     work_dir: str = "."
     config_path: str | None = None
@@ -159,6 +191,16 @@ class VerificationOrchestrator:
         )
         self.qa_manager = QAFindingsManager(work_dir=self.config.work_dir)
         self.approval_gate = ApprovalGate(work_dir=self.config.work_dir)
+
+        # Initialize duplication detector if available
+        self.duplication_detector = None
+        if DUPLICATION_DETECTION_AVAILABLE:
+            threshold = DuplicationThreshold(
+                minimum_similarity=self.config.duplication_threshold
+            )
+            self.duplication_detector = DuplicationDetector(
+                threshold=threshold, work_dir=self.config.work_dir
+            )
 
     def run_tests(self) -> tuple[dict[str, int], list[str]]:
         """
@@ -253,15 +295,108 @@ class VerificationOrchestrator:
         except Exception as e:
             return None, [f"Error running coverage: {e}"]
 
+    def run_duplication_detection(
+        self, changed_files: list[str] | None = None
+    ) -> tuple[DuplicationReport | None, list[str]]:
+        """
+        Run duplication detection.
+
+        Args:
+            changed_files: List of files to analyze (optional). If None, analyzes all Python files.
+
+        Returns:
+            Tuple of (duplication_report, errors)
+        """
+        if not self.config.run_duplication_detection:
+            return None, []
+
+        if not DUPLICATION_DETECTION_AVAILABLE or self.duplication_detector is None:
+            return None, ["Duplication detection not available"]
+
+        try:
+            # If no specific files provided, find Python files in source directories
+            if changed_files is None:
+                changed_files = []
+                for source_dir in self.config.source_dirs:
+                    source_path = self.work_dir / source_dir
+                    if source_path.exists() and source_path.is_dir():
+                        for py_file in source_path.rglob("*.py"):
+                            # Skip test files and hidden directories
+                            if any(
+                                part.startswith(".")
+                                for part in py_file.relative_to(self.work_dir).parts
+                            ):
+                                continue
+                            if "test" in py_file.stem:
+                                continue
+                            rel_path = str(py_file.relative_to(self.work_dir))
+                            changed_files.append(rel_path)
+
+            if not changed_files:
+                return None, ["No files to analyze for duplication"]
+
+            # Limit number of files to analyze
+            if len(changed_files) > self.config.duplication_max_files:
+                changed_files = changed_files[: self.config.duplication_max_files]
+
+            # Run duplication detection on each file
+            all_findings = []
+            total_duplication = 0.0
+            files_analyzed = 0
+
+            for file_path in changed_files:
+                try:
+                    report = self.duplication_detector.detect(file_path)
+                    all_findings.extend(report.findings)
+                    total_duplication += report.total_duplication
+                    files_analyzed += report.files_analyzed
+                except (FileNotFoundError, OSError) as e:
+                    # Skip files that can't be analyzed
+                    continue
+
+            # Create aggregated report
+            if all_findings:
+                avg_duplication = total_duplication / max(files_analyzed, 1)
+                duplication_report = DuplicationReport(
+                    findings=all_findings,
+                    total_duplication=avg_duplication,
+                    files_analyzed=files_analyzed,
+                    timestamp=datetime.now().isoformat(),
+                )
+            else:
+                duplication_report = DuplicationReport(
+                    findings=[],
+                    total_duplication=0.0,
+                    files_analyzed=files_analyzed,
+                    timestamp=datetime.now().isoformat(),
+                )
+
+            errors = []
+            # Check if duplication exceeds threshold
+            if duplication_report.total_duplication > 0.3:
+                errors.append(
+                    f"High code duplication detected: {duplication_report.total_duplication:.1%} "
+                    f"({len(duplication_report.findings)} findings)"
+                )
+
+            return duplication_report, errors
+
+        except Exception as e:
+            return None, [f"Error running duplication detection: {e}"]
+
     def generate_qa_findings(
-        self, test_results: dict[str, int], coverage_report: CoverageReport | None
+        self,
+        test_results: dict[str, int],
+        coverage_report: CoverageReport | None,
+        duplication_report: DuplicationReport | None = None,
     ) -> QAFindingReport:
         """
-        Generate QA findings from test and coverage results.
+        Generate QA findings from test, coverage, and duplication results.
 
         Args:
             test_results: Test execution results
             coverage_report: Coverage analysis results
+            duplication_report: Duplication detection results (optional)
 
         Returns:
             QAFindingReport with generated findings
@@ -324,6 +459,14 @@ class VerificationOrchestrator:
                             threshold=threshold,
                         )
                     )
+
+        # Add findings for code duplication
+        if duplication_report and DUPLICATION_DETECTION_AVAILABLE:
+            # Convert duplication report to QA findings
+            qa_duplication_report = duplication_report.to_qa_report()
+            if qa_duplication_report:
+                for finding in qa_duplication_report.findings:
+                    report.add_finding(finding)
 
         return report
 
@@ -432,8 +575,15 @@ class VerificationOrchestrator:
         if coverage_errors:
             errors.extend(coverage_errors)
 
+        # Run duplication detection
+        duplication_report, duplication_errors = self.run_duplication_detection()
+        if duplication_errors:
+            warnings.extend(duplication_errors)
+
         # Generate QA findings
-        qa_findings = self.generate_qa_findings(test_results, coverage_report)
+        qa_findings = self.generate_qa_findings(
+            test_results, coverage_report, duplication_report
+        )
 
         # Check for blocking QA findings
         blocking_findings = qa_findings.get_blocking_findings()
@@ -447,11 +597,25 @@ class VerificationOrchestrator:
         # Verification passes if:
         # - No test failures or errors
         # - Coverage meets thresholds (if checking)
+        # - Duplication below critical threshold (if checking)
         # - No blocking QA findings
+        duplication_passes = True
+        if duplication_report and self.config.run_duplication_detection:
+            # Check if total duplication exceeds critical threshold
+            duplication_passes = not duplication_report.has_high_duplication(
+                threshold=0.5
+            )
+            if not duplication_passes:
+                errors.append(
+                    f"Critical code duplication: {duplication_report.total_duplication:.1%} "
+                    f"exceeds 50% threshold"
+                )
+
         success = (
             test_results.get("failed", 0) == 0
             and test_results.get("errors", 0) == 0
             and len(coverage_errors) == 0
+            and duplication_passes
             and len(blocking_findings) == 0
         )
 
@@ -506,6 +670,7 @@ class VerificationOrchestrator:
             success=success,
             test_results=test_results,
             coverage_report=coverage_report,
+            duplication_report=duplication_report,
             qa_findings=qa_findings,
             approval_token=approval_token,
             fix_tasks_generated=fix_tasks_generated,
@@ -557,6 +722,19 @@ class VerificationOrchestrator:
                 timestamp=cr_data.get("timestamp", ""),
             )
 
+        duplication_report = None
+        if data.get("duplication_report") and DUPLICATION_DETECTION_AVAILABLE:
+            dr_data = data["duplication_report"]
+            duplication_report = DuplicationReport(
+                findings=[
+                    DuplicationFinding.from_dict(f)
+                    for f in dr_data.get("findings", [])
+                ],
+                total_duplication=dr_data.get("total_duplication", 0.0),
+                files_analyzed=dr_data.get("files_analyzed", 0),
+                timestamp=dr_data.get("timestamp", ""),
+            )
+
         qa_findings = QAFindingReport.from_dict(data["qa_findings"])
 
         approval_token = None
@@ -567,6 +745,7 @@ class VerificationOrchestrator:
             success=data["success"],
             test_results=data["test_results"],
             coverage_report=coverage_report,
+            duplication_report=duplication_report,
             qa_findings=qa_findings,
             approval_token=approval_token,
             fix_tasks_generated=data.get("fix_tasks_generated", 0),
@@ -664,6 +843,34 @@ def create_verification_report(
             for file_path, coverage in sorted(cr.files.items()):
                 status = "✓" if coverage >= 80.0 else "✗"
                 lines.append(f"    {status} {file_path}: {coverage:.1f}%")
+
+    # Duplication Results
+    if result.duplication_report and DUPLICATION_DETECTION_AVAILABLE:
+        lines.append("\n" + "-" * 70)
+        lines.append("CODE DUPLICATION")
+        lines.append("-" * 70)
+
+        dr = result.duplication_report
+        lines.append(f"  Total Duplication: {dr.total_duplication:.1f}%")
+        lines.append(f"  Findings:          {len(dr.findings)}")
+        lines.append(f"  Files Analyzed:    {dr.files_analyzed}")
+
+        if dr.total_duplication > 0.3:
+            lines.append(f"  Status:            ⚠ WARNING - High duplication detected")
+        elif dr.total_duplication > 0.1:
+            lines.append(f"  Status:            🟡 Moderate duplication")
+        else:
+            lines.append(f"  Status:            ✓ Low duplication")
+
+        if verbose and dr.findings:
+            lines.append("\n  Top Duplication Findings:")
+            for finding in sorted(
+                dr.findings, key=lambda f: f.similarity, reverse=True
+            )[:10]:
+                status = "🔴" if finding.similarity >= 0.9 else "🟠" if finding.similarity >= 0.8 else "🟡"
+                lines.append(f"    {status} {finding}")
+            if len(dr.findings) > 10:
+                lines.append(f"    ... and {len(dr.findings) - 10} more")
 
     # QA Findings
     if result.qa_findings.findings:
