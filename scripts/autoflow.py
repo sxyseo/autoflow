@@ -46,8 +46,29 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
 if str(ROOT) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
     sys.path.insert(0, str(ROOT))
+
+# Always ensure scripts comes AFTER ROOT to avoid import confusion
+# When importing from autoflow.*, we need the package, not scripts/autoflow.py
+scripts_path = str(ROOT / 'scripts')
+if scripts_path in sys.path:
+    sys.path.remove(scripts_path)
+# Re-add scripts at position 1 (after ROOT)
+if str(ROOT) in sys.path:
+    root_index = sys.path.index(str(ROOT))
+    sys.path.insert(root_index + 1, scripts_path)
+else:
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import run_cmd
+
+# Import now_stamp from time_helpers for timestamp generation
+from autoflow.utils.time_helpers import now_stamp
 
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
@@ -114,16 +135,6 @@ def now_utc() -> datetime:
         Current datetime in UTC timezone
     """
     return datetime.now(UTC)
-
-
-def now_stamp() -> str:
-    """
-    Get current UTC timestamp in ISO 8601 format.
-
-    Returns:
-        Timestamp string in format YYYYMMDDTHHMMSSZ
-    """
-    return now_utc().strftime("%Y%m%dT%H%M%SZ")
 
 
 def parse_stamp(value: str) -> datetime | None:
@@ -300,34 +311,6 @@ def ensure_state() -> None:
         DEPENDENCIES_DIR,
     ]:
         path.mkdir(parents=True, exist_ok=True)
-
-
-def run_cmd(
-    args: list[str],
-    cwd: Path | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """
-    Run a command as a subprocess.
-
-    Args:
-        args: Command arguments to execute
-        cwd: Working directory for the command (defaults to ROOT if None)
-        check: Whether to raise exception on non-zero exit code
-
-    Returns:
-        Completed process with stdout and stderr captured
-
-    Raises:
-        subprocess.CalledProcessError: If check=True and command fails
-    """
-    return subprocess.run(
-        args,
-        cwd=cwd or ROOT,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
 
 
 @dataclass
