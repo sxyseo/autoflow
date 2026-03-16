@@ -399,6 +399,61 @@ def worktree_branch(spec_slug: str) -> str:
     return f"codex/{slugify(spec_slug)}"
 
 
+def detect_base_branch() -> str:
+    """
+    Detect the git repository's base branch.
+
+    Attempts to identify the primary branch by checking for common branch names
+    (main, master) in order. Falls back to the current branch if neither is found,
+    or defaults to "main" as a last resort.
+
+    Returns:
+        Name of the detected base branch ("main", "master", or current branch)
+    """
+    for branch in ["main", "master"]:
+        result = run_cmd(["git", "rev-parse", "--verify", branch], check=False)
+        if result.returncode == 0:
+            return branch
+    current = run_cmd(["git", "branch", "--show-current"]).stdout.strip()
+    return current or "main"
+
+
+def normalize_worktree_metadata(spec_slug: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Normalize worktree metadata to ensure consistent structure.
+
+    Updates the worktree path to use the expected location if it exists,
+    otherwise preserves the current path. Ensures branch and base_branch
+    fields are populated with defaults if missing.
+
+    Args:
+        spec_slug: Spec slug identifier
+        metadata: Optional metadata dictionary to normalize (loads from disk if not provided)
+
+    Returns:
+        Normalized metadata dictionary with consistent worktree structure
+    """
+    payload = dict(metadata or load_spec_metadata(spec_slug))
+    worktree = dict(payload.get("worktree", {}))
+    expected = worktree_path(spec_slug)
+    current_path = worktree.get("path", "")
+    branch = worktree.get("branch", worktree_branch(spec_slug))
+    base_branch = worktree.get("base_branch", detect_base_branch())
+    resolved_path = ""
+    if expected.exists():
+        resolved_path = str(expected)
+    elif current_path:
+        current = Path(current_path)
+        if current.exists():
+            resolved_path = str(current)
+    payload["worktree"] = {
+        "path": resolved_path,
+        "branch": branch,
+        "base_branch": base_branch,
+    }
+    return payload
+
+
 def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
     """
     Load metadata for a spec.

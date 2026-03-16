@@ -32,54 +32,42 @@ from scripts.cli.utils import (
     read_json,
     slugify,
     write_json,
+    spec_files,
+    load_spec_metadata,
+    save_spec_metadata,
+    normalize_worktree_metadata,
+    worktree_branch,
+    detect_base_branch,
+    load_review_state,
+    save_review_state,
+    review_state_default,
+    review_status_summary,
+    record_event,
+    task_file,
 )
-
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in subtask-2-2
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 
 def _get_spec_helper_functions():
-    """Import spec helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in subtask-2-2
+    """Import spec helper functions from autoflow.py (lazy import to avoid circular dependency)."""
+    # These functions will be moved to utils.py in future subtasks
     import scripts.autoflow as af
 
     return {
-        'spec_files': af.spec_files,
-        'load_spec_metadata': af.load_spec_metadata,
-        'save_spec_metadata': af.save_spec_metadata,
-        'normalize_worktree_metadata': af.normalize_worktree_metadata,
-        'load_review_state': af.load_review_state,
-        'save_review_state': af.save_review_state,
-        'review_state_default': af.review_state_default,
-        'review_status_summary': af.review_status_summary,
         'replace_markdown_section': af.replace_markdown_section,
         'default_tasks': af.default_tasks,
-        'task_file': af.task_file,
-        'worktree_branch': af.worktree_branch,
-        'detect_base_branch': af.detect_base_branch,
-        'record_event': af.record_event,
     }
 
 
-# Get helper functions
-_helpers = _get_spec_helper_functions()
-spec_files = _helpers['spec_files']
-load_spec_metadata = _helpers['load_spec_metadata']
-save_spec_metadata = _helpers['save_spec_metadata']
-normalize_worktree_metadata = _helpers['normalize_worktree_metadata']
-load_review_state = _helpers['load_review_state']
-save_review_state = _helpers['save_review_state']
-review_state_default = _helpers['review_state_default']
-review_status_summary = _helpers['review_status_summary']
-replace_markdown_section = _helpers['replace_markdown_section']
-default_tasks = _helpers['default_tasks']
-task_file = _helpers['task_file']
-worktree_branch = _helpers['worktree_branch']
-detect_base_branch = _helpers['detect_base_branch']
-record_event = _helpers['record_event']
+def replace_markdown_section(markdown: str, heading: str, content: str) -> str:
+    """Wrapper for lazy-imported replace_markdown_section function."""
+    _helpers = _get_spec_helper_functions()
+    return _helpers['replace_markdown_section'](markdown, heading, content)
+
+
+def default_tasks() -> list:
+    """Wrapper for lazy-imported default_tasks function."""
+    _helpers = _get_spec_helper_functions()
+    return _helpers['default_tasks']()
 
 
 def create_spec(args: argparse.Namespace) -> None:

@@ -39,19 +39,23 @@ from scripts.cli.utils import (
     save_tasks,
     slugify,
     write_json,
+    worktree_path,
+    record_event,
+    sync_review_state,
+    review_status_summary,
+    invalidate_run_cache,
+    load_run_metadata,
+    write_run_metadata,
+    run_stale_reason,
+    load_system_config,
+    append_memory,
+    load_agents,
 )
 from scripts.integrity import hash_file_content
 
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in subtask-2-2
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 
 def _get_run_helper_functions():
-    """Import run helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in subtask-2-2
+    """Import run helper functions from autoflow.py (lazy import to avoid circular dependency)."""
     import scripts.autoflow as af
 
     return {
@@ -59,61 +63,115 @@ def _get_run_helper_functions():
         'build_prompt': af.build_prompt,
         'task_lookup': af.task_lookup,
         'task_run_history': af.task_run_history,
-        'review_status_summary': af.review_status_summary,
         'next_task_data': af.next_task_data,
-        'sync_review_state': af.sync_review_state,
-        'record_event': af.record_event,
         'native_resume_preview': af.native_resume_preview,
         'write_handoff': af.write_handoff,
         'clear_fix_request': af.clear_fix_request,
         'record_reflection': af.record_reflection,
         'write_fix_request': af.write_fix_request,
-        'load_system_config': af.load_system_config,
-        'append_memory': af.append_memory,
         'parse_findings': af.parse_findings,
         'complete_run_record': af.complete_run_record,
         'finalize_run_record': af.finalize_run_record,
         'recover_run_record': af.recover_run_record,
         'run_metadata_iter': af.run_metadata_iter,
-        'load_agents': af.load_agents,
-        'load_run_metadata': af.load_run_metadata,
-        'write_run_metadata': af.write_run_metadata,
-        'worktree_path': af.worktree_path,
-        'invalidate_run_cache': af.invalidate_run_cache,
         'active_runs_for_spec': af.active_runs_for_spec,
-        'run_stale_reason': af.run_stale_reason,
     }
 
 
-# Get helper functions
-_helpers = _get_run_helper_functions()
-AgentSpec = _helpers['AgentSpec']
-build_prompt = _helpers['build_prompt']
-task_lookup = _helpers['task_lookup']
-task_run_history = _helpers['task_run_history']
-review_status_summary = _helpers['review_status_summary']
-next_task_data = _helpers['next_task_data']
-sync_review_state = _helpers['sync_review_state']
-record_event = _helpers['record_event']
-native_resume_preview = _helpers['native_resume_preview']
-write_handoff = _helpers['write_handoff']
-clear_fix_request = _helpers['clear_fix_request']
-record_reflection = _helpers['record_reflection']
-write_fix_request = _helpers['write_fix_request']
-load_system_config = _helpers['load_system_config']
-append_memory = _helpers['append_memory']
-parse_findings = _helpers['parse_findings']
-complete_run_record = _helpers['complete_run_record']
-finalize_run_record = _helpers['finalize_run_record']
-recover_run_record = _helpers['recover_run_record']
-run_metadata_iter = _helpers['run_metadata_iter']
-load_agents = _helpers['load_agents']
-load_run_metadata = _helpers['load_run_metadata']
-write_run_metadata = _helpers['write_run_metadata']
-worktree_path = _helpers['worktree_path']
-invalidate_run_cache = _helpers['invalidate_run_cache']
-active_runs_for_spec = _helpers['active_runs_for_spec']
-run_stale_reason = _helpers['run_stale_reason']
+def AgentSpec(*args, **kwargs):
+    """Wrapper for lazy-imported AgentSpec class."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['AgentSpec'](*args, **kwargs)
+
+
+def build_prompt(*args, **kwargs):
+    """Wrapper for lazy-imported build_prompt function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['build_prompt'](*args, **kwargs)
+
+
+def task_lookup(*args, **kwargs):
+    """Wrapper for lazy-imported task_lookup function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['task_lookup'](*args, **kwargs)
+
+
+def task_run_history(*args, **kwargs):
+    """Wrapper for lazy-imported task_run_history function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['task_run_history'](*args, **kwargs)
+
+
+def next_task_data(*args, **kwargs):
+    """Wrapper for lazy-imported next_task_data function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['next_task_data'](*args, **kwargs)
+
+
+def native_resume_preview(*args, **kwargs):
+    """Wrapper for lazy-imported native_resume_preview function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['native_resume_preview'](*args, **kwargs)
+
+
+def write_handoff(*args, **kwargs):
+    """Wrapper for lazy-imported write_handoff function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['write_handoff'](*args, **kwargs)
+
+
+def clear_fix_request(*args, **kwargs):
+    """Wrapper for lazy-imported clear_fix_request function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['clear_fix_request'](*args, **kwargs)
+
+
+def record_reflection(*args, **kwargs):
+    """Wrapper for lazy-imported record_reflection function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['record_reflection'](*args, **kwargs)
+
+
+def write_fix_request(*args, **kwargs):
+    """Wrapper for lazy-imported write_fix_request function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['write_fix_request'](*args, **kwargs)
+
+
+def parse_findings(*args, **kwargs):
+    """Wrapper for lazy-imported parse_findings function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['parse_findings'](*args, **kwargs)
+
+
+def complete_run_record(*args, **kwargs):
+    """Wrapper for lazy-imported complete_run_record function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['complete_run_record'](*args, **kwargs)
+
+
+def finalize_run_record(*args, **kwargs):
+    """Wrapper for lazy-imported finalize_run_record function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['finalize_run_record'](*args, **kwargs)
+
+
+def recover_run_record(*args, **kwargs):
+    """Wrapper for lazy-imported recover_run_record function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['recover_run_record'](*args, **kwargs)
+
+
+def run_metadata_iter(*args, **kwargs):
+    """Wrapper for lazy-imported run_metadata_iter function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['run_metadata_iter'](*args, **kwargs)
+
+
+def active_runs_for_spec(*args, **kwargs):
+    """Wrapper for lazy-imported active_runs_for_spec function."""
+    _helpers = _get_run_helper_functions()
+    return _helpers['active_runs_for_spec'](*args, **kwargs)
 
 
 def create_run_record(

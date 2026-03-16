@@ -29,42 +29,36 @@ from scripts.cli.utils import (
     now_stamp,
     print_json,
     write_json,
+    load_tasks,
+    save_tasks,
+    sync_review_state,
+    record_event,
+    task_file,
+    load_spec_metadata,
 )
-
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in subtask-3-2
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 
 def _get_task_helper_functions():
-    """Import task helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in subtask-3-2
+    """Import task helper functions from autoflow.py (lazy import to avoid circular dependency)."""
+    # These functions will be moved to utils.py in future subtasks
     import scripts.autoflow as af
 
     return {
-        'load_tasks': af.load_tasks,
-        'save_tasks': af.save_tasks,
         'task_lookup': af.task_lookup,
         'default_tasks': af.default_tasks,
-        'task_file': af.task_file,
-        'load_spec_metadata': af.load_spec_metadata,
-        'sync_review_state': af.sync_review_state,
-        'record_event': af.record_event,
     }
 
 
-# Get helper functions
-_helpers = _get_task_helper_functions()
-load_tasks = _helpers['load_tasks']
-save_tasks = _helpers['save_tasks']
-task_lookup = _helpers['task_lookup']
-default_tasks = _helpers['default_tasks']
-task_file = _helpers['task_file']
-load_spec_metadata = _helpers['load_spec_metadata']
-sync_review_state = _helpers['sync_review_state']
-record_event = _helpers['record_event']
+def task_lookup(data: dict, task_id: str, spec_slug: str | None = None) -> dict:
+    """Wrapper for lazy-imported task_lookup function."""
+    _helpers = _get_task_helper_functions()
+    return _helpers['task_lookup'](data, task_id, spec_slug)
+
+
+def default_tasks() -> list:
+    """Wrapper for lazy-imported default_tasks function."""
+    _helpers = _get_task_helper_functions()
+    return _helpers['default_tasks']()
 
 
 def init_tasks_cmd(args: argparse.Namespace) -> None:

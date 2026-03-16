@@ -152,18 +152,17 @@ from scripts.cli.utils import (
     _agents_config_cache,
     _populate_agents_cache,
 )
-# Import worktree CLI module
+# Import modular CLI modules
 from scripts.cli import worktree
-# Import memory CLI module
 from scripts.cli import memory
-# Import review CLI module
 from scripts.cli import review
-# Import agent CLI module
 from scripts.cli import agent
-# Import system CLI module
 from scripts.cli import system
-# Import integration CLI module
 from scripts.cli import integration
+from scripts.cli import spec
+from scripts.cli import task
+from scripts.cli import run
+from scripts.cli import repository
 from scripts.integrity import hash_file_content, verify_file_integrity
 from autoflow.core.sanitization import sanitize_dict, sanitize_value
 
@@ -3512,65 +3511,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # Core system command
     init_cmd = sub.add_parser("init", help="create .autoflow state directories")
     init_cmd.set_defaults(func=lambda _: ensure_state())
 
-    spec_cmd = sub.add_parser("new-spec", help="create a spec scaffold")
-    spec_cmd.add_argument("--slug", default="")
-    spec_cmd.add_argument("--title", required=True)
-    spec_cmd.add_argument("--summary", required=True)
-    spec_cmd.add_argument("--repository", default="", help="repository ID for multi-repo specs")
-    spec_cmd.set_defaults(func=create_spec)
+    # Register spec commands from spec module
+    spec.add_subparser(sub)
 
-    show_spec_cmd = sub.add_parser("show-spec", help="show spec metadata, markdown, review state, and tasks")
-    show_spec_cmd.add_argument("--slug", required=True)
-    show_spec_cmd.set_defaults(func=show_spec)
+    # Register task commands from task module
+    task.add_subparser(sub)
 
-    update_spec_cmd = sub.add_parser("update-spec", help="update a spec's metadata or append new context")
-    update_spec_cmd.add_argument("--slug", required=True)
-    update_spec_cmd.add_argument("--title", default="")
-    update_spec_cmd.add_argument("--summary", default="")
-    update_spec_cmd.add_argument("--status", default="")
-    update_spec_cmd.add_argument("--append", default="")
-    update_spec_cmd.set_defaults(func=update_spec)
-
-    init_tasks = sub.add_parser("init-tasks", help="initialize default tasks for a spec if missing")
-    init_tasks.add_argument("--spec", required=True)
-    init_tasks.add_argument("--force", action="store_true")
-    init_tasks.set_defaults(func=init_tasks_cmd)
-
-    tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
-    tasks_cmd.add_argument("--spec", required=True)
-    tasks_cmd.set_defaults(func=list_tasks)
-
-    next_cmd = sub.add_parser("next-task", help="print the next ready task")
-    next_cmd.add_argument("--spec", required=True)
-    next_cmd.add_argument("--role")
-    next_cmd.set_defaults(func=next_task)
-
-    set_task_cmd = sub.add_parser("set-task-status", help="update a task lifecycle state")
-    set_task_cmd.add_argument("--spec", required=True)
-    set_task_cmd.add_argument("--task", required=True)
-    set_task_cmd.add_argument("--status", required=True)
-    set_task_cmd.add_argument("--note", default="")
-    set_task_cmd.set_defaults(func=set_task_status)
-
-    update_task = sub.add_parser("update-task", help="update task state or metadata using README-compatible flags")
-    update_task.add_argument("--spec", required=True)
-    update_task.add_argument("--task", required=True)
-    update_task.add_argument("--status", default="")
-    update_task.add_argument("--title", default="")
-    update_task.add_argument("--owner-role", default="")
-    update_task.add_argument("--append-criterion", default="")
-    update_task.add_argument("--note", default="")
-    update_task.set_defaults(func=update_task_cmd)
-
-    reset_task = sub.add_parser("reset-task", help="reset a task back to todo")
-    reset_task.add_argument("--spec", required=True)
-    reset_task.add_argument("--task", required=True)
-    reset_task.add_argument("--note", default="")
-    reset_task.set_defaults(func=reset_task_cmd)
-
+    # Handoff and fix request commands (kept in main CLI)
     handoff_cmd = sub.add_parser("create-handoff", help="write a handoff artifact")
     handoff_cmd.add_argument("--spec", required=True)
     handoff_cmd.add_argument("--task", required=True)
@@ -3596,37 +3547,22 @@ def build_parser() -> argparse.ArgumentParser:
     # Register worktree commands from worktree module
     worktree.add_subparser(sub)
 
-    list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
-    list_specs_cmd.set_defaults(func=list_specs)
+    # Register repository commands from repository module
+    repository.add_subparser(sub)
 
-    repo_add_cmd_parser = sub.add_parser("repo-add", help="register a repository with autoflow")
-    repo_add_cmd_parser.add_argument("--id", required=True, help="unique repository identifier")
-    repo_add_cmd_parser.add_argument("--name", required=True, help="human-readable repository name")
-    repo_add_cmd_parser.add_argument("--path", required=True, help="filesystem path to the repository")
-    repo_add_cmd_parser.add_argument("--url", default="", help="git remote URL (optional)")
-    repo_add_cmd_parser.add_argument("--description", default="", help="repository description (optional)")
-    repo_add_cmd_parser.add_argument("--branch", default="", help="default branch name (default: main)")
-    repo_add_cmd_parser.set_defaults(func=repo_add_cmd)
-
-    repo_list_cmd_parser = sub.add_parser("repo-list", help="list all registered repositories")
-    repo_list_cmd_parser.set_defaults(func=repo_list_cmd)
-
-    repo_validate_cmd_parser = sub.add_parser("repo-validate", help="validate repositories and dependencies")
-    repo_validate_cmd_parser.add_argument("--repo", default="", help="validate specific repository (validates all if not specified)")
-    repo_validate_cmd_parser.set_defaults(func=repo_validate_cmd)
-
-    # System commands
+    # Register system commands from system module
     system.add_subparser(sub)
 
-    # Agent commands
+    # Register agent commands from agent module
     agent.add_subparser(sub)
 
-    # Memory commands
+    # Register memory commands from memory module
     memory.add_subparser(sub)
 
-    # Review commands
+    # Register review commands from review module
     review.add_subparser(sub)
 
+    # Strategy and planner commands (kept in main CLI)
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
     strategy_cmd.set_defaults(func=show_strategy_cmd)
@@ -3640,77 +3576,13 @@ def build_parser() -> argparse.ArgumentParser:
     planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
     planner_cmd.set_defaults(func=add_planner_note_cmd)
 
-    # Register integration commands
+    # Register integration commands from integration module
     integration.add_subparser(sub)
 
-    run_cmd_parser = sub.add_parser("new-run", help="create a runnable agent job")
-    run_cmd_parser.add_argument("--spec", required=True)
-    run_cmd_parser.add_argument("--role", required=True)
-    run_cmd_parser.add_argument("--agent", required=True)
-    run_cmd_parser.add_argument("--task")
-    run_cmd_parser.add_argument("--branch")
-    run_cmd_parser.add_argument("--resume-from")
-    run_cmd_parser.set_defaults(func=create_run)
+    # Register run commands from run module
+    run.add_subparser(sub)
 
-    resume_cmd = sub.add_parser("resume-run", help="create a retry run from an earlier run record")
-    resume_cmd.add_argument("--run", required=True)
-    resume_cmd.set_defaults(func=resume_run)
-
-    heartbeat_cmd = sub.add_parser("heartbeat-run", help="update run heartbeat metadata")
-    heartbeat_cmd.add_argument("--run", required=True)
-    heartbeat_cmd.add_argument("--status", default="")
-    heartbeat_cmd.add_argument("--session", default="")
-    heartbeat_cmd.add_argument("--exit-code", type=int)
-    heartbeat_cmd.set_defaults(func=heartbeat_run_cmd)
-
-    recover_cmd = sub.add_parser("recover-run", help="recover a stale or interrupted run")
-    recover_cmd.add_argument("--run", required=True)
-    recover_cmd.add_argument("--reason", default="manual_recover")
-    recover_cmd.add_argument("--dispatch", action="store_true")
-    recover_cmd.set_defaults(func=recover_run_cmd)
-
-    complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
-    complete_cmd.add_argument("--run", required=True)
-    complete_cmd.add_argument("--result", required=True)
-    complete_cmd.add_argument("--summary", default="")
-    complete_cmd.add_argument("--findings-json", default="")
-    complete_cmd.add_argument("--findings-file", default="")
-    complete_cmd.set_defaults(func=complete_run)
-
-    finalize_cmd = sub.add_parser("finalize-run", help="complete a run from an agent result artifact or exit code")
-    finalize_cmd.add_argument("--run", required=True)
-    finalize_cmd.add_argument("--exit-code", required=True, type=int)
-    finalize_cmd.add_argument("--result-file", default="")
-    finalize_cmd.set_defaults(func=finalize_run_cmd)
-
-    cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
-    cancel_cmd.add_argument("--run", required=True)
-    cancel_cmd.add_argument("--reason", default="")
-    cancel_cmd.set_defaults(func=cancel_run)
-
-    history_cmd = sub.add_parser("task-history", help="show run history for a task")
-    history_cmd.add_argument("--spec", required=True)
-    history_cmd.add_argument("--task", required=True)
-    history_cmd.set_defaults(func=show_task_history)
-
-    cleanup_runs = sub.add_parser("cleanup-runs", help="mark stale or manual-selected runs as inactive")
-    cleanup_runs.add_argument("--spec", required=True)
-    cleanup_runs.add_argument("--reason", default="manual_cleanup")
-    cleanup_runs.add_argument("--target-status", default="abandoned")
-    cleanup_runs.add_argument("--task-status", default="")
-    cleanup_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
-    cleanup_runs.set_defaults(func=cleanup_runs_cmd)
-
-    sweep_runs = sub.add_parser("sweep-runs", help="detect stale runs and mark or recover them")
-    sweep_runs.add_argument("--spec", required=True)
-    sweep_runs.add_argument("--stale-after", type=int, default=DEFAULT_STALE_AFTER_SECONDS)
-    sweep_runs.add_argument("--target-status", default="stale")
-    sweep_runs.add_argument("--task-status", default="")
-    sweep_runs.add_argument("--include-status", nargs="+", default=["created", "running"])
-    sweep_runs.add_argument("--auto-recover", action="store_true")
-    sweep_runs.add_argument("--dispatch-recovery", action="store_true")
-    sweep_runs.set_defaults(func=sweep_runs_cmd)
-
+    # Event and workflow commands (kept in main CLI)
     events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
     events_cmd.add_argument("--spec", required=True)
     events_cmd.add_argument("--limit", type=int, default=20)
@@ -3722,13 +3594,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_cmd = sub.add_parser("status", help="print current specs and runs")
     status_cmd.set_defaults(func=show_status)
-
-    list_runs_cmd = sub.add_parser("list-runs", help="list runs with optional filtering")
-    list_runs_cmd.add_argument("--spec", default="", help="filter by spec slug")
-    list_runs_cmd.add_argument("--status", default="", help="filter by run status")
-    list_runs_cmd.add_argument("--role", default="", help="filter by role")
-    list_runs_cmd.add_argument("--agent", default="", help="filter by agent name")
-    list_runs_cmd.set_defaults(func=list_runs)
 
     return parser
 
