@@ -1,0 +1,568 @@
+{
+  "feature": "Improve Type Safety and Reduce 'Any' Usage",
+  "description": "Replace typing.Any and dict[str, Any] with proper TypedDict, dataclass, and Pydantic types throughout the Autoflow codebase",
+  "workflow_type": "refactor",
+  "workflow_rationale": "This is a refactoring task because we need to add new type-safe patterns alongside existing code, gradually migrate consumers to use the new types, and then remove the old Any-based patterns. The changes must preserve backward compatibility with existing JSON file formats while improving type safety.",
+  "phases": [
+    {
+      "id": "phase-1-type-definitions",
+      "name": "Create Type-Safe Data Models",
+      "type": "implementation",
+      "description": "Define TypedDict and dataclass types for common data structures (tasks, review state, strategy memory, etc.) alongside existing code. This phase adds new types without changing existing behavior.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create TypedDict definitions for task data structures in autoflow/core/types.py",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/core/types.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.types import TaskData, TasksFile; print('TaskData:', TaskData.__annotations__); print('TasksFile:', TasksFile.__annotations__)\"",
+            "expected": "TaskData: {\"tasks\": \"list[dict[str, typing.Any]]\", \"updated_at\": \"<class 'str'>\"}"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Create TypedDict for review state structures in autoflow/core/types.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/types.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.types import ReviewState; print('ReviewState created successfully')\"",
+            "expected": "ReviewState created successfully"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Create TypedDict for strategy memory structures in autoflow/core/types.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/types.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.types import StrategyMemory; print('StrategyMemory created successfully')\"",
+            "expected": "StrategyMemory created successfully"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-1-4",
+          "description": "Create generic TypedDict for JSON data with common metadata patterns in autoflow/core/types.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/types.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.types import JsonData, MetadataDict; print('Generic types created successfully')\"",
+            "expected": "Generic types created successfully"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-json-helpers",
+      "name": "Add Type-Safe JSON Helper Functions",
+      "type": "implementation",
+      "description": "Create typed versions of read_json/write_json functions that use the new TypedDict types, keeping the original functions for backward compatibility.",
+      "depends_on": [
+        "phase-1-type-definitions"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Add typed JSON helper functions to autoflow/utils/file_helpers.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/utils/file_helpers.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/utils/file_helpers.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.utils.file_helpers import load_json_typed; print('load_json_typed available')\"",
+            "expected": "load_json_typed available"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Add typed JSON helper methods to StateManager in autoflow/core/state.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/state.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.state import StateManager; print('StateManager has typed methods')\"",
+            "expected": "StateManager has typed methods"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Add typed read_json function to autoflow/bmad/templates.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/bmad/templates.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/bmad/templates.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.bmad.templates import read_json_typed; print('read_json_typed available')\"",
+            "expected": "read_json_typed available"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-autoflow-cli-migration",
+      "name": "Migrate autoflow_cli.py to Use Typed Functions",
+      "type": "implementation",
+      "description": "Update load_tasks, review_state_default, strategy_memory_default, and related functions to return proper TypedDict types instead of dict[str, Any].",
+      "depends_on": [
+        "phase-2-json-helpers"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Update load_tasks and task_lookup to use TasksFile type in autoflow/autoflow_cli.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.load_tasks); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
+            "expected": "Return type: autoflow.core.types.TasksFile"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Update review_state_default and sync_review_state to use ReviewState type in autoflow/autoflow_cli.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.review_state_default); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
+            "expected": "Return type: autoflow.core.types.ReviewState"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Update strategy_memory_default to use StrategyMemory type in autoflow/autoflow_cli.py",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/autoflow_cli.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.autoflow_cli import AutoflowCli; import inspect; sig = inspect.signature(AutoflowCli.strategy_memory_default); print('Return type:', sig.return_annotation if sig.return_annotation != inspect.Parameter.empty else 'untyped')\"",
+            "expected": "Return type: autoflow.core.types.StrategyMemory"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-collaboration-types",
+      "name": "Add Type Safety to Collaboration Module",
+      "type": "implementation",
+      "description": "Replace dict[str, Any] with proper types in collaboration models and activity tracking, using TypedDict for metadata fields.",
+      "depends_on": [
+        "phase-1-type-definitions"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Create TypedDict for collaboration metadata in autoflow/collaboration/types.py",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            "autoflow/collaboration/types.py"
+          ],
+          "patterns_from": [
+            "autoflow/core/types.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.collaboration.types import ActivityMetadata, NotificationMetadata; print('Collaboration types created')\"",
+            "expected": "Collaboration types created"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Update collaboration/models.py to use typed metadata instead of dict[str, Any]",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/models.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/collaboration/review.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.collaboration.models import User; print('User model metadata type:', User.model_fields['metadata'].annotation if hasattr(User.model_fields['metadata'], 'annotation') else 'unknown')\"",
+            "expected": "User model metadata type: ActivityMetadata"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Update collaboration/activity.py to use typed metadata in activity tracking functions",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/collaboration/activity.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/collaboration/review.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "mypy autoflow/collaboration/activity.py --no-error-summary 2>&1 | grep -c 'dict\\[str, Any\\]' || echo '0'",
+            "expected": "0"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-core-modules",
+      "name": "Add Type Safety to Core Modules",
+      "type": "implementation",
+      "description": "Replace dict[str, Any] with proper types in core configuration, dependency, and repository modules.",
+      "depends_on": [
+        "phase-1-type-definitions"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Update core/config.py to use TypedDict for configuration structures",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/config.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/repository.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "mypy autoflow/core/config.py --no-error-summary 2>&1 | grep -c 'dict\\[str, Any\\]' || echo '0'",
+            "expected": "0"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Update core/dependency.py to use TypedDict for dependency metadata",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/dependency.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/repository.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "mypy autoflow/core/dependency.py --no-error-summary 2>&1 | grep -c 'dict\\[str, Any\\]' || echo '0'",
+            "expected": "0"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-5-3",
+          "description": "Update core/repository.py RepositoryDependency to use typed metadata",
+          "service": "autoflow",
+          "files_to_modify": [
+            "autoflow/core/repository.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/core/repository.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.core.repository import RepositoryDependency; print('Metadata field:', RepositoryDependency.model_fields['metadata'])\"",
+            "expected": "Metadata field:"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-6-verification",
+      "name": "Type Checking and Verification",
+      "type": "integration",
+      "description": "Run mypy type checking across the entire codebase and fix any remaining type issues. Verify that all tests still pass and that JSON serialization still works correctly.",
+      "depends_on": [
+        "phase-2-json-helpers",
+        "phase-3-autoflow-cli-migration",
+        "phase-4-collaboration-types",
+        "phase-5-core-modules"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-6-1",
+          "description": "Run mypy type checking on autoflow package and document remaining issues",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            ".auto-claude/specs/108-improve-type-safety-and-reduce-any-usage/mypy_report.md"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "mypy autoflow/ 2>&1 | tee .auto-claude/specs/108-improve-type-safety-and-reduce-any-usage/mypy_report.txt | tail -20",
+            "expected": "Success: no issues found in X source files"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-6-2",
+          "description": "Run full test suite to verify type changes don't break functionality",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/ -v --tb=short 2>&1 | tail -30",
+            "expected": "passed"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-6-3",
+          "description": "Verify JSON serialization compatibility for all changed types",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            ".auto-claude/specs/108-improve-type-safety-and-reduce-any-usage/serialization_test.py"
+          ],
+          "patterns_from": [
+            "tests/test_state.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 .auto-claude/specs/108-improve-type-safety-and-reduce-any-usage/serialization_test.py",
+            "expected": "All serialization tests passed"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-7-cleanup",
+      "name": "Cleanup and Documentation",
+      "type": "cleanup",
+      "description": "Update type hints documentation, add migration guide for contributors, and mark any remaining Any usage with TODO comments for future refactoring.",
+      "depends_on": [
+        "phase-6-verification"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-7-1",
+          "description": "Add type safety documentation to CLAUDE.md or README",
+          "service": "autoflow",
+          "files_to_modify": [
+            "CLAUDE.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "CLAUDE.md"
+          ],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review CLAUDE.md to ensure type safety guidelines are documented"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-7-2",
+          "description": "Count remaining Any usage and document in summary report",
+          "service": "autoflow",
+          "files_to_modify": [],
+          "files_to_create": [
+            ".auto-claude/specs/108-improve-type-safety-and-reduce-any-usage/completion_report.md"
+          ],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -r ': Any\\|dict\\[str, Any\\]' autoflow --include='*.py' | wc -l",
+            "expected": "Number should be significantly lower than initial 55+"
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 7,
+    "total_subtasks": 22,
+    "services_involved": [
+      "autoflow"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 2,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-4-collaboration-types",
+            "phase-5-core-modules"
+          ],
+          "reason": "Both depend only on phase-1 and modify different subsystems"
+        }
+      ],
+      "recommended_workers": 2,
+      "speedup_estimate": "1.3x faster than sequential"
+    },
+    "startup_command": "echo 'Refactoring task - run subtasks in order using the implementation plan'"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "mypy type checking passes with no errors",
+      "All existing tests pass",
+      "JSON serialization works correctly for all typed structures",
+      "Functions mentioned in spec (load_tasks, review_state_default, strategy_memory_default) return proper types",
+      "Reduced count of 'Any' usage in codebase"
+    ],
+    "verification_steps": [
+      {
+        "name": "Type Checking with mypy",
+        "command": "mypy autoflow/",
+        "expected_outcome": "Success: no issues found in source files",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Unit Tests",
+        "command": "pytest tests/ -v",
+        "expected_outcome": "All tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Count Any Usage",
+        "command": "grep -r ': Any\\|dict\\[str, Any\\]' autoflow --include='*.py' | wc -l",
+        "expected_outcome": "Significantly reduced from initial count",
+        "type": "test",
+        "required": true,
+        "blocking": false
+      }
+    ],
+    "reasoning": "Medium risk refactoring that touches core data structures. Requires type checking and testing to ensure no functionality is broken."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/ -v"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    },
+    "type_check_verification": {
+      "required": true,
+      "commands": [
+        "mypy autoflow/"
+      ],
+      "expected": "No type errors"
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-16T03:33:37.343Z"
+}
