@@ -2517,6 +2517,8 @@ _system_config_cache: dict[str, Any] | None = None
 _agents_config_cache: dict[str, AgentSpec] | None = None
 _tasks_metadata_cache: dict[str, dict[str, Any]] = {}
 _cache_loaded_task_specs: set[str] = set()
+_file_hash_cache: dict[str, str] = {}
+_file_mtime_cache: dict[str, float] = {}
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
