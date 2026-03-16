@@ -166,7 +166,31 @@ python3 scripts/autoflow.py create-worktree --spec <spec-slug>
 
 ## Key Scripts and Their Purposes
 
-- `autoflow.py`: Main control-plane CLI (spec/task/run lifecycle, state queries, memory management)
+### Core CLI
+
+- `autoflow.py`: Main control-plane CLI entry point (spec/task/run lifecycle, state queries, memory management)
+  - Uses modular subcommands from `scripts/cli/` for organized command groups
+  - Built with argparse for lightweight, dependency-free CLI
+
+### Modular CLI Architecture (`scripts/cli/`)
+
+The CLI is organized into modular command groups:
+
+- `base.py`: Base Subcommand class and interfaces
+- `utils.py`: Shared utilities and constants
+- `spec.py`: Spec-related commands (new-spec, show-spec, update-spec)
+- `task.py`: Task-related commands (init-tasks, list-tasks, update-task)
+- `run.py`: Run-related commands (new-run, complete-run, show-runs)
+- `worktree.py`: Worktree management commands
+- `memory.py`: Memory commands (show-memory, capture-memory)
+- `review.py`: Review commands (show-fix-request, create-handoff)
+- `agent.py`: Agent management commands
+- `repository.py`: Repository-level commands
+- `system.py`: System configuration commands
+- `integration.py`: Integration and scheduler commands
+
+### Supporting Scripts
+
 - `continuous_iteration.py`: Scheduled iteration loop with commit, verify, dispatch logic
 - `agent_runner.py`: Agent execution wrapper (handles resume protocols, ACP vs CLI)
 - `workflow-dispatch.sh`: End-to-end dispatch (worktree creation → run generation → tmux launch)

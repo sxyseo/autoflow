@@ -81,9 +81,32 @@ Autoflow is organized as a four-layer system:
 
 Key directories:
 - `scripts/`: Core Autoflow control scripts
+  - `autoflow.py`: Main CLI entry point
+  - `cli/`: Modular CLI subcommands (spec, task, run, worktree, memory, review, agent, etc.)
+  - `continuous_iteration.py`: Scheduled iteration loop
+  - `agent_runner.py`: Agent execution wrapper
 - `skills/`: Skill definitions for different agent roles
 - `config/`: Configuration examples and templates
 - `.autoflow/`: Runtime state directory (gitignored)
+
+### Modular CLI Architecture
+
+The CLI is organized into modular command groups in `scripts/cli/`:
+
+- `base.py`: Base Subcommand class and interfaces
+- `utils.py`: Shared utilities and constants
+- `spec.py`: Spec-related commands
+- `task.py`: Task-related commands
+- `run.py`: Run-related commands
+- `worktree.py`: Worktree management commands
+- `memory.py`: Memory commands
+- `review.py`: Review commands
+- `agent.py`: Agent management commands
+- `repository.py`: Repository-level commands
+- `system.py`: System configuration commands
+- `integration.py`: Integration commands
+
+Each module inherits from the `Subcommand` base class and registers its subcommands with argparse.
 
 ## Development Workflow
 
@@ -152,8 +175,13 @@ python3 -m pytest tests/ --cov=. --cov-report=html
 # Run pre-commit hooks manually
 pre-commit run --all-files
 
-# Test Autoflow scripts
+# Test Autoflow CLI
 python3 scripts/autoflow.py validate-config
+python3 scripts/autoflow.py status
+
+# Test specific CLI modules
+python3 -m pytest tests/test_cli_spec.py
+python3 -m pytest tests/test_cli_task.py
 ```
 
 **Testing requirements**:
@@ -460,14 +488,15 @@ Project maintainers have the right and responsibility to:
 ### Getting Help
 
 **Resources**:
-- **Documentation**: Start with [README.md](README.md) and existing docs
+- **Documentation**: Start with [README.md](README.md) and [CLAUDE.md](CLAUDE.md)
+- **CLI Help**: Use `python3 scripts/autoflow.py --help` or `python3 scripts/autoflow.py <command> --help`
 - **Issues**: Search or create GitHub issues
 - **Discussions**: Use GitHub Discussions for questions
 - **Discord/Slack**: Join our community chat (link in README)
 
 **Asking good questions**:
 1. Describe what you're trying to accomplish
-2. Show what you've already tried
+2. Show what you've already tried (include CLI commands used)
 3. Include error messages or relevant code
 4. Format code and logs properly
 5. Follow up when you find a solution
