@@ -35,7 +35,37 @@ Valid run results: `success`, `needs_changes`, `blocked`, `failed`
 
 ## Configuration System
 
-Autoflow uses two configuration layers:
+Autoflow uses a layered configuration approach:
+
+### Path Configuration
+
+For runtime path configuration (especially in tests and isolated environments), use the `AutoflowConfig` class:
+
+```python
+from autoflow.core.config import AutoflowConfig
+from pathlib import Path
+
+# Default configuration (uses module-level ROOT constant)
+config = AutoflowConfig()
+
+# Custom root directory (for testing or worktrees)
+config = AutoflowConfig.with_root(Path("/tmp/custom_root"))
+
+# Access paths
+print(config.ROOT)          # Project root directory
+print(config.STATE_DIR)     # .autoflow state directory
+print(config.SPECS_DIR)     # Specs directory
+print(config.TASKS_FILE)    # Tasks JSON file path
+```
+
+The `AutoflowConfig` class provides methods for:
+- `load()`: Load configuration from .autoflow/config.json5 with fallbacks
+- `reload()`: Refresh configuration after file changes
+- `save()`: Atomic write using StateManager
+- `get_state_dir()`: Get state directory with AUTOFLOW_STATE_DIR environment variable support
+- `get_agent_config()`: Access agent-specific settings
+- `validate()`: Configuration validation
+- `to_dict()`: Export to dictionary
 
 ### `.autoflow/agents.json`
 - Runnable agent catalog with CLI/ACP protocol support
@@ -234,6 +264,8 @@ Memory is scoped and automatically captured:
 
 ## Testing
 
+### Running Tests
+
 ```bash
 # Run unit tests
 python3 -m pytest tests/
@@ -243,6 +275,105 @@ python3 -m pytest tests/test_agent_runner.py
 
 # Run with verbose output
 python3 -m pytest tests/ -v
+
+# Run standalone test scripts
+python3 test_spec_list.py
+python3 test_cli_spec_list.py
+```
+
+### Writing Tests - Import Pattern
+
+Tests should use proper Python imports, **NOT** dynamic module loading. The old pattern using `importlib.util.spec_from_file_location()` is deprecated and causes issues with Python's import system.
+
+**Correct Pattern (follow conftest.py):**
+
+```python
+"""
+Test file example
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Add the project root to the path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+# Now import modules normally at module level
+import scripts.agent_runner as agent_runner
+from autoflow.core.state import StateManager
+
+class MyTests(unittest.TestCase):
+    def test_something(self):
+        # Use the imported modules directly
+        result = agent_runner.build_command(...)
+        self.assertEqual(result, ...)
+```
+
+**Why This Pattern?**
+
+1. **Proper imports**: Python's import system works correctly, enabling proper module resolution and caching
+2. **IDE support**: IDEs can provide autocomplete, refactoring, and navigation
+3. **Test isolation**: The `sys.path.insert(0, ...)` ensures tests find the project modules first
+4. **Maintainability**: No need to manually patch module-level constants or manage dynamic loading
+
+**Incorrect Pattern (DO NOT USE):**
+
+```python
+# ❌ OLD PATTERN - DO NOT USE
+import importlib.util
+import sys
+
+def load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+# Then manually patch constants
+autoflow = load_module(...)
+autoflow.ROOT = temp_root  # Fragile!
+```
+
+### Test Configuration
+
+Tests that need custom path configuration should use the configuration pattern:
+
+```python
+from pathlib import Path
+from autoflow.core.config import AutoflowConfig
+
+# For tests that need a custom root directory
+def test_with_custom_root():
+    config = AutoflowConfig.with_root(Path("/tmp/test"))
+    # Use config.ROOT, config.STATE_DIR, etc.
+```
+
+The `AutoflowConfig` class provides:
+- `with_root(root: Path)`: Create config with custom root directory
+- `load()`: Load configuration from files with fallbacks
+- `reload()`: Refresh configuration
+- `get_state_dir()`: Get state directory with environment variable support
+- All path constants as attributes (ROOT, STATE_DIR, SPECS_DIR, etc.)
+
+### Test Fixtures
+
+The `tests/conftest.py` file provides common fixtures:
+
+- `cli_runner`: Click CLI runner for testing commands
+- `temp_workspace`: Temporary workspace directory
+- `sample_config`: Sample configuration dictionary
+- `mock_state_dir`: Mock state directory structure
+- `isolated_cli_runner`: CLI runner with isolated environment
+
+Example:
+
+```python
+def test_cli_command(isolated_cli_runner):
+    result = isolated_cli_runner.invoke(main, ["status"])
+    assert result.exit_code == 0
 ```
 
 ## Peter's AI Development Principles
