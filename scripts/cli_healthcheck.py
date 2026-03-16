@@ -33,6 +33,28 @@ ROOT = Path(__file__).resolve().parent.parent
 run = run_cmd
 
 
+def get_config() -> dict[str, Any]:
+    """
+    Get health check configuration.
+
+    Returns configuration settings for CLI health checks, including
+    default binaries to probe and various health check options.
+
+    Returns:
+        Configuration dictionary with health check settings
+
+    Example:
+        >>> config = get_config()
+        >>> binaries = config.get("binaries", ["codex", "claude", "tmux"])
+    """
+    return {
+        "binaries": ["codex", "claude", "tmux"],
+        "timeout_seconds": 30,
+        "check_version": True,
+        "check_capabilities": True,
+    }
+
+
 def probe_binary(name: str) -> dict[str, Any]:
     path = shutil.which(name)
     if not path:
