@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Test script to verify spec list functionality."""
 
-import sys
-import os
+from __future__ import annotations
+
 import json
+import sys
 from pathlib import Path
+
+# Add the project root to the path for imports
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# Import StateManager using proper imports
+from autoflow.core.state import StateManager
 
 def test_spec_exists():
     """Test that test spec file exists and is valid."""
@@ -35,14 +43,6 @@ def test_spec_exists():
 
 def test_state_manager():
     """Test StateManager can list specs."""
-    # Import StateManager directly without going through __init__.py
-    sys.path.insert(0, str(Path(__file__).parent))
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("state", "autoflow/core/state.py")
-    state_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(state_module)
-    StateManager = state_module.StateManager
-
     print("\nTesting StateManager...")
 
     # Create StateManager instance
