@@ -86,7 +86,9 @@
             "command": "python3 -c \"from autoflow.core.types import JsonData, MetadataDict; print('Generic types created successfully')\"",
             "expected": "Generic types created successfully"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Enhanced generic types in autoflow/core/types.py: MetadataDict with common fields (created_at, updated_at, version, author, tags, archived), JsonData as base TypedDict, added JSONData type alias for JSON-serializable primitives, added TypeVar T for generics. All verifications passed.",
+          "updated_at": "2026-03-16T04:00:00.000000+00:00"
         }
       ]
     },
@@ -568,6 +570,6 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-16T03:37:44.719Z",
+  "updated_at": "2026-03-16T03:39:30.568Z",
   "last_updated": "2026-03-16T03:36:35.222440+00:00"
 }
