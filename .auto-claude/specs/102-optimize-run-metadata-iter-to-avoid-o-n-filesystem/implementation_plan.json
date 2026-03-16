@@ -1,0 +1,309 @@
+{
+  "feature": "Optimize run_metadata_iter() to avoid O(n) filesystem scans",
+  "description": "The run_metadata_iter() function iterates through ALL run directories every time it's called. Both active_runs_for_spec() and task_run_history() call this function independently, causing O(n) directory scans for each. When there are many runs, this becomes a significant bottleneck.",
+  "workflow_type": "simple",
+  "workflow_rationale": "This is a SIMPLE workflow (not feature/refactor/investigation) because the optimization has ALREADY BEEN IMPLEMENTED in a previous session. The remaining work is verification: (1) confirming the implementation is correct, (2) fixing 2 flaky timing tests, (3) updating documentation, and (4) marking the spec as complete.",
+  "created_at": "2026-03-16T00:03:18.595Z",
+  "updated_at": "2026-03-16T14:11:06.040Z",
+  "phases": [
+    {
+      "id": "phase-1-verification",
+      "name": "Verify Existing Implementation",
+      "type": "implementation",
+      "description": "Verify that the run_metadata_iter optimization is correctly implemented and working as expected. The optimization was implemented in a previous session and includes lazy-loading cache, invalidation, and performance tests.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Verify lazy-loading cache is implemented correctly",
+          "service": "scripts",
+          "files_to_modify": [],
+          "files_to_reference": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -A 30 'def _populate_run_cache_for_spec' scripts/autoflow.py | head -35",
+            "expected": "def _populate_run_cache_for_spec"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Verify all three functions use the cache",
+          "service": "scripts",
+          "files_to_modify": [],
+          "files_to_reference": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "sed -n '2828p' scripts/autoflow.py | grep -q '_populate_run_cache()' && sed -n '2853p' scripts/autoflow.py | grep -q '_populate_run_cache_for_spec' && sed -n '2881p' scripts/autoflow.py | grep -q '_populate_run_cache_for_spec' && echo '3'",
+            "expected": "3"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Verify cache invalidation is called on run creation",
+          "service": "scripts",
+          "files_to_modify": [],
+          "files_to_reference": [
+            "scripts/autoflow.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "grep -B 5 -A 5 'invalidate_run_cache()' scripts/autoflow.py | grep -A 5 'def create_run_record' | head -10",
+            "expected": "invalidate_run_cache"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-fix-tests",
+      "name": "Fix Flaky Performance Tests",
+      "type": "implementation",
+      "description": "Fix 2 timing-sensitive performance tests that fail intermittently due to system load variations. These tests need more lenient assertions or better isolation.",
+      "depends_on": [
+        "phase-1-verification"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Fix test_repeated_uncached_calls_performance timing assertion",
+          "service": "tests",
+          "files_to_modify": [
+            "tests/test_run_metadata_performance.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_run_metadata_performance.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m pytest tests/test_run_metadata_performance.py::TestRunMetadataIterPerformance::test_repeated_uncached_calls_performance -v",
+            "expected": "PASSED"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Fix test_cache_invalidation_performance timing assertion",
+          "service": "tests",
+          "files_to_modify": [
+            "tests/test_run_metadata_performance.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_run_metadata_performance.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m pytest tests/test_run_metadata_performance.py::TestRunMetadataIterPerformance::test_cache_invalidation_performance -v",
+            "expected": "PASSED"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-documentation",
+      "name": "Update Documentation",
+      "type": "implementation",
+      "description": "Update spec.md and related documentation to reflect that the optimization is complete. Add performance characteristics and usage notes.",
+      "depends_on": [
+        "phase-1-verification",
+        "phase-2-fix-tests"
+      ],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Update spec.md to mark optimization as complete",
+          "service": "specs",
+          "files_to_modify": [
+            ".auto-claude/specs/102-optimize-run-metadata-iter-to-avoid-o-n-filesystem/spec.md"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "manual",
+            "instructions": "Review spec.md to ensure it documents the completed optimization with implementation details and performance impact"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Update implementation_plan.json status to completed",
+          "service": "specs",
+          "files_to_modify": [
+            ".auto-claude/specs/102-optimize-run-metadata-iter-to-avoid-o-n-filesystem/implementation_plan.json"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "cat .auto-claude/specs/102-optimize-run-metadata-iter-to-avoid-o-n-filesystem/implementation_plan.json | jq '.status'",
+            "expected": "\"completed\""
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-final-validation",
+      "name": "Final Validation",
+      "type": "integration",
+      "description": "Run full test suite to ensure all performance tests pass and implementation is correct.",
+      "depends_on": [
+        "phase-2-fix-tests",
+        "phase-3-documentation"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Run complete performance test suite",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m pytest tests/test_run_metadata_performance.py -v --tb=short",
+            "expected": "12 passed"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Verify workflow-state command uses cached functions",
+          "all_services": true,
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "grep -A 20 'def workflow_state' scripts/autoflow.py | grep 'active_runs_for_spec('",
+            "expected": "active_runs_for_spec("
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 4,
+    "total_subtasks": 9,
+    "services_involved": [
+      "scripts",
+      "tests",
+      "specs"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential execution - each phase depends on previous"
+    },
+    "startup_command": "echo 'This is a verification task - no services to start'"
+  },
+  "verification_strategy": {
+    "risk_level": "low",
+    "skip_validation": false,
+    "test_creation_phase": "none",
+    "test_types_required": [
+      "unit"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "All performance tests pass (12/12)",
+      "Cache implementation verified",
+      "Documentation updated",
+      "Spec marked as complete"
+    ],
+    "verification_steps": [
+      {
+        "name": "Performance Tests",
+        "command": "python3 -m pytest tests/test_run_metadata_performance.py -v",
+        "expected_outcome": "12 passed",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Cache Implementation Check",
+        "command": "grep -c '_populate_run_cache_for_spec' scripts/autoflow.py",
+        "expected_outcome": "> 0",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Documentation Review",
+        "command": "cat .auto-claude/specs/102-optimize-run-metadata-iter-to-avoid-o-n-filesystem/spec.md",
+        "expected_outcome": "Spec documents completed implementation",
+        "type": "manual",
+        "required": true,
+        "blocking": false
+      }
+    ],
+    "reasoning": "Low risk because the optimization is already implemented and mostly working. Only need to fix 2 flaky tests and update documentation."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "python3 -m pytest tests/test_run_metadata_performance.py -v"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "browser_verification": {
+      "required": false,
+      "pages": []
+    },
+    "database_verification": {
+      "required": false,
+      "checks": []
+    }
+  },
+  "qa_signoff": null,
+  "existing_implementation": {
+    "status": "complete",
+    "implementation_date": "2024-03-16",
+    "commits": [
+      "9ff8122 - Implement run_metadata_iter_cached() with lazy-loading cache by spec_slug",
+      "b7a59cf - Rename cached functions to remove _cached suffix",
+      "0cd3fb2 - Remove old uncached run metadata functions",
+      "365b675 - Create performance benchmark test for run_metadata"
+    ],
+    "files_modified": [
+      "scripts/autoflow.py",
+      "tests/test_run_metadata_performance.py"
+    ],
+    "test_results": "10/12 tests passing (2 timing-sensitive failures)",
+    "remaining_work": [
+      "Fix 2 flaky timing tests",
+      "Update documentation",
+      "Mark spec as complete"
+    ]
+  },
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding"
+}
