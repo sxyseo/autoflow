@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Mapping, Optional, TypedDict, Union
 
 try:
     import json5
@@ -34,6 +34,53 @@ DEFAULT_CONFIG_PATH = "config/settings.json5"
 DEFAULT_SYSTEM_CONFIG_PATH = "config/system.json5"
 ENV_CONFIG_PATH = "AUTOFLOW_CONFIG"
 ENV_STATE_DIR = "AUTOFLOW_STATE_DIR"
+
+
+class SourceConfigData(TypedDict, total=False):
+    """
+    Source-specific configuration data.
+
+    This TypedDict defines the structure for additional configuration
+    options that can be provided for issue sources. All fields are
+    optional to accommodate different source types.
+
+    Attributes:
+        project: Project identifier or name
+        repository: Repository name or identifier
+        team: Team or organization identifier
+        labels: Default labels to apply
+        assignees: Default assignees
+        custom_fields: Custom field mappings
+        webhook_url: Custom webhook URL override
+        sync_status: Whether to sync issue status
+        sync_comments: Whether to sync issue comments
+        sync_attachments: Whether to sync issue attachments
+    """
+
+    project: str
+    repository: str
+    team: str
+    labels: list[str]
+    assignees: list[str]
+    custom_fields: Mapping[str, str]
+    webhook_url: str
+    sync_status: bool
+    sync_comments: bool
+    sync_attachments: bool
+
+
+class ConfigDefaults(TypedDict, total=False):
+    """
+    Default configuration values for Config.
+
+    This TypedDict defines the structure for default values that can be
+    provided when loading configuration. All fields are optional.
+
+    Attributes:
+        state_dir: State directory path
+    """
+
+    state_dir: str
 
 
 class OpenClawConfig(BaseModel):
@@ -117,16 +164,43 @@ class HealingConfig(BaseModel):
     analysis_timeout_seconds: int = 300
 
 class IssueSourceConfig(BaseModel):
-    """Configuration for a single issue source."""
+    """
+    Configuration for a single issue source.
+
+    This model defines the configuration for an issue source such as
+    GitHub, GitLab, Linear, Jira, or custom sources. It includes
+    authentication settings and source-specific configuration options.
+    """
 
     id: str
+    """Unique identifier for this issue source."""
+
     type: str  # "github", "gitlab", "linear", "jira", "custom"
+    """Type of the issue source."""
+
     name: str
+    """Human-readable name for the issue source."""
+
     url: str
+    """URL of the issue source (e.g., GitHub repository URL)."""
+
     enabled: bool = True
+    """Whether this issue source is active."""
+
     api_token: Optional[str] = None
+    """API token for authentication with the issue source."""
+
     webhook_secret: Optional[str] = None
-    config: dict[str, Any] = Field(default_factory=dict)
+    """Webhook secret for verifying webhook requests."""
+
+    config: SourceConfigData = Field(default_factory=dict)  # type: ignore[assignment]
+    """
+    Source-specific configuration options.
+
+    This TypedDict allows for additional configuration fields
+    specific to the issue source type, such as project settings,
+    label mappings, and sync preferences.
+    """
 
 
 class WebhookConfig(BaseModel):
@@ -317,7 +391,7 @@ def _load_json5_file(file_path: Path) -> dict[str, Any]:
 
 def load_config(
     path: Optional[str] = None,
-    defaults: Optional[dict[str, Any]] = None,
+    defaults: Optional[ConfigDefaults] = None,
 ) -> Config:
     """
     Load Autoflow configuration from a JSON5 file.
