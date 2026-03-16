@@ -81,29 +81,43 @@ from scripts.cli.utils import (
     _populate_run_cache,
     _populate_run_cache_for_spec,
     _run_metadata_cache,
+    append_memory,
+    deep_merge,
     ensure_state,
     ensure_state as ensure_state_dirs,
+    increment_counter,
     invalidate_run_cache,
+    invalidate_system_config_cache,
     invalidate_tasks_cache,
+    load_memory_context,
     load_run_metadata,
     load_spec_metadata,
+    load_strategy_memory,
+    load_system_config,
     load_tasks,
+    memory_file,
     now_stamp,
     now_utc,
     parse_stamp,
     print_json,
     read_json,
+    read_json_or_default,
+    resolve_root_path,
     run_cmd,
     run_is_stale,
     run_last_activity,
     run_metadata_path,
     run_stale_reason,
     save_spec_metadata,
+    save_strategy_memory,
     save_tasks,
     slugify,
     spec_dir,
     spec_files,
     stale_runs_for_spec,
+    strategy_memory_default,
+    strategy_memory_file,
+    system_config_default,
     task_file,
     tmux_session_exists,
     validate_slug_safe,
@@ -195,52 +209,6 @@ class AgentSpec:
         if self.transport:
             data["transport"] = self.transport
         return data
-
-
-def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """
-    Recursively merge two dictionaries.
-
-    Deep merges overlay into base, with overlay values taking precedence.
-    When both base and overlay have a dict value for the same key,
-    they are merged recursively instead of being replaced.
-
-    Args:
-        base: Base dictionary to merge into
-        overlay: Dictionary with values to overlay on top of base
-
-    Returns:
-        A new dictionary with merged contents
-    """
-    merged = dict(base)
-    for key, value in overlay.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
-def resolve_root_path(raw: str | Path) -> Path:
-    """
-    Resolve a path relative to the project root.
-
-    Converts the input to a Path object. If the path is relative,
-    it resolves it relative to the project ROOT directory.
-
-    Args:
-        raw: Path as string or Path object
-
-    Returns:
-        Absolute Path object
-    """
-    path = Path(raw)
-    if not path.is_absolute():
-        return ROOT / path
-    if ".autoflow" in path.parts and not path.is_relative_to(ROOT):
-        marker = path.parts.index(".autoflow")
-        return STATE_DIR.joinpath(*path.parts[marker + 1 :])
-    return path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
@@ -355,417 +323,6 @@ def review_state_default() -> dict[str, Any]:
         "invalidated_at": "",
         "invalidated_reason": "",
     }
-
-
-def read_json_or_default(path: Path, default: Any) -> Any:
-    """
-    Read a JSON file, returning a default value if the file doesn't exist or is invalid.
-
-    This is a safe version of read_json that handles missing files and JSON parse
-    errors by returning a provided default value instead of raising an exception.
-
-    Args:
-        path: Path to the JSON file to read
-        default: Default value to return if file doesn't exist or is invalid JSON
-
-    Returns:
-        Parsed JSON data if file exists and is valid, otherwise the default value
-    """
-    if not path.exists():
-        return default
-    try:
-        return read_json(path)
-    except (OSError, json.JSONDecodeError):
-        return default
-
-
-def system_config_default() -> dict[str, Any]:
-    """
-    Get the default system configuration.
-
-    Returns the default configuration from the system config template if it exists,
-    otherwise returns a hardcoded default configuration.
-
-    Returns:
-        Default system configuration dictionary with the following top-level keys:
-        - memory: Memory settings including enabled flag, auto_capture_run_results,
-          global_file path, and spec_dir path (dict)
-        - models: Model profile configurations with profiles for spec, implementation,
-          and review tasks (dict)
-        - tools: Tool profile configurations with profiles for different agent types (dict)
-        - registry: Registry settings including acp_agents list (dict)
-    """
-    if SYSTEM_CONFIG_TEMPLATE.exists():
-        return read_json_or_default(SYSTEM_CONFIG_TEMPLATE, {})
-    return {
-        "memory": {
-            "enabled": True,
-            "auto_capture_run_results": True,
-            "global_file": str(MEMORY_DIR / "global.md"),
-            "spec_dir": str(MEMORY_DIR / "specs"),
-        },
-        "models": {
-            "profiles": {
-                "spec": "gpt-5",
-                "implementation": "gpt-5-codex",
-                "review": "claude-sonnet-4-6",
-            }
-        },
-        "tools": {
-            "profiles": {
-                "codex-default": [],
-                "claude-review": ["Read", "Bash(git:*)"],
-            }
-        },
-        "registry": {
-            "acp_agents": []
-        },
-    }
-
-
-def load_system_config() -> dict[str, Any]:
-    """
-    Load the system configuration from file or defaults.
-
-    This function performs a multi-stage merge to combine:
-    1. Base defaults with required structure
-    2. Default system configuration (from template or hardcoded)
-    3. Local system configuration from system.json (if it exists)
-
-    The merge is done using deep_merge, so local values override defaults.
-
-    Caching Behavior:
-        This function uses an in-memory cache to avoid repeated disk I/O.
-        On first call, it loads the config from disk and caches it.
-        Subsequent calls return the cached value directly (O(1) lookup).
-        Use invalidate_system_config_cache() to clear the cache after
-        modifying system.json.
-
-    Performance:
-        - First call: O(n) filesystem read and JSON parsing
-        - Subsequent calls: O(1) memory lookup
-        - Typical speedup: 10-20x for repeated calls
-
-    Returns:
-        Merged system configuration dictionary with the following structure:
-        - memory: Memory settings including default_scopes, enabled flag,
-          auto_capture_run_results, global_file path, and spec_dir path (dict)
-        - models: Model profile configurations with profiles for different tasks (dict)
-        - tools: Tool profile configurations with profiles for different agent types (dict)
-        - registry: Registry settings including acp_agents list (dict)
-    """
-    global _system_config_cache
-
-    # Return cached value if available (cache hit)
-    if _system_config_cache is not None:
-        return _system_config_cache
-
-    # Load from disk and cache the result
-    config = system_config_default()
-    if SYSTEM_CONFIG_FILE.exists():
-        local = read_json_or_default(SYSTEM_CONFIG_FILE, {})
-        config = deep_merge(config, local)
-    _system_config_cache = deep_merge(
-        {
-            "memory": {"default_scopes": ["spec"]},
-            "models": {"profiles": {}},
-            "tools": {"profiles": {}},
-            "registry": {"acp_agents": []},
-        },
-        config,
-    )
-    return _system_config_cache
-
-
-def memory_file(scope: str, spec_slug: str | None = None) -> Path:
-    """
-    Resolve the path to a memory file based on scope and optional spec slug.
-
-    Memory files store persistent information for Autoflow operations.
-    The scope determines which memory file to return:
-    - "global": Returns the global memory file path
-    - "spec": Returns the spec-specific memory file path (requires spec_slug)
-
-    File paths are resolved from system configuration, with defaults:
-    - Global: .autoflow/memory/global.md
-    - Spec: .autoflow/memory/specs/{spec_slug}.md
-
-    Args:
-        scope: Memory scope, either "global" or "spec"
-        spec_slug: Optional spec identifier for spec-scoped memory
-
-    Returns:
-        Resolved Path object to the memory file
-
-    Raises:
-        SystemExit: If scope is "spec" but no spec_slug is provided
-
-    Example:
-        >>> global_mem = memory_file("global")
-        >>> print(global_mem)
-        PosixPath('.autoflow/memory/global.md')
-
-        >>> spec_mem = memory_file("spec", "my-feature")
-        >>> print(spec_mem)
-        PosixPath('.autoflow/memory/specs/my-feature.md')
-    """
-    memory_cfg = load_system_config().get("memory", {})
-    if scope == "global":
-        return resolve_root_path(memory_cfg.get("global_file", MEMORY_DIR / "global.md"))
-    if spec_slug:
-        spec_dir = resolve_root_path(memory_cfg.get("spec_dir", MEMORY_DIR / "specs"))
-        return spec_dir / f"{spec_slug}.md"
-    raise SystemExit("spec scope requires a spec slug")
-
-
-def append_memory(scope: str, content: str, spec_slug: str | None = None, title: str = "") -> Path:
-    """
-    Append content to a memory file with a timestamped heading.
-
-    Creates parent directories if they don't exist. Content is appended
-    as a markdown section with a level-2 heading. If no title is provided,
-    uses a timestamp in the format "Memory @ YYYYMMDDTHHMMSSZ".
-
-    Args:
-        scope: Memory scope, either "global" or "spec"
-        content: Content to append to the memory file
-        spec_slug: Optional spec identifier for spec-scoped memory
-        title: Optional title for the memory entry (defaults to timestamp)
-
-    Returns:
-        Path object for the memory file that was appended to
-
-    Example:
-        >>> append_memory("global", "Important note about the project")
-        PosixPath('.autoflow/memory/global.md')
-
-        >>> append_memory("spec", "Feature decision", "my-feature", title="Architecture Decision")
-        PosixPath('.autoflow/memory/specs/my-feature.md')
-    """
-    path = memory_file(scope, spec_slug)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    heading = title or f"Memory @ {now_stamp()}"
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write(f"## {heading}\n\n{content.strip()}\n\n")
-    return path
-
-
-def load_memory_context(spec_slug: str, scopes: list[str] | None = None) -> str:
-    """
-    Load memory context from global and spec-specific memory files.
-
-    Reads and combines memory content from specified scopes. Each scope's
-    content is prefixed with a markdown heading. Only loads content from
-    memory files that exist. Respects the memory.enabled configuration
-    setting.
-
-    The scopes parameter filters which memory sources to include:
-    - "global": Include global memory if available
-    - "spec": Include spec-specific memory if available
-
-    If no scopes are specified, uses the default_scopes from system config
-    (defaults to ["spec"]).
-
-    Args:
-        spec_slug: Spec identifier for loading spec-scoped memory
-        scopes: Optional list of scopes to load (defaults to config default_scopes)
-
-    Returns:
-        Formatted string containing memory context with section headings,
-        or "Memory is disabled." if memory is disabled in config,
-        or "No stored memory yet." if no memory files exist
-
-    Example:
-        >>> context = load_memory_context("my-feature")
-        >>> print(context)
-        ### Spec memory
-        ## Memory @ 20240309T120000Z
-        Important architectural decision...
-
-        >>> context = load_memory_context("my-feature", scopes=["global", "spec"])
-        >>> print(context)
-        ### Global memory
-        ## Memory @ 20240309T110000Z
-        Project-wide note...
-
-        ### Spec memory
-        ## Memory @ 20240309T120000Z
-        Feature-specific note...
-    """
-    config = load_system_config()
-    memory_cfg = config.get("memory", {})
-    if not memory_cfg.get("enabled", True):
-        return "Memory is disabled."
-    allowed_scopes = scopes or list(memory_cfg.get("default_scopes", ["spec"]))
-    parts = []
-    global_path = memory_file("global")
-    spec_path = memory_file("spec", spec_slug)
-    if "global" in allowed_scopes and global_path.exists():
-        parts.append("### Global memory\n")
-        parts.append(global_path.read_text(encoding="utf-8").strip())
-    if "spec" in allowed_scopes and spec_path.exists():
-        parts.append("### Spec memory\n")
-        parts.append(spec_path.read_text(encoding="utf-8").strip())
-    return "\n\n".join(part for part in parts if part).strip() or "No stored memory yet."
-
-
-def strategy_memory_file(scope: str, spec_slug: str | None = None) -> Path:
-    """
-    Get the file path for a strategy memory store.
-
-    Strategy memory can be stored at global or spec scope. Global memory applies
-    across all specs, while spec memory is specific to a particular specification.
-
-    Args:
-        scope: Either "global" for system-wide strategy memory, or "spec" for
-               spec-specific memory
-        spec_slug: Slug identifier for the spec (required when scope="spec")
-
-    Returns:
-        Path to the strategy memory JSON file
-
-    Raises:
-        SystemExit: If scope="spec" but no spec_slug is provided
-
-    Examples:
-        >>> strategy_memory_file("global")
-        PosixPath('.autoflow/memory/strategy/global.json')
-
-        >>> strategy_memory_file("spec", "my-feature")
-        PosixPath('.autoflow/memory/strategy/specs/my-feature.json')
-    """
-    if scope == "global":
-        return STRATEGY_MEMORY_DIR / "global.json"
-    if spec_slug:
-        return STRATEGY_MEMORY_DIR / "specs" / f"{spec_slug}.json"
-    raise SystemExit("spec scope requires a spec slug")
-
-
-def strategy_memory_default() -> dict[str, Any]:
-    """
-    Get the default structure for a strategy memory store.
-
-    Returns a dictionary with the standard schema used for strategy memory
-    persistence. This structure tracks reflections, planner notes, statistics,
-    and playbook entries across workflow runs.
-
-    Returns:
-        Dictionary with the following structure:
-        - updated_at: ISO 8601 timestamp of last update (empty string for new)
-        - reflections: List of reflection entries from workflow reviews
-        - planner_notes: List of notes added by the planner agent
-        - stats: Dictionary containing:
-          - by_role: Counters grouped by agent role
-          - by_result: Counters grouped by task result type
-          - finding_categories: Counters for review finding categories
-          - severity: Counters for finding severity levels
-          - files: Counters for files mentioned in findings
-        - playbook: List of actionable recommendations derived from patterns
-
-    Examples:
-        >>> strategy_memory_default()
-        {'updated_at': '', 'reflections': [], 'planner_notes': [],
-         'stats': {'by_role': {}, 'by_result': {}, 'finding_categories': {},
-                   'severity': {}, 'files': {}}, 'playbook': []}
-    """
-    return {
-        "updated_at": "",
-        "reflections": [],
-        "planner_notes": [],
-        "stats": {
-            "by_role": {},
-            "by_result": {},
-            "finding_categories": {},
-            "severity": {},
-            "files": {},
-        },
-        "playbook": [],
-    }
-
-
-def load_strategy_memory(scope: str, spec_slug: str | None = None) -> dict[str, Any]:
-    """
-    Load strategy memory from disk.
-
-    Reads the strategy memory file for the specified scope (global or spec).
-    If the file doesn't exist or contains invalid JSON, returns the default
-    strategy memory structure.
-
-    Args:
-        scope: Either "global" for system-wide strategy memory, or "spec" for
-               spec-specific memory
-        spec_slug: Slug identifier for the spec (required when scope="spec")
-
-    Returns:
-        Dictionary containing strategy memory data with the structure:
-        - updated_at: ISO 8601 timestamp of last update
-        - reflections: List of reflection entries
-        - planner_notes: List of planner notes
-        - stats: Dictionary of statistical counters
-        - playbook: List of actionable recommendations
-
-    Examples:
-        >>> memory = load_strategy_memory("global")
-        >>> memory["playbook"]
-        ['Address high-severity findings first']
-
-        >>> spec_memory = load_strategy_memory("spec", "my-feature")
-        >>> len(spec_memory["reflections"])
-        3
-    """
-    return read_json_or_default(strategy_memory_file(scope, spec_slug), strategy_memory_default())
-
-
-def save_strategy_memory(scope: str, payload: dict[str, Any], spec_slug: str | None = None) -> Path:
-    """
-    Save strategy memory to disk.
-
-    Writes the strategy memory payload to the appropriate file based on scope.
-    Automatically updates the `updated_at` timestamp to the current UTC time
-    before saving. Creates parent directories if they don't exist.
-
-    Args:
-        scope: Either "global" for system-wide strategy memory, or "spec" for
-               spec-specific memory
-        payload: Dictionary containing strategy memory data. Must include the
-                 standard structure (reflections, planner_notes, stats, playbook).
-                 The `updated_at` field will be overwritten with the current time.
-        spec_slug: Slug identifier for the spec (required when scope="spec")
-
-    Returns:
-        Path to the file that was written
-
-    Examples:
-        >>> memory = load_strategy_memory("global")
-        >>> memory["playbook"].append("New recommendation")
-        >>> save_strategy_memory("global", memory)
-        PosixPath('.autoflow/memory/strategy/global.json')
-
-        >>> spec_memory = load_strategy_memory("spec", "my-feature")
-        >>> spec_memory["reflections"].append(new_reflection)
-        >>> save_strategy_memory("spec", spec_memory, "my-feature")
-        PosixPath('.autoflow/memory/strategy/specs/my-feature.json')
-    """
-    payload["updated_at"] = now_stamp()
-    path = strategy_memory_file(scope, spec_slug)
-    write_json(path, payload)
-    return path
-
-
-def increment_counter(counters: dict[str, int], key: str) -> None:
-    """
-    Increment a counter in a dictionary.
-
-    Creates the counter with initial value 1 if it doesn't exist.
-    Does nothing if the key is empty.
-
-    Args:
-        counters: Dictionary of counters to update
-        key: Counter key to increment
-    """
-    if not key:
-        return
-    counters[key] = counters.get(key, 0) + 1
 
 
 def derive_strategy_actions(
@@ -2139,50 +1696,7 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # ============================================================================
 
 # Cache data structures
-_system_config_cache: dict[str, Any] | None = None
 _agents_config_cache: dict[str, AgentSpec] | None = None
-
-
-def _populate_system_config_cache() -> None:
-    """Load system configuration into the cache.
-
-    This implements lazy-loading: system config is only loaded from disk when needed.
-    Subsequent calls will use the cached data (O(1) lookup).
-
-    Cache Behavior:
-        If _system_config_cache is not None, we've already loaded the config,
-        so we return immediately (cache hit). Otherwise, we load the config from
-        disk using load_system_config() and store it in the cache.
-
-    Note: Unlike run metadata cache, there's only one system config, so this
-    is a simple load-once pattern without opportunistic caching.
-    """
-    global _system_config_cache
-
-    # Skip if already loaded (cache hit)
-    if _system_config_cache is not None:
-        return
-
-    # Load system config from disk
-    _system_config_cache = load_system_config()
-
-
-def invalidate_system_config_cache() -> None:
-    """Invalidate the system configuration cache.
-
-    Call this function whenever the system configuration is modified to ensure
-    the cache remains consistent with the filesystem state.
-
-    Cache Invalidation Strategy:
-        - Simple: set the cached data to None
-        - Safe: ensures cache consistency after config modification
-        - Lazy: data is reloaded on next access (not immediately)
-
-    Note: System config modifications are rare, so aggressive invalidation
-    is acceptable. The cache will be repopulated on the next access.
-    """
-    global _system_config_cache
-    _system_config_cache = None
 
 
 def _populate_agents_cache() -> None:
