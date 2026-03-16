@@ -34,6 +34,41 @@
     "module_overrides": {},
     "fail_on_error": true
   },
+  "duplication": {
+    "enabled": true,
+    "thresholds": {
+      "similarity": 0.85,
+      "minimum_lines": 10,
+      "minimum_tokens": 50,
+      "chunk_size": 50
+    },
+    "detection_methods": ["ast", "token_based", "fingerprint"],
+    "exclude_patterns": [
+      "*/test*.py",
+      "*/__pycache__/*",
+      "*/node_modules/*",
+      "*/migrations/*",
+      "*.min.js",
+      "*.min.css"
+    ],
+    "severity_mapping": {
+      "high": {
+        "similarity": 0.95,
+        "lines": 50
+      },
+      "medium": {
+        "similarity": 0.85,
+        "lines": 30
+      },
+      "low": {
+        "similarity": 0.75,
+        "lines": 10
+      }
+    },
+    "output_path": ".autoflow/duplication_findings.json",
+    "fail_on_error": false,
+    "generate_report": true
+  },
   "approval": {
     "require_tests": true,
     "require_coverage": true,
