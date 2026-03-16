@@ -494,6 +494,39 @@ Scheduled autonomous development:
 - **Verification**: Pre-commit tests and checks
 - **Progress tracking**: Automatic task state advancement
 
+### 9. AI Code Duplication Detection
+
+Automatically detect and flag code duplication in AI-generated changes before they reach the codebase:
+
+- **Token-based analysis**: Uses Python's tokenize module for accurate similarity detection
+- **AST-based comparison**: Detects structural duplication beyond simple text matching
+- **Configurable thresholds**: Customize duplication sensitivity per project
+- **CI/CD integration**: Automatic checking in review gates
+- **Actionable reports**: File locations, similarity percentages, and reuse suggestions
+- **Technical debt prevention**: Addresses the 8x increase in duplication from AI-generated code
+
+#### Why Duplication Detection Matters
+
+GitClear 2025 research shows AI-generated code increases duplication by 8x, creating a technical debt crisis. Autoflow's duplication detection prevents this by:
+
+- Catching duplication before commit
+- Suggesting existing code patterns to reuse
+- Providing visibility into code quality trends
+- Integrating seamlessly with review workflows
+
+#### Quick Example
+
+```bash
+# Analyze a file for duplication
+autoflow duplication analyze src/auth.py
+
+# Analyze with custom threshold
+autoflow duplication analyze src/ --threshold 0.25
+
+# Check duplication in CI/CD
+autoflow ci verify --duplication
+```
+
 ## Quick Start
 
 ### Prerequisites
@@ -872,6 +905,81 @@ This ensures sensitive data is protected regardless of how it's output.
 3. **Use partial redaction for debugging**: Enable `partial_redaction` during development to see enough info for debugging without exposing full values
 4. **Audit logs regularly**: Check `.autoflow/logs/` and run directories to ensure sanitization is working
 
+### Duplication Detection Configuration
+
+Autoflow includes built-in code duplication detection to prevent technical debt from AI-generated code. Research shows AI tools increase code duplication by 8x, and this feature helps maintain code quality.
+
+#### Configuration Options
+
+Create or edit `.autoflow/duplication.json` to customize duplication detection:
+
+```json
+{
+  "enabled": true,
+  "threshold": 0.30,
+  "min_lines": 5,
+  "ignore_patterns": [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/__pycache__/*"
+  ],
+  "include_patterns": [
+    "*/src/**/*.py",
+    "*/lib/**/*.py"
+  ]
+}
+```
+
+#### Settings
+
+- **enabled**: Enable or disable duplication detection (default: `true`)
+- **threshold**: Duplication similarity threshold from 0.0 to 1.0 (default: `0.30`)
+  - Code with similarity above this threshold triggers a warning
+  - Lower values = more strict, higher values = more lenient
+- **min_lines**: Minimum number of lines to consider for duplication (default: `5`)
+  - Prevents false positives on short code snippets
+- **ignore_patterns**: Glob patterns for files/directories to exclude from analysis
+- **include_patterns**: Glob patterns for files/directories to include (if specified, others are excluded)
+
+#### Integration with QA Gates
+
+Duplication detection integrates with the QA system through `config/qa_gates.json`:
+
+```json
+{
+  "qa_findings": {
+    "categories": {
+      "duplication": {
+        "enabled": true,
+        "severity": "warning",
+        "threshold": 0.30,
+        "description": "Code duplication detected"
+      }
+    }
+  }
+}
+```
+
+#### Project-Specific Configuration
+
+Different projects can have different duplication tolerances:
+
+```json
+{
+  "threshold": 0.20,
+  "comment": "Strict threshold for core library code"
+}
+```
+
+Or for prototype/quick-iteration projects:
+
+```json
+{
+  "threshold": 0.50,
+  "comment": "Lenient threshold for rapid prototyping"
+}
+```
+
 ## Usage
 
 ### Basic Commands
@@ -996,6 +1104,33 @@ autoflow memory set <key> <value> [--scope global]
 autoflow memory delete <key> [--scope global]
 ```
 
+#### Duplication Detection
+
+```bash
+# Analyze a file for code duplication
+autoflow duplication analyze src/auth.py
+
+# Analyze a directory recursively
+autoflow duplication analyze src/
+
+# Analyze with custom threshold (default: 0.30)
+autoflow duplication analyze src/ --threshold 0.25
+
+# Show detailed duplication report
+autoflow duplication analyze src/ --verbose
+
+# Output JSON for automation
+autoflow duplication analyze src/ --json
+
+# Configure duplication settings
+autoflow duplication config set threshold 0.30
+autoflow duplication config get threshold
+autoflow duplication config reset
+
+# View current configuration
+autoflow duplication config show
+```
+
 ### Common Patterns
 
 #### Quick Task Execution
@@ -1034,6 +1169,31 @@ autoflow task show <task-id>
 
 # Review findings
 autoflow review run --spec <spec> --strategy diagnostic
+```
+
+#### Duplication Detection Workflows
+
+```bash
+# Check duplication before committing AI-generated code
+autoflow duplication analyze src/new_feature.py
+
+# Integrate into pre-commit hooks
+autoflow duplication analyze src/ && git commit
+
+# Monitor duplication trends over time
+autoflow duplication analyze src/ --json > reports/duplication_$(date +%Y%m%d).json
+
+# Strict checking for core library code
+autoflow duplication analyze lib/ --threshold 0.15
+
+# Lenient checking for prototype code
+autoflow duplication analyze prototypes/ --threshold 0.50
+
+# Find duplication hotspots
+autoflow duplication analyze src/ --verbose | grep "High similarity"
+
+# Generate duplication report for team review
+autoflow duplication analyze src/ --json --verbose > duplication_report.json
 ```
 
 ## Advanced Topics
@@ -1269,6 +1429,15 @@ Topics covered:
 - Update boundaries based on patterns
 - Consolidate learned lessons into memory
 
+### 6. Prevent Code Duplication
+
+- **Check before committing**: Always run duplication analysis on AI-generated code
+- **Configure appropriate thresholds**: Use stricter thresholds (0.15-0.25) for core code, lenient (0.40-0.50) for prototypes
+- **Act on findings**: When duplication is detected, extract common patterns into reusable functions
+- **Track trends**: Monitor duplication metrics over time to identify problem areas
+- **Configure ignores**: Exclude generated code, tests, and migrations from analysis
+- **Review regularly**: Schedule periodic duplication analysis to catch technical debt early
+
 ## Troubleshooting
 
 ### Agent Runs Stall or Hang
@@ -1344,6 +1513,28 @@ python -c "from autoflow.cli import main; print('OK')"
 # Test basic commands
 autoflow --help
 autoflow status --help
+```
+
+### Duplication Detection Issues
+
+```bash
+# Check duplication detection status
+autoflow duplication config show
+
+# Test duplication analysis
+autoflow duplication analyze --help
+
+# Verify configuration is valid
+cat .autoflow/duplication.json | python -m json.tool
+
+# Reset to default configuration
+autoflow duplication config reset
+
+# Check for false positives
+autoflow duplication analyze src/ --verbose | grep "similarity"
+
+# Adjust threshold if too many/little warnings
+autoflow duplication config set threshold 0.25
 ```
 
 ## Contributing
