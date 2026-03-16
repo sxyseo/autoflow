@@ -79,13 +79,17 @@ from scripts.cli.utils import (
     WORKTREES_DIR,
     ensure_state,
     ensure_state as ensure_state_dirs,
+    load_spec_metadata,
     now_stamp,
     now_utc,
     parse_stamp,
     print_json,
     read_json,
     run_cmd,
+    save_spec_metadata,
     slugify,
+    spec_dir,
+    spec_files,
     tmux_session_exists,
     validate_slug_safe,
     write_json,
@@ -304,21 +308,6 @@ def load_agents() -> dict[str, AgentSpec]:
     return _agents_config_cache
 
 
-def spec_dir(slug: str) -> Path:
-    """
-    Get the directory path for a spec.
-
-    Args:
-        slug: Spec slug identifier
-
-    Returns:
-        Path to the spec directory
-    """
-    if not validate_slug_safe(slug):
-        raise SystemExit(f"invalid spec slug: {slug}")
-    return SPECS_DIR / slug
-
-
 def task_file(spec_slug: str) -> Path:
     """
     Get the task file path for a spec.
@@ -363,53 +352,6 @@ def worktree_branch(spec_slug: str) -> str:
         Branch name for the worktree (format: codex/{slugified_spec_slug})
     """
     return f"codex/{slugify(spec_slug)}"
-
-
-def spec_files(slug: str) -> dict[str, Path]:
-    """
-    Get all file paths associated with a spec.
-
-    Args:
-        slug: Spec slug identifier
-
-    Returns:
-        Dictionary containing paths to all spec-related files:
-        - dir: Spec directory path
-        - spec: Spec markdown file
-        - metadata: Metadata JSON file
-        - handoff: Handoff markdown file
-        - handoffs_dir: Handoffs directory
-        - review_state: Review state JSON file
-        - events: Events JSONL file
-        - qa_fix_request: QA fix request markdown file
-        - qa_fix_request_json: QA fix request JSON file
-    """
-    directory = spec_dir(slug)
-    return {
-        "dir": directory,
-        "spec": directory / "spec.md",
-        "metadata": directory / "metadata.json",
-        "handoff": directory / "handoff.md",
-        "handoffs_dir": directory / "handoffs",
-        "review_state": directory / REVIEW_STATE_FILE,
-        "events": directory / EVENTS_FILE,
-        "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
-        "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
-    }
-
-
-def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
-    path = spec_files(spec_slug)["metadata"]
-    if not path.exists():
-        raise SystemExit(f"unknown spec: {spec_slug}")
-    return read_json(path)
-
-
-def save_spec_metadata(spec_slug: str, metadata: dict[str, Any]) -> Path:
-    metadata["updated_at"] = now_stamp()
-    path = spec_files(spec_slug)["metadata"]
-    write_json(path, metadata)
-    return path
 
 
 def review_state_default() -> dict[str, Any]:

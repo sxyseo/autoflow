@@ -315,6 +315,92 @@ def tmux_session_exists(session_name: str) -> bool:
     return result.returncode == 0
 
 
+def spec_dir(slug: str) -> Path:
+    """
+    Get the directory path for a spec.
+
+    Args:
+        slug: Spec slug identifier
+
+    Returns:
+        Path to the spec directory
+    """
+    if not validate_slug_safe(slug):
+        raise SystemExit(f"invalid spec slug: {slug}")
+    return SPECS_DIR / slug
+
+
+def spec_files(slug: str) -> dict[str, Path]:
+    """
+    Get all file paths associated with a spec.
+
+    Args:
+        slug: Spec slug identifier
+
+    Returns:
+        Dictionary containing paths to all spec-related files:
+        - dir: Spec directory path
+        - spec: Spec markdown file
+        - metadata: Metadata JSON file
+        - handoff: Handoff markdown file
+        - handoffs_dir: Handoffs directory
+        - review_state: Review state JSON file
+        - events: Events JSONL file
+        - qa_fix_request: QA fix request markdown file
+        - qa_fix_request_json: QA fix request JSON file
+    """
+    directory = spec_dir(slug)
+    return {
+        "dir": directory,
+        "spec": directory / "spec.md",
+        "metadata": directory / "metadata.json",
+        "handoff": directory / "handoff.md",
+        "handoffs_dir": directory / "handoffs",
+        "review_state": directory / REVIEW_STATE_FILE,
+        "events": directory / EVENTS_FILE,
+        "qa_fix_request": directory / QA_FIX_REQUEST_FILE,
+        "qa_fix_request_json": directory / QA_FIX_REQUEST_JSON_FILE,
+    }
+
+
+def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
+    """
+    Load metadata for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Dictionary containing spec metadata
+
+    Raises:
+        SystemExit: If the spec does not exist
+    """
+    path = spec_files(spec_slug)["metadata"]
+    if not path.exists():
+        raise SystemExit(f"unknown spec: {spec_slug}")
+    return read_json(path)
+
+
+def save_spec_metadata(spec_slug: str, metadata: dict[str, Any]) -> Path:
+    """
+    Save metadata for a spec.
+
+    Updates the updated_at timestamp before saving.
+
+    Args:
+        spec_slug: Spec slug identifier
+        metadata: Metadata dictionary to save
+
+    Returns:
+        Path to the metadata file that was written
+    """
+    metadata["updated_at"] = now_stamp()
+    path = spec_files(spec_slug)["metadata"]
+    write_json(path, metadata)
+    return path
+
+
 def ensure_state() -> None:
     """
     Ensure all required Autoflow state directories exist.
