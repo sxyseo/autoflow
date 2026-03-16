@@ -21,7 +21,13 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Any, Required, TypedDict
+from typing import Any, Required, TypeVar, TypedDict
+
+# Type Variables
+T = TypeVar("T")
+
+# Type alias for JSON-serializable primitive data
+JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 
 
 # === Task Types ===
