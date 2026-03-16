@@ -1964,4 +1964,63 @@ class AutoflowCLI:
             "recommended_next_action": None if active_runs else next_entry,
         }
 
-        print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+# ============================================================================
+# Module-level cache population functions
+# ============================================================================
+
+
+def _populate_system_config_cache() -> None:
+    """Load system configuration into the cache.
+
+    This implements lazy-loading: system config is only loaded from disk when needed.
+    Subsequent calls will use the cached data (O(1) lookup).
+
+    Cache Behavior:
+        If _system_config_cache is not None, we've already loaded the config,
+        so we return immediately (cache hit). Otherwise, we load the config from
+        disk using AutoflowCLI.load_system_config() and store it in the cache.
+
+    Note: Unlike run metadata cache, there's only one system config, so this
+    is a simple load-once pattern without opportunistic caching.
+    """
+    global _system_config_cache
+
+    # Skip if already loaded (cache hit)
+    if _system_config_cache is not None:
+        return
+
+    # Load system config from disk
+    from autoflow.core.config import load_config
+    config = load_config()
+    cli = AutoflowCLI(config)
+    _system_config_cache = cli.load_system_config()
+
+
+def _populate_agents_cache() -> None:
+    """Load agents configuration into the cache.
+
+    This implements lazy-loading: agents config is only loaded from disk when needed.
+    Subsequent calls will use the cached data (O(1) lookup).
+
+    Cache Behavior:
+        If _agents_config_cache is not None, we've already loaded the agents,
+        so we return immediately (cache hit). Otherwise, we load the agents from
+        disk using AutoflowCLI.load_agents() and store it in the cache.
+
+    Note: Unlike run metadata cache, there's only one agents config, so this
+    is a simple load-once pattern without opportunistic caching.
+
+    The cached data is a dictionary mapping agent names to AgentSpec objects.
+    """
+    global _agents_config_cache
+
+    # Skip if already loaded (cache hit)
+    if _agents_config_cache is not None:
+        return
+
+    # Load agents config from disk
+    from autoflow.core.config import load_config
+    config = load_config()
+    cli = AutoflowCLI(config)
+    _agents_config_cache = cli.load_agents()
