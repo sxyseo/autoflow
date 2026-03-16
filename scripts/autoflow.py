@@ -628,6 +628,18 @@ def spec_files(slug: str) -> dict[str, Path]:
 
 
 def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
+    """
+    Load metadata for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Dictionary containing the spec metadata
+
+    Raises:
+        SystemExit: If the spec does not exist
+    """
     path = spec_files(spec_slug)["metadata"]
     if not path.exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
