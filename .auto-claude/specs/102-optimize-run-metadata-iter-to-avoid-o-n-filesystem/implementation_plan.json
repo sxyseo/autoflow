@@ -176,7 +176,7 @@
             "command": "python3 -m pytest tests/test_run_metadata_performance.py -v --tb=short",
             "expected": "12 passed"
           },
-          "status": "pending"
+          "status": "completed"
         },
         {
           "id": "subtask-4-2",
