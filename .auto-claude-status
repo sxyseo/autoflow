@@ -3,9 +3,9 @@
   "spec": "105-cache-file-hashes-for-review-state-validation",
   "state": "building",
   "subtasks": {
-    "completed": 4,
+    "completed": 7,
     "total": 7,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 6,
+    "number": 8,
     "started_at": "2026-03-16T21:53:57.493987"
   },
-  "last_update": "2026-03-16T22:01:09.743566"
+  "last_update": "2026-03-16T22:04:26.007888"
 }
