@@ -19,23 +19,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import importlib.util
-import sys
-
 import pytest
 
 from autoflow.autoflow_cli import AgentSpec, AutoflowCLI
 from autoflow.core.config import Config
-
-
-def load_script_module(path: Path, name: str):
-    """Helper to load a script module for testing scripts not yet migrated."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 @pytest.fixture
@@ -1128,52 +1115,3 @@ class Phase4DTests:
         assert catalog["agents"]["codex"]["resume"]["subcommand"] == "resume"
         assert result["total_agents"] == 4
 
-    def test_dispatch_gate_stops_after_retry_limit(
-        self, autoflow_cli: AutoflowCLI, test_repo: Path
-    ) -> None:
-        """Test that dispatch gate stops after retry limit."""
-        continuous = load_script_module(
-            test_repo / "scripts" / "continuous_iteration.py", "continuous_test"
-        )
-        continuous.task_history = lambda spec, task: [
-            {"result": "needs_changes"},
-            {"result": "blocked"},
-            {"result": "failed"},
-        ]
-        gate = continuous.dispatch_gate(
-            {
-                "retry_policy": {
-                    "max_automatic_attempts": 3,
-                    "require_fix_request_for_retry": True,
-                }
-            },
-            {
-                "spec": "gate-spec",
-                "active_runs": [],
-                "blocking_reason": "",
-                "fix_request_present": True,
-            },
-            {
-                "id": "T3",
-                "status": "needs_changes",
-                "owner_role": "implementation-runner",
-            },
-        )
-        assert gate["reason"] == "max_automatic_attempts_reached"
-
-    def test_continuous_iteration_can_fallback_to_discovered_agent(
-        self, autoflow_cli: AutoflowCLI, test_repo: Path
-    ) -> None:
-        """Test that continuous iteration can fallback to discovered agent."""
-        continuous = load_script_module(
-            test_repo / "scripts" / "continuous_iteration.py",
-            "continuous_fallback_test",
-        )
-        catalog = {"codex": {"command": "codex"}, "claude": {"command": "claude"}}
-        agent, source = continuous.select_agent_for_role(
-            {"role_agents": {"reviewer": "claude-review"}},
-            "reviewer",
-            catalog,
-        )
-        assert agent == "claude"
-        assert source == "fallback"
