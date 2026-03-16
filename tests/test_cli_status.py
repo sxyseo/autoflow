@@ -9,6 +9,7 @@ These tests use temporary directories to avoid affecting real state files.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -589,3 +590,261 @@ class TestStatusEdgeCases:
 
             assert result.exit_code == 0
             assert "memory" in result.output
+
+
+# ============================================================================
+# Legacy CLI list-specs Command Tests
+# ============================================================================
+
+
+class TestLegacyCliListSpecs:
+    """Tests for legacy CLI list-specs command output validation."""
+
+    def test_list_specs_outputs_all_required_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test list_specs outputs all required metadata fields."""
+        from scripts.autoflow import list_specs, SPECS_DIR
+
+        # Create temporary specs directory structure
+        temp_specs_dir = tmp_path / ".autoflow" / "specs"
+        temp_specs_dir.mkdir(parents=True)
+
+        # Patch SPECS_DIR to use temporary directory
+        monkeypatch.setattr("scripts.autoflow.SPECS_DIR", temp_specs_dir)
+
+        # Create spec metadata files
+        spec_001_dir = temp_specs_dir / "spec-001"
+        spec_001_dir.mkdir()
+        spec_001_metadata = spec_001_dir / "metadata.json"
+        spec_001_metadata.write_text(json.dumps({
+            "slug": "spec-001",
+            "title": "Test Spec 1",
+            "summary": "First test spec",
+            "status": "in_progress",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "worktree": {
+                "path": "",
+                "branch": "main",
+                "base_branch": "main",
+            },
+        }))
+
+        spec_002_dir = temp_specs_dir / "spec-002"
+        spec_002_dir.mkdir()
+        spec_002_metadata = spec_002_dir / "metadata.json"
+        spec_002_metadata.write_text(json.dumps({
+            "slug": "spec-002",
+            "title": "Test Spec 2",
+            "summary": "Second test spec",
+            "status": "pending",
+            "created_at": "2024-01-03T00:00:00Z",
+            "updated_at": "2024-01-04T00:00:00Z",
+            "worktree": {
+                "path": "",
+                "branch": "develop",
+                "base_branch": "main",
+            },
+        }))
+
+        # Capture stdout from list_specs function
+        import io
+        import sys
+        from argparse import Namespace
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        try:
+            list_specs(Namespace())
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        # Parse JSON output
+        specs = json.loads(output)
+
+        # Verify we got 2 specs
+        assert len(specs) == 2
+
+        # Verify all required fields are present
+        for spec in specs:
+            assert "slug" in spec, f"Missing 'slug' field in spec: {spec}"
+            assert "title" in spec, f"Missing 'title' field in spec: {spec}"
+            assert "summary" in spec, f"Missing 'summary' field in spec: {spec}"
+            assert "status" in spec, f"Missing 'status' field in spec: {spec}"
+            assert "created_at" in spec, f"Missing 'created_at' field in spec: {spec}"
+            assert "updated_at" in spec, f"Missing 'updated_at' field in spec: {spec}"
+            assert "worktree" in spec, f"Missing 'worktree' field in spec: {spec}"
+            assert "review" in spec, f"Missing 'review' field in spec: {spec}"
+
+            # Verify worktree subfields
+            assert "path" in spec["worktree"], f"Missing 'path' in worktree for spec {spec['slug']}"
+            assert "branch" in spec["worktree"], f"Missing 'branch' in worktree for spec {spec['slug']}"
+            assert "base_branch" in spec["worktree"], f"Missing 'base_branch' in worktree for spec {spec['slug']}"
+
+            # Verify review subfields
+            assert "approved" in spec["review"], f"Missing 'approved' in review for spec {spec['slug']}"
+            assert "approved_by" in spec["review"], f"Missing 'approved_by' in review for spec {spec['slug']}"
+            assert "review_count" in spec["review"], f"Missing 'review_count' in review for spec {spec['slug']}"
+
+    def test_list_specs_with_empty_specs_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test list_specs returns empty array with no specs."""
+        from scripts.autoflow import list_specs
+
+        # Create temporary empty specs directory
+        temp_specs_dir = tmp_path / ".autoflow" / "specs"
+        temp_specs_dir.mkdir(parents=True)
+
+        # Patch SPECS_DIR to use temporary directory
+        monkeypatch.setattr("scripts.autoflow.SPECS_DIR", temp_specs_dir)
+
+        # Capture stdout from list_specs function
+        import io
+        import sys
+        from argparse import Namespace
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        try:
+            list_specs(Namespace())
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        # Parse JSON output
+        specs = json.loads(output)
+
+        # Verify we got empty array
+        assert specs == []
+
+    def test_list_specs_sorts_by_created_at_descending(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test list_specs sorts by created_at descending (newest first)."""
+        from scripts.autoflow import list_specs
+
+        # Create temporary specs directory structure
+        temp_specs_dir = tmp_path / ".autoflow" / "specs"
+        temp_specs_dir.mkdir(parents=True)
+
+        # Patch SPECS_DIR to use temporary directory
+        monkeypatch.setattr("scripts.autoflow.SPECS_DIR", temp_specs_dir)
+
+        # Create spec metadata files with different created_at timestamps
+        spec_001_dir = temp_specs_dir / "spec-001"
+        spec_001_dir.mkdir()
+        spec_001_metadata = spec_001_dir / "metadata.json"
+        spec_001_metadata.write_text(json.dumps({
+            "slug": "spec-001",
+            "title": "Oldest Spec",
+            "status": "pending",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "worktree": {},
+        }))
+
+        spec_002_dir = temp_specs_dir / "spec-002"
+        spec_002_dir.mkdir()
+        spec_002_metadata = spec_002_dir / "metadata.json"
+        spec_002_metadata.write_text(json.dumps({
+            "slug": "spec-002",
+            "title": "Newest Spec",
+            "status": "in_progress",
+            "created_at": "2024-01-03T00:00:00Z",
+            "updated_at": "2024-01-03T00:00:00Z",
+            "worktree": {},
+        }))
+
+        spec_003_dir = temp_specs_dir / "spec-003"
+        spec_003_dir.mkdir()
+        spec_003_metadata = spec_003_dir / "metadata.json"
+        spec_003_metadata.write_text(json.dumps({
+            "slug": "spec-003",
+            "title": "Middle Spec",
+            "status": "done",
+            "created_at": "2024-01-02T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "worktree": {},
+        }))
+
+        # Capture stdout from list_specs function
+        import io
+        import sys
+        from argparse import Namespace
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        try:
+            list_specs(Namespace())
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        # Parse JSON output
+        specs = json.loads(output)
+
+        # Verify order (newest first)
+        assert specs[0]["slug"] == "spec-002"  # 2024-01-03
+        assert specs[1]["slug"] == "spec-003"  # 2024-01-02
+        assert specs[2]["slug"] == "spec-001"  # 2024-01-01
+
+    def test_list_specs_handles_missing_fields_gracefully(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test list_specs handles missing metadata fields with defaults."""
+        from scripts.autoflow import list_specs
+
+        # Create temporary specs directory structure
+        temp_specs_dir = tmp_path / ".autoflow" / "specs"
+        temp_specs_dir.mkdir(parents=True)
+
+        # Patch SPECS_DIR to use temporary directory
+        monkeypatch.setattr("scripts.autoflow.SPECS_DIR", temp_specs_dir)
+
+        # Create spec with minimal metadata (missing optional fields)
+        spec_minimal_dir = temp_specs_dir / "spec-minimal"
+        spec_minimal_dir.mkdir()
+        spec_minimal_metadata = spec_minimal_dir / "metadata.json"
+        spec_minimal_metadata.write_text(json.dumps({
+            "slug": "spec-minimal",
+            # Missing title, summary, status, created_at, updated_at
+        }))
+
+        # Capture stdout from list_specs function
+        import io
+        import sys
+        from argparse import Namespace
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        try:
+            list_specs(Namespace())
+            output = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_stdout
+
+        # Parse JSON output
+        specs = json.loads(output)
+
+        # Verify spec is present with defaults
+        assert len(specs) == 1
+        spec = specs[0]
+
+        # Required fields should be present (with defaults if missing)
+        assert spec["slug"] == "spec-minimal"
+        assert spec["title"] == ""  # Default empty string
+        assert spec["summary"] == ""  # Default empty string
+        assert spec["status"] == ""  # Default empty string
+        assert spec["created_at"] == ""  # Default empty string
+        assert spec["updated_at"] == ""  # Default empty string
+
+        # Worktree and review should always be present
+        assert "worktree" in spec
+        assert "review" in spec

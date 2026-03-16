@@ -53,8 +53,8 @@
             "command": "python3 -c \"from autoflow.cli import _get_worktree_metadata, _get_review_state_metadata; print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending",
-          "notes": "Add functions similar to normalize_worktree_metadata() and load_review_state() from scripts/autoflow.py to load worktree and review metadata from spec directories."
+          "status": "completed",
+          "notes": "Added helper functions to autoflow/cli/utils.py and exported them from autoflow/cli/__init__.py:\n- _get_worktree_metadata(spec_slug, config) -> dict with path, branch, base_branch\n- _get_review_state_metadata(spec_slug, config) -> dict with approval state\n- Supporting utilities: _slugify, _read_json_or_default, _spec_dir, _worktree_path, _worktree_branch, _detect_base_branch\nPattern follows scripts/autoflow.py normalize_worktree_metadata and load_review_state.\nVerification passed: functions are importable from autoflow.cli package."
         },
         {
           "id": "subtask-2-2",
@@ -72,8 +72,8 @@
             "command": "python3 -m autoflow.cli spec list --output-json 2>&1 | python3 -c \"import sys, json; data = json.load(sys.stdin); specs = data.get('specs', []); assert len(specs) > 0, 'No specs found'; assert all('status' in s and 'worktree' in s and 'review' in s for s in specs), 'Missing metadata fields'; print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending",
-          "notes": "Modify the spec_list() function in autoflow/cli.py (lines 2189-2236) to load and display status, worktree, and review metadata for each spec, matching the output format of the legacy CLI's list-specs command."
+          "status": "completed",
+          "notes": "Enhanced spec_list() function in autoflow/cli.py to:\n- Read metadata from .autoflow/specs/*/metadata.json files\n- Load review state from review_state.json files\n- Return detailed metadata for each spec: slug, title, summary, status, created_at, updated_at, worktree, review\n- Updated both JSON and human-readable output formats\n\nVerification passed: Found 2 specs, all with required fields (status, worktree, review). The implementation matches the legacy CLI's list-specs functionality.\n\nCommitted as: b8784b8"
         }
       ]
     },
@@ -231,5 +231,5 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-16T00:05:39.197Z"
+  "updated_at": "2026-03-16T00:09:08.246Z"
 }

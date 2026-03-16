@@ -78,3 +78,45 @@ Session 2 (Coder - subtask-1-1):
   * Format: JSON array with sorted specs (newest first)
 
 === END SESSION 2 ===
+
+Session 3 (Coder - subtask-2-1):
+- Task: Add helper functions to load worktree and review metadata
+- Status: COMPLETED ✓
+- Verification: Passed - Functions are importable from autoflow.cli
+- Commit: a89e778c8c03b5cf2c23f3aa8f50311b642ecc27
+- Implementation:
+  * Added helper functions to autoflow/cli/utils.py:
+    - _get_worktree_metadata(spec_slug, config) -> dict with path, branch, base_branch
+    - _get_review_state_metadata(spec_slug, config) -> dict with approval state
+  * Supporting utilities:
+    - _slugify(value) -> URL-friendly slug
+    - _read_json_or_default(path, default) -> Safe JSON loading
+    - _spec_dir(slug, state_dir) -> Spec directory path
+    - _worktree_path(spec_slug, state_dir) -> Worktree directory path
+    - _worktree_branch(spec_slug) -> Branch name for worktree
+    - _detect_base_branch() -> Detect main/master branch
+  * Exported functions from autoflow/cli/__init__.py
+  * Pattern follows scripts/autoflow.py normalize_worktree_metadata and load_review_state
+
+=== END SESSION 3 ===
+
+Session 4 (Coder - subtask-2-2):
+- Task: Update spec list command to include detailed metadata
+- Status: COMPLETED ✓
+- Verification: Passed - All 2 specs have required fields (status, worktree, review)
+- Commit: b8784b8
+- Implementation:
+  * Enhanced spec_list() function in autoflow/cli.py
+  * Now reads from .autoflow/specs/*/metadata.json files
+  * Loads review state from review_state.json files
+  * Returns detailed metadata for each spec:
+    - slug, title, summary
+    - status (draft, in_progress, etc.)
+    - created_at, updated_at
+    - worktree (path, branch, base_branch)
+    - review (approved, approved_by, review_count)
+  * Updated both JSON and human-readable output formats
+  * Human output now shows: status, branch, review status
+  * Matches legacy CLI's list-specs functionality
+
+=== END SESSION 4 ===
