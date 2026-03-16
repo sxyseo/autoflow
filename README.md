@@ -34,6 +34,7 @@ Inspired by OpenAI's "Harness Engineering" philosophy and AI-driven development 
 
 ## Additional Documentation
 
+- [**FAQ**](FAQ.md) - Frequently asked questions and common issues
 - [**Custom Skills Guide**](docs/custom_skills.md) - Create, validate, and share custom skills
 
 ## Overview
@@ -1270,6 +1271,8 @@ Topics covered:
 - Consolidate learned lessons into memory
 
 ## Troubleshooting
+
+For frequently asked questions and detailed solutions to common issues, see [**FAQ.md**](FAQ.md).
 
 ### Agent Runs Stall or Hang
 
