@@ -3,8 +3,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
 
 import cli_healthcheck
 import continuous_iteration
