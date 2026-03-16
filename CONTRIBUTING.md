@@ -184,7 +184,7 @@ ruff check .           # Lint code
 ruff format .          # Format code
 
 # Type check with mypy
-mypy .
+mypy autoflow/         # Type check (specify package to avoid duplicate module errors)
 ```
 
 **Ruff configuration** (pyproject.toml):
