@@ -34,6 +34,11 @@ def load_config(path: str) -> dict[str, Any]:
     return result
 
 
+def get_config() -> dict[str, Any]:
+    result: dict[str, Any] = load_config("config/autonomy.example.json")
+    return result
+
+
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
     report = cli_healthcheck.build_report()
     payload: dict[str, Any] = dict(report)
