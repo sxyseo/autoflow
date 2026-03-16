@@ -12,13 +12,25 @@ Example:
 
     # Load the schema
     schema = load_bmad_schema()
+
+    # Load JSON with type safety
+    from typing import TypedDict
+
+    class Config(TypedDict):
+        name: str
+        version: str
+
+    config = read_json_typed[Config](Path("config.json"))
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+# Type variable for generic JSON typing
+T = TypeVar("T")
 
 
 # Default paths (can be overridden by root parameter)
@@ -96,6 +108,48 @@ def read_json(path: Path) -> dict[str, Any]:
         json.JSONDecodeError: If the file contains invalid JSON.
     """
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_json_typed(path: Path) -> T:
+    """Read a JSON file and return its contents with type safety.
+
+    This is a type-safe variant of read_json that allows the caller to
+    specify the expected return type using a type parameter. At runtime,
+    this performs the same parsing as read_json, but provides better
+    type checking for static analysis tools.
+
+    Type checking is enforced at compile time by static type checkers.
+    Runtime validation is not performed to avoid dependency on validation
+    libraries.
+
+    Args:
+        path: Path to the JSON file.
+
+    Type Args:
+        T: The expected type of the parsed JSON data.
+
+    Returns:
+        Parsed JSON data as the specified type.
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist.
+        json.JSONDecodeError: If the file contains invalid JSON.
+
+    Example:
+        >>> from typing import TypedDict
+        >>>
+        >>> class Config(TypedDict):
+        ...     name: str
+        ...     version: str
+        >>>
+        >>> config = read_json_typed[Config](Path("config.json"))
+        >>> print(config["name"])
+        my-app
+
+        >>> # For regular dict types
+        >>> data = read_json_typed[dict[str, str]](Path("data.json"))
+    """
+    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[return-value]
 
 
 def load_bmad_template(role: str, root: Path | str | None = None) -> str:

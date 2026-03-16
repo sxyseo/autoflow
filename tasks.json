@@ -1,0 +1,10 @@
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Test task",
+      "status": "todo"
+    }
+  ],
+  "updated_at": "2024-01-01T00:00:00Z"
+}
