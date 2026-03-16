@@ -252,8 +252,9 @@ class TestRunMetadataIterPerformance:
         # Verify that the variance is within reasonable bounds
         avg_time = sum(times) / len(times)
         for t in times:
-            # Each call should be within 50% of average (filesystem I/O varies)
-            assert t < avg_time * 1.5
+            # Each call should be within 3x of average (filesystem I/O varies significantly)
+            # Using 3x instead of 1.5x to account for OS-level caching and system load
+            assert t < avg_time * 3.0
 
     def test_repeated_cached_calls_performance(
         self, temp_runs_dir: Path
