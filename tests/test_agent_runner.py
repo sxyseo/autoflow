@@ -3,14 +3,10 @@ Unit Tests for Agent Runner
 
 Tests the agent_runner module for building commands and executing
 different AI agents (Claude, Codex, ACP, etc.) with various configurations.
-
-These tests use dynamic module loading to test the agent_runner script
-in isolation, mocking file system and subprocess execution.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -20,20 +16,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+# Add the project root to the path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+import scripts.agent_runner as agent_runner
 
 
 class AgentRunnerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.repo_root = Path(__file__).resolve().parents[1]
-        self.module = load_module(self.repo_root / "scripts" / "agent_runner.py", "agent_runner_test")
         self.temp_dir = tempfile.TemporaryDirectory()
         self.prompt_file = Path(self.temp_dir.name) / "prompt.md"
         self.prompt_file.write_text("Implement the selected task.", encoding="utf-8")
@@ -42,7 +33,7 @@ class AgentRunnerTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_regular_command_uses_prompt_text(self) -> None:
-        command = self.module.build_command(
+        command = agent_runner.build_command(
             {"command": "claude", "args": ["--print"]},
             str(self.prompt_file),
             run_metadata=None,
@@ -50,7 +41,7 @@ class AgentRunnerTests(unittest.TestCase):
         self.assertEqual(command, ["claude", "--print", "Implement the selected task."])
 
     def test_codex_resume_uses_subcommand(self) -> None:
-        command = self.module.build_command(
+        command = agent_runner.build_command(
             {
                 "command": "codex",
                 "args": ["--full-auto"],
@@ -65,7 +56,7 @@ class AgentRunnerTests(unittest.TestCase):
         )
 
     def test_claude_resume_uses_resume_flag(self) -> None:
-        command = self.module.build_command(
+        command = agent_runner.build_command(
             {
                 "command": "claude",
                 "args": [],
@@ -77,7 +68,7 @@ class AgentRunnerTests(unittest.TestCase):
         self.assertEqual(command, ["claude", "--resume", "Implement the selected task."])
 
     def test_model_and_tools_are_applied(self) -> None:
-        command = self.module.build_command(
+        command = agent_runner.build_command(
             {
                 "command": "claude",
                 "args": [],
@@ -100,7 +91,7 @@ class AgentRunnerTests(unittest.TestCase):
         )
 
     def test_acp_stdio_agent_uses_transport_command(self) -> None:
-        command = self.module.build_command(
+        command = agent_runner.build_command(
             {
                 "command": "claude",
                 "protocol": "acp",
@@ -158,9 +149,9 @@ class AgentRunnerTests(unittest.TestCase):
             ]
             with (
                 patch.object(sys, "argv", argv),
-                patch.object(self.module.os, "execvp") as execvp,
+                patch.object(agent_runner.os, "execvp") as execvp,
             ):
-                self.module.main()
+                agent_runner.main()
             execvp.assert_called_once_with(
                 "claude",
                 [
@@ -185,7 +176,7 @@ class AgentRunnerTests(unittest.TestCase):
     def test_malicious_command_rejected(self) -> None:
         """Test that commands not in the allowlist are rejected."""
         with self.assertRaises(SystemExit) as cm:
-            self.module.build_command(
+            agent_runner.build_command(
                 {"command": "rm", "args": ["-rf", "/"]},
                 str(self.prompt_file),
                 run_metadata=None,
@@ -210,7 +201,7 @@ class AgentRunnerTests(unittest.TestCase):
         for args in malicious_args:
             with self.subTest(args=args):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         {"command": "claude", "args": args},
                         str(self.prompt_file),
                         run_metadata=None,
@@ -231,7 +222,7 @@ class AgentRunnerTests(unittest.TestCase):
         for args in dangerous_args:
             with self.subTest(args=args):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         {"command": "claude", "args": args},
                         str(self.prompt_file),
                         run_metadata=None,
@@ -251,7 +242,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in invalid_commands:
             with self.subTest(command=spec["command"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -269,7 +260,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in invalid_models:
             with self.subTest(model=spec["model"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -288,7 +279,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in invalid_tools:
             with self.subTest(tools=spec["tools"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -306,7 +297,7 @@ class AgentRunnerTests(unittest.TestCase):
         for runtime_args in malicious_runtime_args:
             with self.subTest(runtime_args=runtime_args):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         {"command": "claude", "args": [], "runtime_args": runtime_args},
                         str(self.prompt_file),
                         run_metadata=None,
@@ -323,7 +314,7 @@ class AgentRunnerTests(unittest.TestCase):
         for resume in malicious_resume_args:
             with self.subTest(resume=resume):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         {"command": "claude", "args": [], "resume": resume},
                         str(self.prompt_file),
                         run_metadata=None,
@@ -340,7 +331,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in malicious_transports:
             with self.subTest(transport_command=spec["transport"]["command"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -360,7 +351,7 @@ class AgentRunnerTests(unittest.TestCase):
             },
         }
         with self.assertRaises(SystemExit) as cm:
-            self.module.build_command(
+            agent_runner.build_command(
                 malicious_transport,
                 str(self.prompt_file),
                 run_metadata=None,
@@ -394,7 +385,7 @@ class AgentRunnerTests(unittest.TestCase):
         ]
         for spec in valid_transports:
             with self.subTest(transport=spec["transport"]):
-                command = self.module.build_command(
+                command = agent_runner.build_command(
                     spec,
                     str(self.prompt_file),
                     run_metadata=None,
@@ -449,7 +440,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in invalid_transport_commands:
             with self.subTest(transport_command=spec["transport"]["command"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -502,7 +493,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in invalid_transport_args:
             with self.subTest(transport_args=spec["transport"]["args"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -582,7 +573,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_commands:
             with self.subTest(command=spec["command"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -601,7 +592,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_args:
             with self.subTest(args=spec["args"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -618,7 +609,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_models:
             with self.subTest(model=spec["model"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -635,7 +626,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_tools:
             with self.subTest(tools=spec["tools"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -652,7 +643,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_runtime:
             with self.subTest(runtime_args=spec["runtime_args"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -669,7 +660,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_resume:
             with self.subTest(resume=spec["resume"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -702,7 +693,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_transport:
             with self.subTest(transport=spec["transport"]["command"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -735,7 +726,7 @@ class AgentRunnerTests(unittest.TestCase):
         for spec in command_chaining_transport_args:
             with self.subTest(transport_args=spec["transport"]["args"]):
                 with self.assertRaises(SystemExit) as cm:
-                    self.module.build_command(
+                    agent_runner.build_command(
                         spec,
                         str(self.prompt_file),
                         run_metadata=None,
@@ -773,7 +764,7 @@ class AgentRunnerTests(unittest.TestCase):
                 old_argv = sys.argv
                 sys.argv = argv
                 try:
-                    self.module.main()
+                    agent_runner.main()
                 except SystemExit as e:
                     sys.argv = old_argv
                     raise e
@@ -850,7 +841,7 @@ class AgentRunnerTests(unittest.TestCase):
                 old_argv = sys.argv
                 sys.argv = argv
                 try:
-                    self.module.main()
+                    agent_runner.main()
                 except SystemExit as e:
                     sys.argv = old_argv
                     raise e
@@ -913,7 +904,7 @@ class AgentRunnerTests(unittest.TestCase):
 
         with patch.object(sys, "argv", argv):
             with self.assertRaises(SystemExit) as context:
-                self.module.main()
+                agent_runner.main()
 
             # Verify the error message mentions integrity check failure
             self.assertIn("integrity check failed", str(context.exception))
@@ -1046,8 +1037,8 @@ class AgentRunnerTests(unittest.TestCase):
         ]
 
         with patch.object(sys, "argv", argv):
-            with patch.object(self.module.os, "execvp") as execvp:
-                self.module.main()
+            with patch.object(agent_runner.os, "execvp") as execvp:
+                agent_runner.main()
 
         # Verify execvp was called (meaning execution proceeded)
         execvp.assert_called_once_with(
