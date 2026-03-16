@@ -77,7 +77,9 @@ from scripts.cli.utils import (
     TASKS_DIR,
     VALID_TASK_STATUSES,
     WORKTREES_DIR,
+    _agents_config_cache,
     _cache_loaded_specs,
+    _populate_agents_cache,
     _populate_run_cache,
     _populate_run_cache_for_spec,
     _run_metadata_cache,
@@ -88,9 +90,12 @@ from scripts.cli.utils import (
     ensure_state,
     ensure_state as ensure_state_dirs,
     increment_counter,
+    invalidate_agents_cache,
     invalidate_run_cache,
     invalidate_system_config_cache,
     invalidate_tasks_cache,
+    load_agent_result_payload,
+    load_agents,
     load_memory_context,
     load_review_state,
     load_run_metadata,
@@ -107,6 +112,7 @@ from scripts.cli.utils import (
     read_json,
     read_json_or_default,
     record_event,
+    resolve_agent_profiles,
     resolve_root_path,
     review_state_default,
     review_status_summary,
@@ -135,6 +141,17 @@ from scripts.cli.utils import (
     write_json,
     write_run_metadata,
 )
+# Import agent-related utilities
+from scripts.cli.utils import (
+    AgentSpec,
+    invalidate_agents_cache,
+    load_agent_result_payload,
+    load_agents,
+    normalize_findings,
+    resolve_agent_profiles,
+    _agents_config_cache,
+    _populate_agents_cache,
+)
 # Import worktree CLI module
 from scripts.cli import worktree
 # Import memory CLI module
@@ -152,163 +169,6 @@ def repository_manager():
     from autoflow.core.repository import RepositoryManager
 
     return RepositoryManager(STATE_DIR)
-
-
-@dataclass
-class AgentSpec:
-    """
-    Specification for an AI agent configuration.
-
-    Contains all parameters needed to instantiate and execute an AI agent,
-    including command invocation, protocol settings, model configuration,
-    tool access, and memory scopes.
-
-    Attributes:
-        name: Unique identifier for this agent
-        command: Executable command to run (e.g., "claude", "codex")
-        args: Command-line arguments to pass to the agent
-        resume: Resume configuration (flags, session handling)
-        protocol: Communication protocol ("cli", "api", etc.)
-        model: Model identifier string
-        model_profile: Named profile from system config models
-        tools: List of tools/functions available to the agent
-        tool_profile: Named profile from system config tools
-        memory_scopes: Memory scopes this agent can access
-        transport: Additional transport configuration options
-    """
-
-    name: str
-    command: str
-    args: list[str]
-    resume: dict[str, Any] | None = None
-    protocol: str = "cli"
-    model: str = ""
-    model_profile: str = ""
-    tools: list[str] | None = None
-    tool_profile: str = ""
-    memory_scopes: list[str] | None = None
-    transport: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """
-        Convert agent specification to dictionary.
-
-        Serializes the AgentSpec dataclass instance to a plain dictionary
-        suitable for JSON serialization or configuration storage.
-
-        Returns:
-            Dictionary representation of the agent specification with all
-            configuration fields including name, command, args, resume settings,
-            protocol, model, tools, and transport configuration.
-        """
-        data = {
-            "name": self.name,
-            "command": self.command,
-            "args": self.args,
-            "protocol": self.protocol,
-        }
-        if self.resume:
-            data["resume"] = self.resume
-        if self.model:
-            data["model"] = self.model
-        if self.model_profile:
-            data["model_profile"] = self.model_profile
-        if self.tools:
-            data["tools"] = self.tools
-        if self.tool_profile:
-            data["tool_profile"] = self.tool_profile
-        if self.memory_scopes:
-            data["memory_scopes"] = self.memory_scopes
-        if self.transport:
-            data["transport"] = self.transport
-        return data
-
-
-def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
-    """
-    Resolve model and tool profiles in an agent specification.
-
-    Expands named profiles (model_profile, tool_profile) to their actual
-    values from system configuration. Also sets default memory_scopes
-    if not specified.
-
-    Args:
-        spec: Agent specification dictionary with potential profile references
-        system_config: System configuration containing model and tool profiles
-
-    Returns:
-        Resolved agent specification with expanded profiles
-    """
-    resolved = dict(spec)
-    model_profiles = system_config.get("models", {}).get("profiles", {})
-    tool_profiles = system_config.get("tools", {}).get("profiles", {})
-    if not resolved.get("model") and resolved.get("model_profile"):
-        resolved["model"] = model_profiles.get(resolved["model_profile"], "")
-    if not resolved.get("tools") and resolved.get("tool_profile"):
-        resolved["tools"] = tool_profiles.get(resolved["tool_profile"], [])
-    if not resolved.get("memory_scopes"):
-        resolved["memory_scopes"] = list(
-            system_config.get("memory", {}).get("default_scopes", ["spec"])
-        )
-    return resolved
-
-
-def load_agents() -> dict[str, AgentSpec]:
-    """
-    Load and parse all configured agents from the agents file.
-
-    Reads the agents.json file, resolves model and tool profiles from
-    system configuration, and instantiates AgentSpec objects for each agent.
-
-    Caching Behavior:
-        This function uses an in-memory cache to avoid repeated disk I/O.
-        On first call, it loads the agents from disk and caches them.
-        Subsequent calls return the cached value directly (O(1) lookup).
-        Use invalidate_agents_cache() to clear the cache after
-        modifying agents.json.
-
-    Performance:
-        - First call: O(n) filesystem read and JSON parsing
-        - Subsequent calls: O(1) memory lookup
-        - Typical speedup: 10-20x for repeated calls
-
-    Returns:
-        Dictionary mapping agent names to AgentSpec objects
-
-    Raises:
-        SystemExit: If agents.json file does not exist
-    """
-    global _agents_config_cache
-
-    # Return cached value if available (cache hit)
-    if _agents_config_cache is not None:
-        return _agents_config_cache
-
-    # Load from disk and cache the result
-    if not AGENTS_FILE.exists():
-        raise SystemExit(
-            f"missing {AGENTS_FILE}. copy config/agents.example.json to .autoflow/agents.json first"
-        )
-    data = read_json(AGENTS_FILE)
-    system_config = load_system_config()
-    agents = {}
-    for name, spec in data.get("agents", {}).items():
-        resolved = resolve_agent_profiles(spec, system_config)
-        agents[name] = AgentSpec(
-            name=name,
-            command=resolved["command"],
-            args=list(resolved.get("args", [])),
-            resume=resolved.get("resume"),
-            protocol=resolved.get("protocol", "cli"),
-            model=resolved.get("model", ""),
-            model_profile=resolved.get("model_profile", ""),
-            tools=list(resolved.get("tools", [])) if resolved.get("tools") else None,
-            tool_profile=resolved.get("tool_profile", ""),
-            memory_scopes=list(resolved.get("memory_scopes", [])) if resolved.get("memory_scopes") else None,
-            transport=resolved.get("transport"),
-        )
-    _agents_config_cache = agents
-    return _agents_config_cache
 
 
 def derive_strategy_actions(
@@ -853,84 +713,6 @@ def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
     )
 
 
-def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """
-    Normalize review findings to a standard structure.
-
-    Converts findings from various sources into a consistent format with all required
-    fields. Handles missing or inconsistent data by providing sensible defaults.
-    Each finding gets a unique ID if not present, and line numbers are normalized.
-
-    Args:
-        summary: Default summary text to use when finding body is missing
-        findings: List of finding dictionaries from review sources, or None to create
-                  a single default finding
-
-    Returns:
-        List of normalized finding dictionaries with keys:
-        - id: Unique finding identifier (e.g., "F1", "F2")
-        - title: Finding title or "Follow-up required"
-        - body: Detailed description or summary
-        - file: File path (empty string if not applicable)
-        - line: Starting line number (None if not applicable)
-        - end_line: Ending line number (None if not applicable)
-        - severity: Severity level ("critical", "high", "medium", "low")
-        - category: Finding category (e.g., "tests", "workflow", "general")
-        - suggested_fix: Suggested fix text (empty string if none)
-        - source_run: Source run identifier (empty string if none)
-
-    Examples:
-        >>> findings = [
-        ...     {"title": "Add tests", "severity": "high", "category": "tests"}
-        ... ]
-        >>> normalized = normalize_findings("Please add tests", findings)
-        >>> normalized[0]["id"]
-        'F1'
-        >>> normalized[0]["body"]
-        'Please add tests'
-
-        >>> normalized = normalize_findings("Fix bug", None)
-        >>> len(normalized)
-        1
-        >>> normalized[0]["id"]
-        'F1'
-    """
-    if findings:
-        normalized = []
-        for index, finding in enumerate(findings, start=1):
-            start_line = finding.get("line", finding.get("start_line"))
-            end_line = finding.get("end_line")
-            normalized.append(
-                {
-                    "id": finding.get("id") or f"F{index}",
-                    "title": finding.get("title") or "Follow-up required",
-                    "body": finding.get("body") or summary,
-                    "file": finding.get("file", ""),
-                    "line": int(start_line) if start_line not in (None, "") else None,
-                    "end_line": int(end_line) if end_line not in (None, "") else None,
-                    "severity": finding.get("severity", "medium"),
-                    "category": finding.get("category", "general"),
-                    "suggested_fix": finding.get("suggested_fix", ""),
-                    "source_run": finding.get("source_run", ""),
-                }
-            )
-        return normalized
-    return [
-        {
-            "id": "F1",
-            "title": "Follow-up required",
-            "body": summary,
-            "file": "",
-            "line": None,
-            "end_line": None,
-            "severity": "medium",
-            "category": "general",
-            "suggested_fix": "",
-            "source_run": "",
-        }
-    ]
-
-
 def format_fix_request_markdown(task_id: str, summary: str, result: str, findings: list[dict[str, Any]]) -> str:
     """
     Format a QA fix request as structured markdown.
@@ -1467,54 +1249,6 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 #      - Typical speedup: 2x+ for repeated calls
 #
 # ============================================================================
-
-# Cache data structures
-_agents_config_cache: dict[str, AgentSpec] | None = None
-
-
-def _populate_agents_cache() -> None:
-    """Load agents configuration into the cache.
-
-    This implements lazy-loading: agents config is only loaded from disk when needed.
-    Subsequent calls will use the cached data (O(1) lookup).
-
-    Cache Behavior:
-        If _agents_config_cache is not None, we've already loaded the agents,
-        so we return immediately (cache hit). Otherwise, we load the agents from
-        disk using load_agents() and store it in the cache.
-
-    Note: Unlike run metadata cache, there's only one agents config, so this
-    is a simple load-once pattern without opportunistic caching.
-
-    The cached data is a dictionary mapping agent names to AgentSpec objects.
-    """
-    global _agents_config_cache
-
-    # Skip if already loaded (cache hit)
-    if _agents_config_cache is not None:
-        return
-
-    # Load agents config from disk
-    _agents_config_cache = load_agents()
-
-
-def invalidate_agents_cache() -> None:
-    """Invalidate the agents configuration cache.
-
-    Call this function whenever the agents configuration is modified to ensure
-    the cache remains consistent with the filesystem state.
-
-    Cache Invalidation Strategy:
-        - Simple: set the cached data to None
-        - Safe: ensures cache consistency after config modification
-        - Lazy: data is reloaded on next access (not immediately)
-
-    Note: Agents config modifications are rare (e.g., sync-agents command),
-    so aggressive invalidation is acceptable. The cache will be repopulated
-    on the next access.
-    """
-    global _agents_config_cache
-    _agents_config_cache = None
 
 
 def invalidate_config_cache() -> None:
@@ -2986,25 +2720,6 @@ def complete_run_record(
         "fix_request": fix_request_path,
         "strategy_memory": [str(path) for path in strategy_paths],
     }
-
-
-def load_agent_result_payload(result_file: Path) -> tuple[str, str, list[dict[str, Any]], str]:
-    if not result_file.exists():
-        raise FileNotFoundError(result_file)
-    raw = read_json(result_file)
-    if not isinstance(raw, dict):
-        raise ValueError("agent result payload must be a JSON object")
-    result = str(raw.get("result", "")).strip()
-    if result not in RUN_RESULTS:
-        raise ValueError("agent result payload must contain a valid result")
-    summary = str(raw.get("summary", "")).strip() or f"Agent reported result {result}."
-    findings = raw.get("findings", [])
-    if findings is None:
-        findings = []
-    if not isinstance(findings, list):
-        raise ValueError("agent result findings must be a list")
-    normalized = normalize_findings(summary, findings) if findings else []
-    return result, summary, normalized, str(result_file)
 
 
 def finalize_run_record(
