@@ -20,6 +20,7 @@ from autoflow import __version__
 from autoflow.cli.agent import agent
 from autoflow.cli.ci import ci
 from autoflow.cli.config import config
+from autoflow.cli.duplication import duplication
 from autoflow.cli.init import init
 from autoflow.cli.memory import memory
 from autoflow.cli.review import review
@@ -147,3 +148,4 @@ main.add_command(ci)
 main.add_command(review)
 main.add_command(config)
 main.add_command(memory)
+main.add_command(duplication)
