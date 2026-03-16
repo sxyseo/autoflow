@@ -126,21 +126,37 @@ class ReviewState(TypedDict, total=False):
 # === Strategy Memory Types ===
 
 
+class StrategyMemoryCounters(TypedDict, total=False):
+    """Counters for tracking run results in strategy memory."""
+
+    needs_changes: int
+    blocked: int
+    failed: int
+
+
+class StrategyMemoryStats(TypedDict, total=False):
+    """Statistics for strategy memory tracking."""
+
+    total_runs: int
+    successful_runs: int
+    needs_changes_runs: int
+    blocked_runs: int
+    failed_runs: int
+
+
 class StrategyMemory(TypedDict, total=False):
     """
     Represents strategy memory for a spec.
 
-    Stores strategic context, decisions, and learnings that persist
-    across runs and agents.
+    Stores reflections, playbook entries, counters, and statistics that
+    persist across runs and agents for strategic learning.
     """
 
-    spec_slug: str
+    reflections: list[dict[str, Any]]
+    playbook: list[dict[str, Any]]
+    counters: StrategyMemoryCounters
+    stats: StrategyMemoryStats
     updated_at: str
-    strategic_context: str
-    key_decisions: list[str]
-    lessons_learned: list[str]
-    retry_history: list[dict[str, Any]]
-    optimization_hints: list[str]
 
 
 # === Generic JSON Types ===

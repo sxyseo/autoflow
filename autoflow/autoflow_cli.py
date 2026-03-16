@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
-from autoflow.core.types import ReviewState, TaskData, TasksFile
+from autoflow.core.types import ReviewState, StrategyMemory, TaskData, TasksFile
 
 
 class TaskStatus(StrEnum):
@@ -799,7 +799,7 @@ class AutoflowCLI:
 
     def load_strategy_memory(
         self, scope: str, spec_slug: str | None = None
-    ) -> dict[str, Any]:
+    ) -> StrategyMemory:
         """
         Load strategy memory.
 
@@ -814,7 +814,7 @@ class AutoflowCLI:
         return self.read_json_or_default(path, self.strategy_memory_default())
 
     def save_strategy_memory(
-        self, scope: str, payload: dict[str, Any], spec_slug: str | None = None
+        self, scope: str, payload: StrategyMemory, spec_slug: str | None = None
     ) -> Path:
         """
         Save strategy memory.
@@ -832,7 +832,7 @@ class AutoflowCLI:
         self.write_json(path, payload)
         return path
 
-    def strategy_memory_default(self) -> dict[str, Any]:
+    def strategy_memory_default(self) -> StrategyMemory:
         """
         Get default strategy memory structure.
 
