@@ -19,6 +19,7 @@
 - [Memory and State](#memory-and-state)
 - [Review Gates](#review-gates)
 - [Continuous Iteration](#continuous-iteration)
+- [CLI Issues](#cli-issues)
 - [Error Messages](#error-messages)
 - [Best Practices](#best-practices)
 - [Advanced Scenarios](#advanced-scenarios)
@@ -101,6 +102,89 @@ python3 scripts/continuous_iteration.py \
   --commit-if-dirty \
   --dispatch \
   --push
+```
+
+### How do I migrate from the old CLI to the new CLI?
+
+**Background:** Autoflow has migrated from a Python script-based CLI (`python3 scripts/autoflow.py`) to a modern modular CLI (`autoflow` command).
+
+**Old Command:**
+```bash
+python3 scripts/autoflow.py init
+```
+
+**New Command:**
+```bash
+autoflow init
+```
+
+**Command Migration Guide:**
+
+| Old Command | New Command | Notes |
+|------------|-------------|-------|
+| `python3 scripts/autoflow.py init` | `autoflow init` | Initialize system |
+| `python3 scripts/autoflow.py status` | `autoflow status` | Check system status |
+| `python3 scripts/autoflow.py new-spec ...` | `autoflow run "..." --spec ...` | Create specs |
+| `python3 scripts/autoflow.py workflow-state` | `autoflow task list` | View workflow state |
+| `python3 scripts/autoflow.py show-memory` | `autoflow memory list` | View memory |
+
+**Backward Compatibility:**
+The old import path still works for existing scripts:
+```python
+# This still works
+from autoflow.cli import main
+main()
+```
+
+**When to use old vs. new:**
+- **New CLI:** Recommended for all interactive use
+- **Old CLI:** Only for backward compatibility with existing scripts
+- **Both work:** All functionality is preserved—only the interface has changed
+
+### How do I validate that Autoflow is working correctly?
+
+**Quick Validation:**
+```bash
+# 1. Check system status
+autoflow status
+
+# 2. Verify agents are available
+autoflow agent check all
+
+# 3. Validate configuration
+autoflow config validate
+```
+
+**Runtime Loop Validation:**
+```bash
+# Command-layer smoke test
+python3 scripts/validate_readme_flow.py --agent codex
+
+# Runtime-loop smoke test (uses disposable dummy ACP agent and tmux)
+python3 scripts/validate_runtime_loop.py
+
+# Recovery and bounded QA-loop smoke test
+python3 scripts/validate_recovery_loop.py
+```
+
+**What these validate:**
+- **validate_readme_flow.py**: Confirms command-layer functionality works end-to-end
+- **validate_runtime_loop.py**: Verifies `continuous_iteration.py --dispatch` creates real background tmux runs and auto-finalizes them
+- **validate_recovery_loop.py**: Confirms stale runs can be recovered, reviewer generates fix requests, and the bounded fix/re-review loop advances tasks
+
+**If validation fails:**
+```bash
+# 1. Check logs for detailed error messages
+cat .autoflow/logs/autoflow.log
+
+# 2. Verify tmux is installed and working
+tmux -V
+
+# 3. Check agent availability
+autoflow agent check all
+
+# 4. Reinitialize if needed
+autoflow init --force
 ```
 
 ---
@@ -905,6 +989,100 @@ pkill -f continuous_iteration
 crontab -e
 ```
 
+### Why is the scheduler not running tasks?
+
+**Problem:** Scheduler is running but not dispatching tasks.
+
+**Causes:**
+1. Scheduler not configured for the correct spec
+2. Job not enabled in scheduler configuration
+3. Cron schedule incorrect
+4. Scheduler process not running
+
+**Solutions:**
+
+```bash
+# 1. Check scheduler status
+autoflow scheduler status
+
+# 2. Verify scheduler configuration
+cat .autoflow/scheduler.json | jq .
+
+# 3. Check if continuous_iteration job is enabled
+cat .autoflow/scheduler.json | jq '.jobs.continuous_iteration.enabled'
+
+# 4. Verify job configuration includes spec
+cat .autoflow/scheduler.json | jq '.jobs.continuous_iteration.args.spec'
+
+# 5. Check scheduler logs
+tail -f .autoflow/logs/scheduler.log
+```
+
+**Expected Scheduler Configuration:**
+```json
+{
+  "jobs": {
+    "continuous_iteration": {
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "args": {
+        "spec": "my-project",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true,
+        "commit_if_dirty": false,
+        "push": false
+      }
+    }
+  }
+}
+```
+
+### How do I configure scheduler for multiple specs?
+
+**Problem:** You want to run continuous iteration for multiple specs.
+
+**Solution:**
+
+```bash
+# 1. Create separate scheduler jobs for each spec
+cat > .autoflow/scheduler.json << 'EOF'
+{
+  "jobs": {
+    "continuous_iteration_spec1": {
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "args": {
+        "spec": "spec-1",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true
+      }
+    },
+    "continuous_iteration_spec2": {
+      "enabled": true,
+      "cron": "*/10 * * * *",
+      "args": {
+        "spec": "spec-2",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true
+      }
+    }
+  }
+}
+EOF
+
+# 2. Restart scheduler to pick up new configuration
+autoflow scheduler stop
+autoflow scheduler start
+
+# 3. Verify both jobs are running
+autoflow scheduler status
+```
+
+**Best Practices:**
+- Use different cron schedules to avoid resource contention
+- Monitor logs for each spec separately
+- Set appropriate max_concurrent per spec
+
 ---
 
 ## Error Messages
@@ -1025,6 +1203,140 @@ sudo chown -R $USER:$USER .autoflow/
 
 # 5. Check disk space
 df -h .autoflow/
+```
+
+---
+
+## CLI Issues
+
+### Why is the Autoflow CLI not found?
+
+**Problem:**
+```bash
+autoflow: command not found
+```
+
+**Causes:**
+1. Autoflow not installed in editable mode
+2. Virtual environment not activated
+3. Installation failed silently
+4. PATH not configured correctly
+
+**Solutions:**
+
+```bash
+# 1. Verify installation
+pip show autoflow
+
+# 2. If not installed, install in editable mode
+cd /path/to/autoflow
+pip install -e .
+
+# 3. If virtual environment exists, activate it
+source .venv/bin/activate  # On macOS/Linux
+# or
+.venv\Scripts\activate  # On Windows
+
+# 4. Verify installation again
+which autoflow  # Should show path to autoflow executable
+autoflow --version  # Should show version number
+```
+
+**Prevention:**
+- Always use `pip install -e .` when setting up Autoflow
+- Keep virtual environment active during development
+- Add `source .venv/bin/activate` to your shell startup script
+
+### How do I verify CLI installation?
+
+```bash
+# 1. Check CLI version
+autoflow --version
+
+# 2. Verify CLI installation
+python -c "from autoflow.cli import main; print('OK')"
+
+# 3. Test basic commands
+autoflow --help
+autoflow status --help
+
+# 4. Run system status check
+autoflow status
+```
+
+**Expected Output:**
+- `autoflow --version`: Should show version number (e.g., `Autoflow v0.1.0`)
+- Python import test: Should print `OK` without errors
+- Help commands: Should display usage information
+- Status check: Should show system health
+
+### Why are CLI commands failing with import errors?
+
+**Problem:**
+```bash
+ImportError: No module named 'autoflow.cli'
+```
+
+**Causes:**
+1. Installation in development mode without dependencies
+2. Wrong Python environment
+3. Corrupted installation
+
+**Solutions:**
+
+```bash
+# 1. Reinstall with all dependencies
+pip install -e .[dev]
+
+# 2. Verify Python path
+which python
+python --version
+
+# 3. Uninstall and reinstall
+pip uninstall autoflow
+pip install -e .
+
+# 4. Check for conflicting installations
+pip list | grep autoflow
+```
+
+### How do I switch between old and new CLI?
+
+**Scenario:** You have scripts using the old CLI and want to use the new CLI.
+
+**Solution:**
+
+```bash
+# Old CLI (still works for backward compatibility)
+python3 scripts/autoflow.py init
+
+# New CLI (recommended)
+autoflow init
+```
+
+**Migration Script:**
+```bash
+# Create a helper script for migration
+cat > migrate_to_new_cli.sh << 'EOF'
+#!/bin/bash
+# Replace old CLI invocations with new CLI
+find . -name "*.sh" -type f -exec sed -i '' 's/python3 scripts\/autoflow\.py/autoflow/g' {} +
+echo "Migration complete!"
+EOF
+
+chmod +x migrate_to_new_cli.sh
+./migrate_to_new_cli.sh
+```
+
+**Note:** The old Python import path still works:
+```python
+# Old import (still works)
+from autoflow.cli import main
+main()
+
+# New usage (recommended)
+import subprocess
+subprocess.run(["autoflow", "status"])
 ```
 
 ---
