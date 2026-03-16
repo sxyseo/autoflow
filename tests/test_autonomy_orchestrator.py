@@ -4,14 +4,12 @@ Unit Tests for CLI Healthcheck and Autonomy Orchestrator
 Tests the CLI healthcheck functionality for probing binary capabilities
 and the Autonomy Orchestrator for coordinating agent dispatch and taskmaster sync.
 
-These tests use mocks and module loading utilities to test scripts
-without requiring actual agent installations or external services.
+These tests use mocks to test scripts without requiring actual agent
+installations or external services.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import json
 import sys
 import tempfile
 import unittest
@@ -19,27 +17,27 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-def load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+# Add the project root to the path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 
 class CliHealthcheckTests(unittest.TestCase):
+    """Tests for cli_healthcheck.py module."""
+
     def setUp(self) -> None:
-        self.repo_root = Path(__file__).resolve().parents[1]
-        self.module = load_module(self.repo_root / "scripts" / "cli_healthcheck.py", "cli_healthcheck_test")
+        """Import the module for each test to ensure clean state."""
+        # Import here to avoid module-level code execution issues
+        import scripts.cli_healthcheck as cli_healthcheck
+
+        self.module = cli_healthcheck
 
     def test_probe_binary_reports_resume_and_model_capabilities(self) -> None:
+        """Test that probe_binary correctly detects resume and model capabilities."""
         with (
-            patch.object(self.module.shutil, "which", return_value="/usr/bin/codex"),
-            patch.object(
-                self.module,
-                "run",
+            patch("scripts.cli_healthcheck.shutil.which", return_value="/usr/bin/codex"),
+            patch(
+                "scripts.cli_healthcheck.run",
                 side_effect=[
                     SimpleNamespace(stdout="codex 1.0.0", stderr="", returncode=0),
                     SimpleNamespace(stdout="resume --model", stderr="", returncode=0),
@@ -53,27 +51,33 @@ class CliHealthcheckTests(unittest.TestCase):
 
 
 class AutonomyOrchestratorTests(unittest.TestCase):
+    """Tests for autonomy_orchestrator.py module."""
+
     def setUp(self) -> None:
-        self.repo_root = Path(__file__).resolve().parents[1]
-        scripts_dir = str(self.repo_root / "scripts")
+        """Set up test fixtures and import the module."""
+        # Add scripts directory to sys.path for relative imports within scripts
+        repo_root = Path(__file__).resolve().parents[1]
+        scripts_dir = str(repo_root / "scripts")
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
-        self.module = load_module(
-            self.repo_root / "scripts" / "autonomy_orchestrator.py",
-            "autonomy_orchestrator_test",
-        )
+
+        # Import here to avoid module-level code execution issues
+        import scripts.autonomy_orchestrator as autonomy_orchestrator
+
+        self.module = autonomy_orchestrator
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
 
     def tearDown(self) -> None:
+        """Clean up temporary directory."""
         self.temp_dir.cleanup()
 
     def test_coordination_brief_uses_strategy_and_fallback_agent(self) -> None:
+        """Test that coordination_brief correctly uses strategy and fallback agent."""
         with (
-            patch.object(self.module, "load_config", return_value={"role_agents": {"reviewer": "claude-review"}}),
-            patch.object(
-                self.module,
-                "get_workflow_state",
+            patch("scripts.autonomy_orchestrator.load_config", return_value={"role_agents": {"reviewer": "claude-review"}}),
+            patch(
+                "scripts.autonomy_orchestrator.get_workflow_state",
                 return_value={
                     "recommended_next_action": {
                         "id": "T4",
@@ -81,27 +85,23 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                     }
                 },
             ),
-            patch.object(
-                self.module,
-                "get_strategy_summary",
+            patch(
+                "scripts.autonomy_orchestrator.get_strategy_summary",
                 return_value={"playbook": [{"category": "tests", "rule": "write tests", "evidence_count": 2}]},
             ),
-            patch.object(
-                self.module,
-                "health_report",
+            patch(
+                "scripts.autonomy_orchestrator.health_report",
                 return_value={"binaries": [{"name": "codex", "available": True}]},
             ),
-            patch.object(
-                self.module,
-                "load_json",
+            patch(
+                "scripts.autonomy_orchestrator.load_json",
                 side_effect=[
                     {"agents": {"claude": {"command": "claude"}}},
                     {"agents": [{"name": "claude", "protocol": "cli"}]},
                 ],
             ),
-            patch.object(
-                self.module.continuous_iteration,
-                "select_agent_for_role",
+            patch(
+                "scripts.continuous_iteration.select_agent_for_role",
                 return_value=("claude", "fallback"),
             ),
         ):
@@ -115,10 +115,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(brief["strategy"]["playbook"][0]["category"], "tests")
 
     def test_taskmaster_sync_exports_when_enabled(self) -> None:
+        """Test that taskmaster_sync correctly exports when enabled."""
         export_path = self.root / "taskmaster.json"
         with (
-            patch.object(self.module, "ROOT", self.root),
-            patch.object(self.module, "taskmaster_export"),
+            patch("scripts.autonomy_orchestrator.ROOT", self.root),
+            patch("scripts.autonomy_orchestrator.taskmaster_export"),
         ):
             result = self.module.taskmaster_sync(
                 "spec-a",
