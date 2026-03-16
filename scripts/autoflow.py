@@ -82,6 +82,8 @@ from scripts.cli.utils import (
     _populate_run_cache_for_spec,
     _run_metadata_cache,
     append_memory,
+    compute_file_hash,
+    compute_spec_hash,
     deep_merge,
     ensure_state,
     ensure_state as ensure_state_dirs,
@@ -90,6 +92,7 @@ from scripts.cli.utils import (
     invalidate_system_config_cache,
     invalidate_tasks_cache,
     load_memory_context,
+    load_review_state,
     load_run_metadata,
     load_spec_metadata,
     load_strategy_memory,
@@ -99,15 +102,20 @@ from scripts.cli.utils import (
     now_stamp,
     now_utc,
     parse_stamp,
+    planning_contract,
     print_json,
     read_json,
     read_json_or_default,
+    record_event,
     resolve_root_path,
+    review_state_default,
+    review_status_summary,
     run_cmd,
     run_is_stale,
     run_last_activity,
     run_metadata_path,
     run_stale_reason,
+    save_review_state,
     save_spec_metadata,
     save_strategy_memory,
     save_tasks,
@@ -117,6 +125,7 @@ from scripts.cli.utils import (
     stale_runs_for_spec,
     strategy_memory_default,
     strategy_memory_file,
+    sync_review_state,
     system_config_default,
     task_file,
     tmux_session_exists,
@@ -298,33 +307,6 @@ def load_agents() -> dict[str, AgentSpec]:
         )
     _agents_config_cache = agents
     return _agents_config_cache
-
-
-def review_state_default() -> dict[str, Any]:
-    """
-    Get the default review state structure.
-
-    Returns:
-        Default review state dictionary with the following keys:
-        - approved: Whether the review is approved (bool)
-        - approved_by: Username of the approver (str)
-        - approved_at: ISO timestamp of approval (str)
-        - spec_hash: Hash of the spec at approval time (str)
-        - review_count: Number of reviews performed (int)
-        - feedback: List of feedback comments (list)
-        - invalidated_at: ISO timestamp of invalidation (str)
-        - invalidated_reason: Reason for invalidation (str)
-    """
-    return {
-        "approved": False,
-        "approved_by": "",
-        "approved_at": "",
-        "spec_hash": "",
-        "review_count": 0,
-        "feedback": [],
-        "invalidated_at": "",
-        "invalidated_reason": "",
-    }
 
 
 def derive_strategy_actions(
@@ -638,48 +620,6 @@ def render_strategy_context(spec_slug: str) -> str:
     return "\n".join(lines).strip()
 
 
-def load_review_state(spec_slug: str) -> dict[str, Any]:
-    """
-    Load the review state for a spec.
-
-    Reads the review state from disk, returning a default state if the file
-    doesn't exist or is invalid. The review state tracks approval status,
-    reviewer information, and approval metadata.
-
-    Args:
-        spec_slug: Spec slug identifier
-
-    Returns:
-        Review state dictionary with the following keys:
-        - approved: Whether the review is approved (bool)
-        - approved_by: Username of the approver (str)
-        - approved_at: ISO timestamp of approval (str)
-        - spec_hash: Hash of the spec at approval time (str)
-        - review_count: Number of reviews performed (int)
-    """
-    return read_json_or_default(spec_files(spec_slug)["review_state"], review_state_default())
-
-
-def save_review_state(spec_slug: str, state: dict[str, Any]) -> None:
-    """
-    Save the review state for a spec.
-
-    Persists the review state to disk as JSON. Creates parent directories
-    if they don't exist. The review state tracks approval status, reviewer
-    information, and approval metadata.
-
-    Args:
-        spec_slug: Spec slug identifier
-        state: Review state dictionary containing:
-            - approved: Whether the review is approved (bool)
-            - approved_by: Username of the approver (str)
-            - approved_at: ISO timestamp of approval (str)
-            - spec_hash: Hash of the spec at approval time (str)
-            - review_count: Number of reviews performed (int)
-    """
-    write_json(spec_files(spec_slug)["review_state"], state)
-
-
 def parse_dependency_ref(dep_ref: str) -> tuple[str | None, str]:
     """
     Parse a dependency reference into (repository_id, task_id).
@@ -824,37 +764,6 @@ def normalize_worktree_metadata(spec_slug: str, metadata: dict[str, Any] | None 
         "base_branch": base_branch,
     }
     return payload
-
-
-def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> None:
-    """
-    Record an event to the spec's event log.
-
-    Events are stored as JSONL (one JSON object per line) in the events.jsonl file.
-    Each event includes a timestamp, event type, and payload data.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-        event_type: Type of event being recorded (e.g., "task_started", "task_completed")
-        payload: Event data as a dictionary
-
-    Event Log Format:
-        Each line is a JSON object with:
-        {
-            "at": "YYYYMMDDTHHMMSSZ",  # UTC timestamp
-            "type": "event_type",       # Event type identifier
-            "payload": {...}            # Event-specific data
-        }
-    """
-    files = spec_files(spec_slug)
-    files["events"].parent.mkdir(parents=True, exist_ok=True)
-    entry = {
-        "at": now_stamp(),
-        "type": event_type,
-        "payload": payload,
-    }
-    with open(files["events"], "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
 
 
 def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -1216,146 +1125,6 @@ def clear_fix_request(spec_slug: str) -> None:
             removed = True
     if removed:
         record_event(spec_slug, "qa.fix_request_cleared", {})
-
-
-def compute_file_hash(path: Path) -> str:
-    """
-    Compute MD5 hash of a file's content.
-
-    Reads the file as UTF-8 text and returns its MD5 hash as a hexadecimal string.
-    Returns empty string if the file doesn't exist.
-
-    Args:
-        path: Path to the file to hash
-
-    Returns:
-        Hexadecimal MD5 hash string, or empty string if file doesn't exist
-    """
-    if not path.exists():
-        return ""
-    content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
-
-
-def planning_contract(spec_slug: str) -> dict[str, Any]:
-    """
-    Generate a planning contract from task data.
-
-    Extracts and structures task information needed for planning, including:
-    - Task ID and title
-    - Dependencies
-    - Owner role
-    - Acceptance criteria
-
-    Args:
-        spec_slug: Slug identifier for the spec
-
-    Returns:
-        Dictionary containing list of tasks with planning-relevant fields
-    """
-    task_data = load_tasks(spec_slug)
-    tasks = []
-    for task in task_data.get("tasks", []):
-        tasks.append(
-            {
-                "id": task["id"],
-                "title": task["title"],
-                "depends_on": task.get("depends_on", []),
-                "owner_role": task["owner_role"],
-                "acceptance_criteria": task.get("acceptance_criteria", []),
-            }
-        )
-    return {"tasks": tasks}
-
-
-def compute_spec_hash(spec_slug: str) -> str:
-    """
-    Compute a combined hash of spec content and planning contract.
-
-    Generates a hash that combines:
-    - MD5 hash of the spec.md file content
-    - MD5 hash of the planning contract (JSON representation of tasks)
-
-    The combined hash ensures that any change to either the spec content
-    or the task structure will be detected.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-
-    Returns:
-        Hexadecimal MD5 hash string combining spec and task hashes
-    """
-    files = spec_files(spec_slug)
-    spec_hash = compute_file_hash(files["spec"])
-    task_hash = hashlib.md5(
-        json.dumps(planning_contract(spec_slug), sort_keys=True).encode("utf-8"),
-        usedforsecurity=False,
-    ).hexdigest()
-    combined = f"{spec_hash}:{task_hash}"
-    return hashlib.md5(combined.encode("utf-8"), usedforsecurity=False).hexdigest()
-
-
-def sync_review_state(spec_slug: str, reason: str = "planning_artifacts_changed") -> dict[str, Any]:
-    """
-    Synchronize review state with current spec hash.
-
-    Checks if the spec has changed since approval. If the previously approved
-    spec hash differs from the current hash, invalidates the approval and
-    records the change as an event.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-        reason: Reason code for invalidation (default: "planning_artifacts_changed")
-
-    Returns:
-        Current review state dictionary, potentially updated with invalidation
-    """
-    state = load_review_state(spec_slug)
-    if state.get("approved") and state.get("spec_hash") != compute_spec_hash(spec_slug):
-        state["approved"] = False
-        state["invalidated_at"] = now_stamp()
-        state["invalidated_reason"] = reason
-        save_review_state(spec_slug, state)
-        record_event(spec_slug, "review.invalidated", {"reason": reason})
-    return state
-
-
-def review_status_summary(spec_slug: str) -> dict[str, Any]:
-    """
-    Generate a summary of review status for a spec.
-
-    Synchronizes the review state to check for spec changes and computes
-    a comprehensive summary including approval status, validity, timestamps,
-    and feedback counts.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-
-    Returns:
-        Dictionary containing review status summary with keys:
-            - approved: Whether the spec is currently approved
-            - valid: Whether approval is still valid (approved and hash matches)
-            - approved_by: Username of approver
-            - approved_at: Timestamp of approval
-            - review_count: Number of reviews completed
-            - feedback_count: Number of feedback items
-            - spec_changed: Whether spec has changed since approval
-            - invalidated_at: Timestamp when approval was invalidated
-            - invalidated_reason: Reason for invalidation
-    """
-    state = sync_review_state(spec_slug)
-    current_hash = compute_spec_hash(spec_slug)
-    return {
-        "approved": state.get("approved", False),
-        "valid": bool(state.get("approved")) and state.get("spec_hash") == current_hash,
-        "approved_by": state.get("approved_by", ""),
-        "approved_at": state.get("approved_at", ""),
-        "review_count": state.get("review_count", 0),
-        "feedback_count": len(state.get("feedback", [])),
-        "spec_changed": bool(state.get("spec_hash")) and state.get("spec_hash") != current_hash,
-        "invalidated_at": state.get("invalidated_at", ""),
-        "invalidated_reason": state.get("invalidated_reason", ""),
-    }
 
 
 def detect_base_branch() -> str:

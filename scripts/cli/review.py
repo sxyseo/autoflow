@@ -20,35 +20,15 @@ import argparse
 from typing import Any
 
 # Import utilities from cli.utils
-from scripts.cli.utils import ROOT
-
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in later subtasks
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-
-def _get_review_helper_functions():
-    """Import review helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in later subtasks
-    import scripts.autoflow as af
-
-    return {
-        'load_review_state': af.load_review_state,
-        'save_review_state': af.save_review_state,
-        'review_status_summary': af.review_status_summary,
-        'sync_review_state': af.sync_review_state,
-        'compute_spec_hash': af.compute_spec_hash,
-        'record_event': af.record_event,
-        'now_stamp': af.now_stamp,
-        'print_json': af.print_json,
-    }
-
-
-def _helpers():
-    """Lazy loading of helper functions to avoid circular imports."""
-    return _get_review_helper_functions()
+from scripts.cli.utils import (
+    compute_spec_hash,
+    load_review_state,
+    now_stamp,
+    print_json,
+    record_event,
+    review_status_summary,
+    save_review_state,
+)
 
 
 def approve_spec(args: argparse.Namespace) -> None:
@@ -73,18 +53,17 @@ def approve_spec(args: argparse.Namespace) -> None:
         - Appends approval event to events.jsonl
         - Prints review status summary as JSON to stdout
     """
-    h = _helpers()
-    state = h['load_review_state'](args.spec)
+    state = load_review_state(args.spec)
     state["approved"] = True
     state["approved_by"] = args.approved_by
-    state["approved_at"] = h['now_stamp']()
-    state["spec_hash"] = h['compute_spec_hash'](args.spec)
+    state["approved_at"] = now_stamp()
+    state["spec_hash"] = compute_spec_hash(args.spec)
     state["review_count"] = state.get("review_count", 0) + 1
     state["invalidated_at"] = ""
     state["invalidated_reason"] = ""
-    h['save_review_state'](args.spec, state)
-    h['record_event'](args.spec, "review.approved", {"approved_by": args.approved_by})
-    h['print_json'](h['review_status_summary'](args.spec))
+    save_review_state(args.spec, state)
+    record_event(args.spec, "review.approved", {"approved_by": args.approved_by})
+    print_json(review_status_summary(args.spec))
 
 
 def invalidate_review(args: argparse.Namespace) -> None:
@@ -109,15 +88,14 @@ def invalidate_review(args: argparse.Namespace) -> None:
         - Appends invalidation event to events.jsonl
         - Prints review status summary as JSON to stdout
     """
-    h = _helpers()
-    state = h['load_review_state'](args.spec)
+    state = load_review_state(args.spec)
     state["approved"] = False
-    state["invalidated_at"] = h['now_stamp']()
+    state["invalidated_at"] = now_stamp()
     state["invalidated_reason"] = args.reason
     state["spec_hash"] = ""
-    h['save_review_state'](args.spec, state)
-    h['record_event'](args.spec, "review.invalidated", {"reason": args.reason})
-    h['print_json'](h['review_status_summary'](args.spec))
+    save_review_state(args.spec, state)
+    record_event(args.spec, "review.invalidated", {"reason": args.reason})
+    print_json(review_status_summary(args.spec))
 
 
 def show_review_status(args: argparse.Namespace) -> None:
@@ -151,8 +129,7 @@ def show_review_status(args: argparse.Namespace) -> None:
             - invalidated_at: Timestamp when approval was invalidated (if applicable)
             - invalidated_reason: Reason for invalidation (if applicable)
     """
-    h = _helpers()
-    h['print_json'](h['review_status_summary'](args.spec))
+    print_json(review_status_summary(args.spec))
 
 
 def add_subparser(sub: argparse._SubParsersAction) -> None:
