@@ -30,7 +30,7 @@
       },
       {
         "name": "Linting",
-        "command": ["flake8", "autoflow/", "--max-line-length=120"],
+        "command": ["ruff", "check", "autoflow/"],
         "severity": "warning",
         "timeout": 60,
         "description": "Check code style. Linting issues are logged but don't trigger rollback."
