@@ -1,0 +1,121 @@
+{
+  "_comment": [
+    "Autoflow Duplication Detection Configuration",
+    "",
+    "This file configures the code duplication detection system that identifies",
+    "duplicated code patterns in AI-generated changes. Copy this file to",
+    ".autoflow/duplication.json to customize detection for your project.",
+    "",
+    "Configuration Options:",
+    "- minimum_similarity: Threshold for flagging code as duplicated (0.0-1.0)",
+    "  Higher values = more strict (fewer false positives, may miss some duplicates)",
+    "  Lower values = more lenient (catches more duplicates, more false positives)",
+    "  Recommended: 0.7 for general use, 0.8+ for strict code review",
+    "",
+    "- minimum_lines: Minimum code block length to analyze for duplication",
+    "  Shorter blocks are skipped to reduce noise",
+    "  Recommended: 5 for most projects",
+    "",
+    "- token_similarity_weight: Weight for token-based comparison (0.0-1.0)",
+    "  Analyzes code at the token level (identifiers, keywords, operators)",
+    "",
+    "- structure_similarity_weight: Weight for AST structure comparison (0.0-1.0)",
+    "  Analyzes code structure (functions, classes, control flow)",
+    "",
+    "Note: token_similarity_weight + structure_similarity_weight should equal ~1.0",
+    "",
+    "- file_overrides: Per-file or per-directory threshold overrides",
+    "  Use glob patterns to match files (e.g., 'tests/*', '*.py')",
+    "  Useful for adjusting sensitivity in specific areas"
+  ],
+
+  "defaults": {
+    "minimum_similarity": 0.7,
+    "minimum_lines": 5,
+    "token_similarity_weight": 0.5,
+    "structure_similarity_weight": 0.5
+  },
+
+  "examples": {
+    "strict_review": {
+      "_comment": "Strict configuration for critical code paths",
+      "minimum_similarity": 0.85,
+      "minimum_lines": 3,
+      "token_similarity_weight": 0.4,
+      "structure_similarity_weight": 0.6,
+      "file_overrides": {
+        "autoflow/core/*": {
+          "minimum_similarity": 0.9
+        },
+        "autoflow/security/*": {
+          "minimum_similarity": 0.95,
+          "minimum_lines": 2
+        }
+      }
+    },
+
+    "lenient_for_tests": {
+      "_comment": "Lenient configuration for test files and generated code",
+      "minimum_similarity": 0.6,
+      "minimum_lines": 8,
+      "file_overrides": {
+        "tests/*": {
+          "minimum_similarity": 0.5,
+          "minimum_lines": 10
+        },
+        "*/migrations/*": {
+          "minimum_similarity": 0.4
+        },
+        "*_generated.py": {
+          "minimum_similarity": 0.3
+        }
+      }
+    },
+
+    "balanced_default": {
+      "_comment": "Balanced configuration suitable for most projects",
+      "minimum_similarity": 0.7,
+      "minimum_lines": 5,
+      "token_similarity_weight": 0.5,
+      "structure_similarity_weight": 0.5,
+      "file_overrides": {
+        "prod/src/*": {
+          "minimum_similarity": 0.8,
+          "_comment": "Stricter for production source code"
+        },
+        "tests/*": {
+          "minimum_similarity": 0.6,
+          "_comment": "More lenient for test code"
+        }
+      }
+    }
+  },
+
+  "usage_examples": {
+    "cli_commands": [
+      "autoflow duplication config show",
+      "autoflow duplication config set --minimum-similarity 0.8",
+      "autoflow duplication config override 'tests/*' --minimum-similarity 0.6",
+      "autoflow duplication analyze --path . --threshold 0.7"
+    ],
+
+    "programmatic_usage": [
+      "from autoflow.analysis.duplication_detector import DuplicationDetector",
+      "",
+      "# Use default threshold from .autoflow/duplication.json",
+      "detector = DuplicationDetector()",
+      "",
+      "# Override with custom threshold",
+      "detector = DuplicationDetector(threshold=0.8)",
+      "",
+      "# Use full configuration",
+      "from autoflow.analysis.duplication_detector import DuplicationThreshold",
+      "threshold = DuplicationThreshold(",
+      "    minimum_similarity=0.75,",
+      "    minimum_lines=5,",
+      "    file_overrides={'tests/*': {'minimum_similarity': 0.6}}",
+      ")",
+      "detector = DuplicationDetector(threshold=threshold)"
+    ]
+  }
+}
