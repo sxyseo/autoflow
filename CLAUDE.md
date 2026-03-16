@@ -245,6 +245,300 @@ python3 -m pytest tests/test_agent_runner.py
 python3 -m pytest tests/ -v
 ```
 
+## Type Safety Guidelines
+
+Autoflow emphasizes strong type safety to catch errors early, improve code maintainability, and enable better IDE support. These guidelines apply to both Python (using type hints) and TypeScript code.
+
+### Core Principles
+
+1. **No `any` Types**: Avoid using `any` in TypeScript or untyped Python values. Use specific types or generics.
+2. **Explicit Type Annotations**: Add type annotations to function parameters, return values, and class properties.
+3. **Strict Mode**: Enable strict type checking in both Python (`mypy --strict`) and TypeScript (`strict: true`).
+4. **Type Guards**: Use type guards and validation for runtime type checking.
+5. **Configuration Type Safety**: All configuration files must be type-safe with proper validation.
+
+### Python Type Safety
+
+#### Type Annotations
+
+```python
+# ✅ GOOD - Explicit type annotations
+def create_run(
+    spec_slug: str,
+    role: str,
+    agent: str,
+    task_id: str | None = None
+) -> str:
+    """Create a new run and return the run ID."""
+    return generate_run_id()
+
+# ❌ BAD - No type annotations
+def create_run(spec_slug, role, agent, task_id=None):
+    return generate_run_id()
+```
+
+#### Type Hints for Complex Types
+
+```python
+from typing import TypedDict, List, Dict, Optional, Union
+
+# ✅ GOOD - TypedDict for structured data
+class AgentConfig(TypedDict):
+    protocol: str
+    command: str
+    args: List[str]
+    model_profile: str
+    memory_scopes: List[str]
+
+def configure_agent(config: AgentConfig) -> None:
+    """Configure an agent with proper typing."""
+    pass
+
+# ❌ BAD - Using dict or any
+def configure_agent(config: dict) -> None:
+    pass
+```
+
+#### Avoiding `Any`
+
+```python
+# ✅ GOOD - Use Union or TypeVar
+from typing import TypeVar, Union
+
+T = TypeVar('T', str, int, float)
+
+def process_value(value: Union[str, int, float]) -> str:
+    return str(value)
+
+# ❌ BAD - Using Any
+from typing import Any
+
+def process_value(value: Any) -> str:
+    return str(value)
+```
+
+### TypeScript Type Safety
+
+#### Strict Type Checking
+
+```typescript
+// ✅ GOOD - Explicit types
+interface AgentConfig {
+  protocol: 'cli' | 'acp';
+  command: string;
+  args: string[];
+  modelProfile?: string;
+}
+
+function createAgent(config: AgentConfig): Agent {
+  return new Agent(config);
+}
+
+// ❌ BAD - Using any
+function createAgent(config: any): any {
+  return new Agent(config);
+}
+```
+
+#### Type Guards
+
+```typescript
+// ✅ GOOD - Type guards for runtime validation
+function isAgentConfig(value: unknown): value is AgentConfig {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'protocol' in value &&
+    'command' in value
+  );
+}
+
+// Usage
+if (isAgentConfig(userInput)) {
+  createAgent(userInput); // TypeScript knows this is safe
+}
+
+// ❌ BAD - Type assertion without validation
+const config = userInput as AgentConfig;
+createAgent(config);
+```
+
+#### Configuration Validation
+
+```typescript
+// ✅ GOOD - Runtime validation with Zod or similar
+import { z } from 'zod';
+
+const AgentConfigSchema = z.object({
+  protocol: z.enum(['cli', 'acp']),
+  command: z.string(),
+  args: z.array(z.string()),
+  model_profile: z.string().optional(),
+});
+
+function validateAgentConfig(data: unknown): AgentConfig {
+  return AgentConfigSchema.parse(data);
+}
+```
+
+### Configuration File Type Safety
+
+#### JSON Configuration
+
+```json
+// ✅ GOOD - Structured, typed configuration
+{
+  "agents": {
+    "codex-impl": {
+      "protocol": "cli",
+      "command": "codex",
+      "args": ["--full-auto"],
+      "model_profile": "implementation"
+    }
+  }
+}
+```
+
+#### Python Configuration Classes
+
+```python
+# ✅ GOOD - Use dataclasses or pydantic for config
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass
+class AgentConfig:
+    protocol: Literal['cli', 'acp']
+    command: str
+    args: list[str]
+    model_profile: str | None = None
+
+def load_agent_config(data: dict) -> AgentConfig:
+    """Load and validate agent configuration."""
+    return AgentConfig(**data)
+
+# ❌ BAD - Raw dictionary access
+def load_agent_config(data: dict):
+    return {
+        'protocol': data['protocol'],
+        'command': data['command']
+    }
+```
+
+### Type Checking in Development
+
+#### Python Type Checking
+
+```bash
+# Run mypy with strict mode
+mypy --strict scripts/
+
+# Check specific file
+mypy --strict scripts/autoflow.py
+
+# Show error codes
+mypy --strict --show-error-codes scripts/
+```
+
+#### TypeScript Type Checking
+
+```bash
+# Run TypeScript compiler
+tsc --noEmit
+
+# Check specific file
+tsc --noEmit scripts/agent.ts
+
+# Watch mode for development
+tsc --watch
+```
+
+### Type Safety Best Practices
+
+1. **Never use `any`**: Always define specific types or use generics
+2. **Validate external data**: Use type guards for API responses, config files, user input
+3. **Enable strict mode**: Both Python (`mypy --strict`) and TypeScript (`strict: true`)
+4. **Type first**: Define types/interfaces before implementing functions
+5. **Avoid type assertions**: Use type guards and validation instead
+6. **Use TypedDict/dataclass**: For structured data in Python
+7. **Use interfaces**: For object shapes in TypeScript
+8. **Run type checker**: As part of CI/CD pipeline
+
+### Type Safety in Autoflow Codebase
+
+Autoflow codebase follows these type safety conventions:
+
+- **Configuration files**: All use TypedDict (Python) or interfaces (TypeScript)
+- **API boundaries**: Validate all external data with type guards
+- **Error handling**: Use typed exceptions with specific error types
+- **JSON schemas**: Maintain schemas for all configuration formats
+- **Type checking**: Required before commits (via pre-commit hooks)
+
+Example from Autoflow:
+
+```python
+from typing import TypedDict, Literal, Required
+
+class TaskStatus(TypedDict):
+    id: str
+    title: str
+    status: Literal['todo', 'in_progress', 'in_review', 'done', 'needs_changes', 'blocked']
+    dependencies: list[str]
+    acceptance_criteria: list[str]
+
+def update_task_status(
+    tasks: dict[str, TaskStatus],
+    task_id: str,
+    new_status: TaskStatus['status']
+) -> dict[str, TaskStatus]:
+    """Update task status with type safety."""
+    if task_id not in tasks:
+        raise KeyError(f"Task {task_id} not found")
+
+    task = tasks[task_id]
+    tasks[task_id] = {**task, 'status': new_status}
+    return tasks
+```
+
+### Type Safety Anti-Patterns to Avoid
+
+```python
+# ❌ ANTI-PATTERN 1: Using Any
+def process(data: Any) -> Any:
+    return data['result']
+
+# ✅ GOOD: Use generics or specific types
+from typing import TypeVar
+
+T = TypeVar('T')
+
+def process(data: dict[str, T]) -> T:
+    return data['result']
+
+# ❌ ANTI-PATTERN 2: Type assertion without validation
+config = json.loads(data)  # type: ignore
+create_agent(config)
+
+# ✅ GOOD: Validate first
+config_data = json.loads(data)
+if is_valid_agent_config(config_data):
+    create_agent(config_data)
+else:
+    raise ValueError("Invalid configuration")
+
+# ❌ ANTI-PATTERN 3: Optional chaining instead of proper types
+def get_agent(config: dict | None) -> str | None:
+    return config.get('agent') if config else None
+
+# ✅ GOOD: Use TypedDict or dataclass
+@dataclass
+class Config:
+    agent: str
+
+def get_agent(config: Config | None) -> str | None:
+    return config.agent if config else None
+```
+
 ## Peter's AI Development Principles
 
 Based on Peter Steinberger's workflow (627 commits in one day), Autoflow implements:
