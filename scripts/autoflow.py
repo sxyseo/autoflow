@@ -2033,10 +2033,16 @@ def clear_fix_request(spec_slug: str) -> None:
 
 def compute_file_hash(path: Path) -> str:
     """
-    Compute MD5 hash of a file's content.
+    Compute MD5 hash of a file's content with caching.
 
-    Reads the file as UTF-8 text and returns its MD5 hash as a hexadecimal string.
-    Returns empty string if the file doesn't exist.
+    Uses an in-memory cache indexed by file path with mtime-based invalidation.
+    Returns cached hash if file exists and mtime matches, otherwise computes
+    and caches the hash.
+
+    Cache Invalidation Strategy:
+        - First call: computes hash and stores with current mtime
+        - Subsequent calls: returns cached hash if mtime unchanged
+        - File modification: mtime changes triggers recomputation
 
     Args:
         path: Path to the file to hash
@@ -2044,10 +2050,28 @@ def compute_file_hash(path: Path) -> str:
     Returns:
         Hexadecimal MD5 hash string, or empty string if file doesn't exist
     """
+    global _file_hash_cache
+
     if not path.exists():
         return ""
+
+    path_str = str(path)
+    current_mtime = path.stat().st_mtime
+
+    # Check cache with mtime validation
+    if path_str in _file_hash_cache:
+        cached_hash, cached_mtime = _file_hash_cache[path_str]
+        if cached_mtime == current_mtime:
+            return cached_hash
+
+    # Cache miss or mtime changed - compute hash
     content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    file_hash = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+    # Store in cache with mtime for invalidation
+    _file_hash_cache[path_str] = (file_hash, current_mtime)
+
+    return file_hash
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
