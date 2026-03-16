@@ -205,6 +205,17 @@ select = [
     "ARG",    # flake8-unused-arguments
     "SIM",    # flake8-simplify
 ]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "B905",   # zip without explicit strict
+]
+
+[tool.ruff.isort]
+known-first-party = ["autoflow"]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["ARG001", "S101", "SIM117"]
 
 [tool.ruff.format]
 indent-style = "space"
