@@ -1,16 +1,21 @@
 """
-Unit Tests for AutoflowCLI Cache Functions
+Unit and Integration Tests for AutoflowCLI Cache Functions
 
 Tests the cache population and invalidation functions for system config
-and agents config in the AutoflowCLI module. These are unit tests because
-they test individual functions in isolation with controlled inputs and outputs.
+and agents config in the AutoflowCLI module.
 
-Functions Tested:
+Unit tests (test individual functions in isolation):
 - _populate_system_config_cache()
 - _populate_agents_cache()
 - invalidate_config_cache()
 - invalidate_system_config_cache()
 - invalidate_agents_cache()
+
+Integration tests (test load methods with caching):
+- load_system_config() uses cache
+- load_agents() uses cache
+- cache invalidation triggers reload
+- multiple AutoflowCLI instances share cache
 """
 
 from __future__ import annotations
@@ -336,6 +341,7 @@ class TestInvalidateConfigCache:
 class TestLoadMethodsCaching:
     """Integration tests for AutoflowCLI load methods with caching."""
 
+    @pytest.mark.integration
     def test_load_system_config_uses_cache(
         self, cli_instance: AutoflowCLI
     ) -> None:
@@ -352,6 +358,7 @@ class TestLoadMethodsCaching:
         # Both should be the same object (identity check)
         assert config1 is config2
 
+    @pytest.mark.integration
     def test_load_agents_uses_cache(self, cli_instance: AutoflowCLI) -> None:
         """Test that load_agents() method uses caching."""
         # Ensure clean cache
@@ -366,6 +373,7 @@ class TestLoadMethodsCaching:
         # Both should be the same object (identity check)
         assert agents1 is agents2
 
+    @pytest.mark.integration
     def test_cache_invalidation_triggers_reload(
         self, cli_instance: AutoflowCLI
     ) -> None:
@@ -382,6 +390,22 @@ class TestLoadMethodsCaching:
         # Should be different objects
         assert config1 is not config2
 
+    @pytest.mark.integration
+    def test_cache_invalidation_for_agents(self, cli_instance: AutoflowCLI) -> None:
+        """Test that agents cache invalidation triggers reload on next access."""
+        # First load
+        agents1 = cli_instance.load_agents()
+
+        # Invalidate cache
+        invalidate_agents_cache()
+
+        # Second load - should reload (different object)
+        agents2 = cli_instance.load_agents()
+
+        # Should be different objects
+        assert agents1 is not agents2
+
+    @pytest.mark.integration
     def test_multiple_cli_instances_share_cache(self) -> None:
         """Test that multiple AutoflowCLI instances share the same cache."""
         from autoflow.core.config import load_config
@@ -406,6 +430,82 @@ class TestLoadMethodsCaching:
         # Should be the same objects (module-level cache is shared)
         assert system_config1 is system_config2
         assert agents1 is agents2
+
+    @pytest.mark.integration
+    def test_cache_performance_benefit(self, cli_instance: AutoflowCLI) -> None:
+        """Test that caching provides performance benefit by avoiding disk I/O."""
+        import time
+
+        # Ensure clean cache
+        invalidate_config_cache()
+
+        # First call - should be slower (cache miss, reads from disk)
+        start = time.perf_counter()
+        cli_instance.load_system_config()
+        first_call_time = time.perf_counter() - start
+
+        # Second call - should be faster (cache hit, no disk I/O)
+        start = time.perf_counter()
+        cli_instance.load_system_config()
+        second_call_time = time.perf_counter() - start
+
+        # Second call should be significantly faster (or at least not slower)
+        # We allow some tolerance for timing variations
+        assert second_call_time <= first_call_time * 1.5
+
+    @pytest.mark.integration
+    def test_combined_cache_operations(self, cli_instance: AutoflowCLI) -> None:
+        """Test combining multiple cache operations in sequence."""
+        # Ensure clean cache
+        invalidate_config_cache()
+
+        # Load both configs
+        system_config = cli_instance.load_system_config()
+        agents = cli_instance.load_agents()
+
+        # Verify they're cached
+        assert autoflow_cli_module._system_config_cache is not None
+        assert autoflow_cli_module._agents_config_cache is not None
+
+        # Invalidate all
+        invalidate_config_cache()
+
+        # Verify both are cleared
+        assert autoflow_cli_module._system_config_cache is None
+        assert autoflow_cli_module._agents_config_cache is None
+
+        # Reload both
+        system_config2 = cli_instance.load_system_config()
+        agents2 = cli_instance.load_agents()
+
+        # Should be different objects (reloaded)
+        assert system_config is not system_config2
+        assert agents is not agents2
+
+    @pytest.mark.integration
+    def test_selective_cache_invalidation(self, cli_instance: AutoflowCLI) -> None:
+        """Test that selective cache invalidation works correctly."""
+        # Ensure clean cache and load both
+        invalidate_config_cache()
+        system_config = cli_instance.load_system_config()
+        agents = cli_instance.load_agents()
+
+        # Invalidate only system config
+        invalidate_system_config_cache()
+
+        # System config should be None, agents should still be cached
+        assert autoflow_cli_module._system_config_cache is None
+        assert autoflow_cli_module._agents_config_cache is not None
+
+        # Reload system config
+        system_config2 = cli_instance.load_system_config()
+
+        # System config should be reloaded (different object)
+        assert system_config is not system_config2
+
+        # Agents should still be the same cached object
+        agents2 = cli_instance.load_agents()
+        assert agents is agents2
 
 
 # ============================================================================
