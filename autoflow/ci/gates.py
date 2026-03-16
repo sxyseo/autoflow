@@ -1312,6 +1312,7 @@ def create_default_gates(
     lint: bool = True,
     security: bool = True,
     type_check: bool = False,
+    duplication: bool = False,
     workdir: str | Path | None = None,
 ) -> list[BaseGate]:
     """
@@ -1322,6 +1323,7 @@ def create_default_gates(
         lint: Include lint gate
         security: Include security gate
         type_check: Include type check gate
+        duplication: Include duplication gate
         workdir: Working directory for all gates
 
     Returns:
@@ -1337,6 +1339,8 @@ def create_default_gates(
         gates.append(SecurityGate(workdir=workdir))
     if type_check:
         gates.append(TypeCheckGate(workdir=workdir))
+    if duplication:
+        gates.append(DuplicationGate(workdir=workdir))
 
     return gates
 
@@ -1346,6 +1350,7 @@ def create_default_runner(
     lint: bool = True,
     security: bool = True,
     type_check: bool = False,
+    duplication: bool = False,
     parallel: bool = True,
     workdir: str | Path | None = None,
 ) -> GateRunner:
@@ -1357,6 +1362,7 @@ def create_default_runner(
         lint: Include lint gate
         security: Include security gate
         type_check: Include type check gate
+        duplication: Include duplication gate
         parallel: Run gates in parallel
         workdir: Working directory for all gates
 
@@ -1375,6 +1381,7 @@ def create_default_runner(
         lint=lint,
         security=security,
         type_check=type_check,
+        duplication=duplication,
         workdir=workdir,
     ):
         runner.add_gate(gate)
