@@ -215,6 +215,25 @@ def validate_slug_safe(slug: str) -> bool:
     return True
 
 
+def get_file_mtime(path: Path) -> float:
+    """
+    Get the modification time of a file.
+
+    Returns the file's modification time as a Unix timestamp (seconds since epoch).
+    Returns 0.0 if the file doesn't exist or cannot be accessed.
+
+    Args:
+        path: Path to the file
+
+    Returns:
+        float: Modification time as a Unix timestamp, or 0.0 if unavailable
+    """
+    try:
+        return path.stat().st_mtime
+    except (OSError, FileNotFoundError):
+        return 0.0
+
+
 def write_json(path: Path, data: Any) -> None:
     """
     Write data to a JSON file.

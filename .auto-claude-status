@@ -1,10 +1,10 @@
 {
   "active": true,
   "spec": "105-cache-file-hashes-for-review-state-validation",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 1,
+    "total": 7,
     "in_progress": 1,
     "failed": 0
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 3,
     "started_at": "2026-03-16T21:53:57.493987"
   },
-  "last_update": "2026-03-16T21:56:34.973235"
+  "last_update": "2026-03-16T21:57:34.779677"
 }
