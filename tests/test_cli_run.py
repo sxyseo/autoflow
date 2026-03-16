@@ -1,10 +1,21 @@
-"""
-Unit Tests for Autoflow CLI Run Command
+"""Unit Tests for Autoflow CLI Run Command.
 
-Tests the run command functionality including task execution,
-agent selection, skill execution, and resume functionality.
+Tests the CLI run command for task execution, agent selection, and configuration.
+These tests ensure the run command can:
+- Create and manage tasks with proper state management
+- Select and assign appropriate agents (claude-code, codex, openclaw)
+- Execute skills with proper metadata tracking
+- Handle working directory specification and validation
+- Configure timeout values for task execution
+- Support resume functionality for task continuation
+- Validate input arguments and handle missing requirements
+- Provide both human-readable and JSON output formats
+- Handle errors gracefully with proper exit codes
+- Integrate properly with StateManager for persistence
+- Handle edge cases including unicode, special characters, and long descriptions
+- Generate unique task IDs based on timestamps
 
-These tests use temporary directories to avoid affecting real state files.
+All tests use temporary directories to avoid affecting real state files.
 """
 
 from __future__ import annotations

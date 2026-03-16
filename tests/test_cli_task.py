@@ -1,7 +1,13 @@
-"""
-Unit Tests for Autoflow CLI Task Commands
+"""Unit Tests for Autoflow CLI Task Commands.
 
-Tests the task list and show commands for task management.
+Tests the CLI task commands for task management, including task listing and
+displaying task details. These tests ensure the task CLI can:
+- List tasks with various filtering options (status, agent, limit)
+- Display task details with proper formatting
+- Export task data in JSON format
+- Handle edge cases (missing tasks, unicode, large task lists)
+- Integrate correctly with StateManager for data persistence
+- Provide appropriate error messages for invalid operations
 
 These tests use temporary directories to avoid affecting real state files.
 """

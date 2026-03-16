@@ -1,10 +1,19 @@
-"""
-Unit Tests for Autoflow CLI Init Command
+"""Unit Tests for Autoflow CLI Init Command.
 
-Tests the init command functionality including initialization,
-force re-initialization, and JSON output modes.
+Tests the init command functionality for initializing the Autoflow state directory structure.
+These tests ensure the init command can:
+- Create all required directories (.autoflow/specs, tasks, runs, memory, backups)
+- Display appropriate success and error messages
+- Handle idempotency by failing gracefully when directory already exists
+- Support force re-initialization with --force/-f flags
+- Handle custom state directory paths from configuration
+- Handle permission errors gracefully without crashing
+- Create valid StateManager-compatible directory structure
+- Work with nested directory paths
+- Preserve existing files during force re-initialization
+- Integrate properly with StateManager for state management
 
-These tests use temporary directories to avoid affecting real state files.
+All tests use temporary directories to avoid affecting real state files.
 """
 
 from __future__ import annotations

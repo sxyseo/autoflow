@@ -1,10 +1,17 @@
-"""
-Unit Tests for Autoflow CLI Memory Commands
+"""Unit Tests for Autoflow CLI Memory Commands.
 
-Tests the memory command functionality including listing, getting,
-setting, and deleting memory entries.
-
-These tests use temporary directories to avoid affecting real state files.
+Tests the CLI memory command functionality for managing persistent memory entries.
+These tests ensure the memory system can:
+- List memory entries with proper formatting and filtering
+- Retrieve individual memory entries by key
+- Set and update memory entries with categories
+- Delete memory entries with proper validation
+- Handle JSON output format for all operations
+- Filter memory entries by category
+- Integrate properly with StateManager for persistence
+- Handle edge cases like missing entries and special characters
+- Maintain consistency across multiple operations
+- Validate configuration and error conditions
 """
 
 from __future__ import annotations
