@@ -28,23 +28,12 @@ from autoflow.core.commands import (
     taskmaster_export,
     taskmaster_import,
 )
+from autoflow.utils import load_json, load_config
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
-
-
-def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not path.exists():
-        return default or {}
-    result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return result
-
-
-def load_config(path: str) -> dict[str, Any]:
-    result: dict[str, Any] = json.loads((ROOT / path).read_text(encoding="utf-8"))
-    return result
 
 
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
