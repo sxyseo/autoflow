@@ -8,7 +8,7 @@ This document provides guidelines and instructions for contributing to the Autof
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 </div>
 
@@ -179,38 +179,27 @@ git push origin feature/your-feature-name
 We follow **PEP 8** with these specific tools:
 
 ```bash
-# Format code with Black
-black .
+# Format and lint with ruff (all-in-one tool)
+ruff check .           # Lint code
+ruff format .          # Format code
 
-# Sort imports with isort
-isort .
-
-# Lint with flake8
-flake8 .
-
-# Type check with mypy (optional for now)
+# Type check with mypy
 mypy .
 ```
 
-**Black configuration** (pyproject.toml):
+**Ruff configuration** (pyproject.toml):
 ```toml
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ['py310']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-)/
-'''
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 ```
 
 ### Code Quality Guidelines
