@@ -13,6 +13,11 @@ Usage:
     state.save_task("task-001", {"status": "in_progress"})
     task = state.load_task("task-001")
 
+    # Using type-safe methods with TypedDict
+    from autoflow.core.types import TasksFile
+    tasks: TasksFile = state.read_json_typed("tasks.json")
+    state.write_json_typed("tasks.json", tasks)
+
     # Using convenience functions
     write_json("path/to/file.json", {"data": "value"})
     data = read_json("path/to/file.json")
@@ -445,6 +450,122 @@ class StateManager:
 
         Example:
             >>> state.write_json("data.json", {"key": "value"})
+        """
+        path = Path(file_path).resolve()
+
+        # Create parent directories
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create backup of existing file
+        self._create_backup(path)
+
+        # Sanitize data to remove sensitive information
+        sanitized_data = sanitize_dict(data) if isinstance(data, dict) else data
+
+        # Write to temporary file in same directory (ensures same filesystem)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        )
+
+        try:
+            # Write data to temp file
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                json.dump(sanitized_data, f, indent=indent, ensure_ascii=False)
+
+            # Atomic rename
+            os.replace(temp_path, path)
+            return path
+        except Exception:
+            # Clean up temp file on failure
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+
+    def read_json_typed(
+        self,
+        file_path: Union[str, Path],
+        default: Optional[T] = None,
+    ) -> T:
+        """
+        Read JSON data from a file with type-safe return value for TypedDict types.
+
+        This method provides type hints for static type checkers when working
+        with TypedDict types. At runtime, it behaves like read_json but returns
+        data cast to the specified type for type checker compatibility.
+
+        Uses the same atomic operations and crash safety as read_json.
+
+        Note: This method does not perform runtime type validation. It relies
+        on static type checkers (mypy, pyright) to ensure type correctness.
+
+        Args:
+            file_path: Path to the JSON file
+            default: Default value if file doesn't exist or is invalid
+
+        Returns:
+            Parsed JSON data cast to type T, or default value if file doesn't exist
+
+        Raises:
+            ValueError: If file contains invalid JSON and no default provided
+
+        Example:
+            >>> from autoflow.core.types import TasksFile
+            >>> tasks: TasksFile = state.read_json_typed("tasks.json")
+            >>> # Type checker knows 'tasks' is of type TasksFile
+        """
+        path = Path(file_path)
+        if not path.exists():
+            if default is not None:
+                return default
+            raise FileNotFoundError(f"File not found: {path}")
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)  # type: ignore[return-value]
+        except json.JSONDecodeError as e:
+            # Try to restore from backup
+            if self._restore_backup(path):
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)  # type: ignore[return-value]
+            if default is not None:
+                return default  # type: ignore[return-value]
+            raise ValueError(f"Invalid JSON in {path}: {e}") from e
+
+    def write_json_typed(
+        self,
+        file_path: Union[str, Path],
+        data: T,
+        indent: int = 2,
+    ) -> Path:
+        """
+        Write typed JSON data to a file atomically.
+
+        This method accepts TypedDict types and serializes them to JSON
+        with atomic writes and crash safety. It provides type hints for
+        static type checkers while maintaining compatibility with the
+        standard JSON encoder.
+
+        Uses write-to-temporary-and-rename pattern for crash safety.
+        Creates parent directories if needed. Sanitizes sensitive data
+        before writing to prevent information disclosure.
+
+        Args:
+            file_path: Destination path
+            data: Data to serialize (typically a TypedDict instance)
+            indent: Indentation level for pretty printing
+
+        Returns:
+            Path to the written file
+
+        Raises:
+            OSError: If write operation fails
+
+        Example:
+            >>> from autoflow.core.types import TasksFile
+            >>> tasks: TasksFile = {"tasks": [...], "updated_at": "..."}
+            >>> state.write_json_typed("tasks.json", tasks)
         """
         path = Path(file_path).resolve()
 
