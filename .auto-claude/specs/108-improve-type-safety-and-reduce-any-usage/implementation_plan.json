@@ -158,7 +158,9 @@
             "command": "python3 -c \"from autoflow.bmad.templates import read_json_typed; print('read_json_typed available')\"",
             "expected": "read_json_typed available"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Added read_json_typed() function to autoflow/bmad/templates.py for type-safe JSON loading. Function uses TypeVar T for generic type support and provides better static analysis. Updated module docstring with usage example. Verification passed - read_json_typed is available and functional.",
+          "updated_at": "2026-03-16T05:00:00.000000+00:00"
         }
       ]
     },

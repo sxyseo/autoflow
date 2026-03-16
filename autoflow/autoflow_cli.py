@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
+from autoflow.core.types import TaskData, TasksFile
 
 
 class TaskStatus(StrEnum):
@@ -499,7 +500,7 @@ class AutoflowCLI:
 
     # === Task Operations ===
 
-    def load_tasks(self, spec_slug: str) -> dict[str, Any]:
+    def load_tasks(self, spec_slug: str) -> TasksFile:
         """
         Load tasks for a spec.
 
@@ -507,7 +508,7 @@ class AutoflowCLI:
             spec_slug: Spec slug identifier
 
         Returns:
-            Tasks data dictionary
+            Tasks file data
         """
         path = self.task_file(spec_slug)
         return self.read_json_or_default(
@@ -517,7 +518,7 @@ class AutoflowCLI:
     def save_tasks(
         self,
         spec_slug: str,
-        data: dict[str, Any],
+        data: TasksFile,
         *,
         reason: str = "task_state_updated",
     ) -> None:
@@ -526,23 +527,23 @@ class AutoflowCLI:
 
         Args:
             spec_slug: Spec slug identifier
-            data: Tasks data
+            data: Tasks file data
             reason: Reason for the update (for review state sync)
         """
         data["updated_at"] = self.now_stamp()
         self.write_json(self.task_file(spec_slug), data)
         self.sync_review_state(spec_slug, reason=reason)
 
-    def task_lookup(self, data: dict[str, Any], task_id: str) -> dict[str, Any]:
+    def task_lookup(self, data: TasksFile, task_id: str) -> TaskData:
         """
         Look up a task by ID in task data.
 
         Args:
-            data: Task data dictionary
+            data: Tasks file data
             task_id: Task ID to look up
 
         Returns:
-            Task dictionary or empty dict if not found
+            Task data, or empty TaskData if not found
         """
         for task in data.get("tasks", []):
             if task.get("id") == task_id:
