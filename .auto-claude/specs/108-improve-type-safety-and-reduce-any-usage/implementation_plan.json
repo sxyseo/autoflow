@@ -282,7 +282,9 @@
             "command": "python3 -c \"from autoflow.collaboration.models import User; print('User model metadata type:', User.model_fields['metadata'].annotation if hasattr(User.model_fields['metadata'], 'annotation') else 'unknown')\"",
             "expected": "User model metadata type: ActivityMetadata"
           },
-          "status": "pending"
+          "status": "completed",
+          "notes": "Updated collaboration/models.py to use typed metadata from autoflow.collaboration.types. Imported ActivityMetadata and NotificationMetadata types. Changed User.metadata, ActivityEvent.metadata to use ActivityMetadata instead of dict[str, Any]. Changed Notification.metadata to use NotificationMetadata instead of dict[str, Any]. All imports verified working correctly - modules load without circular dependency issues.",
+          "updated_at": "2026-03-16T06:15:00.000000+00:00"
         },
         {
           "id": "subtask-4-3",
@@ -584,6 +586,6 @@
   "planStatus": "in_progress",
   "xstateState": "backlog",
   "executionPhase": "coding",
-  "updated_at": "2026-03-16T03:53:29.698Z",
+  "updated_at": "2026-03-16T03:55:22.821Z",
   "last_updated": "2026-03-16T03:36:35.222440+00:00"
 }

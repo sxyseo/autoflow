@@ -37,6 +37,7 @@ from autoflow.collaboration.models import (
     ActivityEvent,
     ActivityEventType,
 )
+from autoflow.collaboration.types import ActivityMetadata
 
 
 class ActivityTracker:
@@ -257,7 +258,7 @@ class ActivityTracker:
         team_id: Optional[str] = None,
         entity_type: Optional[str] = None,
         entity_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a generic activity event.
@@ -314,7 +315,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task creation event.
@@ -359,7 +360,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task update event.
@@ -396,7 +397,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task deletion event.
@@ -434,7 +435,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task assignment event.
@@ -475,7 +476,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task completion event.
@@ -512,7 +513,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a task failure event.
@@ -549,7 +550,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a spec creation event.
@@ -586,7 +587,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a spec update event.
@@ -623,7 +624,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a spec deletion event.
@@ -661,7 +662,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a review request event.
@@ -702,7 +703,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a review submission event.
@@ -739,7 +740,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a review approval event.
@@ -776,7 +777,7 @@ class ActivityTracker:
         description: str = "",
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a review rejection event.
@@ -813,7 +814,7 @@ class ActivityTracker:
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
         description: str = "",
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a member addition event.
@@ -854,7 +855,7 @@ class ActivityTracker:
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
         description: str = "",
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a member removal event.
@@ -896,7 +897,7 @@ class ActivityTracker:
         workspace_id: Optional[str] = None,
         team_id: Optional[str] = None,
         description: str = "",
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a role change event.
@@ -938,7 +939,7 @@ class ActivityTracker:
         workspace_id: str,
         description: str = "",
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a workspace creation event.
@@ -973,7 +974,7 @@ class ActivityTracker:
         workspace_id: str,
         description: str = "",
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a workspace update event.
@@ -1008,7 +1009,7 @@ class ActivityTracker:
         workspace_id: str,
         description: str = "",
         team_id: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: Optional[ActivityMetadata] = None,
     ) -> ActivityEvent:
         """
         Log a workspace deletion event.
