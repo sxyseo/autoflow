@@ -19,8 +19,8 @@ Usage:
 """
 
 from autoflow.scheduler.daemon import (
-    DaemonStatus,
     DaemonStats,
+    DaemonStatus,
     JobExecutionResult,
     JobInfo,
     JobStatus,

@@ -73,16 +73,18 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             patch.object(self.module, "load_config", return_value={"role_agents": {"reviewer": "claude-review"}}),
             patch.object(
                 self.module,
-                "autoflow_json",
-                side_effect=[
-                    {
-                        "recommended_next_action": {
-                            "id": "T4",
-                            "owner_role": "reviewer",
-                        }
-                    },
-                    {"playbook": [{"category": "tests", "rule": "write tests", "evidence_count": 2}]},
-                ],
+                "get_workflow_state",
+                return_value={
+                    "recommended_next_action": {
+                        "id": "T4",
+                        "owner_role": "reviewer",
+                    }
+                },
+            ),
+            patch.object(
+                self.module,
+                "get_strategy_summary",
+                return_value={"playbook": [{"category": "tests", "rule": "write tests", "evidence_count": 2}]},
             ),
             patch.object(
                 self.module,
@@ -116,7 +118,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         export_path = self.root / "taskmaster.json"
         with (
             patch.object(self.module, "ROOT", self.root),
-            patch.object(self.module, "run", return_value=SimpleNamespace(stdout="", stderr="", returncode=0)),
+            patch.object(self.module, "taskmaster_export"),
         ):
             result = self.module.taskmaster_sync(
                 "spec-a",

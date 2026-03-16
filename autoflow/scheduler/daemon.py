@@ -25,10 +25,10 @@ import asyncio
 import logging
 import signal
 import sys
+from collections.abc import Callable
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from enum import StrEnum
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -36,11 +36,10 @@ from pydantic import BaseModel, Field
 
 from autoflow.core.config import Config, SchedulerJobConfig, load_config
 
-
 logger = logging.getLogger(__name__)
 
 
-class DaemonStatus(str, Enum):
+class DaemonStatus(StrEnum):
     """Status of the scheduler daemon."""
 
     STOPPED = "stopped"
@@ -51,7 +50,7 @@ class DaemonStatus(str, Enum):
     ERROR = "error"
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     """Status of a scheduled job."""
 
     ENABLED = "enabled"
@@ -67,25 +66,23 @@ class JobExecutionResult(BaseModel):
     job_id: str
     success: bool
     started_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    output: Optional[str] = None
-    error: Optional[str] = None
-    duration_seconds: Optional[float] = None
+    completed_at: datetime | None = None
+    output: str | None = None
+    error: str | None = None
+    duration_seconds: float | None = None
 
     def mark_complete(
         self,
         success: bool,
-        output: Optional[str] = None,
-        error: Optional[str] = None,
+        output: str | None = None,
+        error: str | None = None,
     ) -> None:
         """Mark the execution as complete."""
         self.success = success
         self.output = output
         self.error = error
         self.completed_at = datetime.utcnow()
-        self.duration_seconds = (
-            self.completed_at - self.started_at
-        ).total_seconds()
+        self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
 
 
 class JobInfo(BaseModel):
@@ -95,9 +92,9 @@ class JobInfo(BaseModel):
     handler: str
     cron: str
     status: JobStatus = JobStatus.ENABLED
-    next_run: Optional[datetime] = None
-    last_run: Optional[datetime] = None
-    last_result: Optional[JobExecutionResult] = None
+    next_run: datetime | None = None
+    last_run: datetime | None = None
+    last_result: JobExecutionResult | None = None
     total_runs: int = 0
     successful_runs: int = 0
     failed_runs: int = 0
@@ -113,19 +110,19 @@ class JobInfo(BaseModel):
 class DaemonStats(BaseModel):
     """Statistics about the scheduler daemon."""
 
-    started_at: Optional[datetime] = None
+    started_at: datetime | None = None
     total_jobs: int = 0
     active_jobs: int = 0
     total_executions: int = 0
     successful_executions: int = 0
     failed_executions: int = 0
-    last_execution_at: Optional[datetime] = None
+    last_execution_at: datetime | None = None
 
 
 class SchedulerDaemonError(Exception):
     """Exception raised for scheduler daemon errors."""
 
-    def __init__(self, message: str, job_id: Optional[str] = None):
+    def __init__(self, message: str, job_id: str | None = None):
         self.job_id = job_id
         super().__init__(message)
 
@@ -172,7 +169,7 @@ class SchedulerDaemon:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
+        config: Config | None = None,
         auto_start: bool = False,
         graceful_timeout: int = DEFAULT_GRACEFUL_TIMEOUT,
     ) -> None:
@@ -189,7 +186,7 @@ class SchedulerDaemon:
 
         # Status tracking
         self._status = DaemonStatus.STOPPED
-        self._scheduler: Optional[AsyncIOScheduler] = None
+        self._scheduler: AsyncIOScheduler | None = None
 
         # Job tracking
         self._jobs: dict[str, JobInfo] = {}
@@ -199,7 +196,7 @@ class SchedulerDaemon:
         self._stats = DaemonStats()
 
         # Orchestrator reference (set externally)
-        self._orchestrator: Optional[Any] = None
+        self._orchestrator: Any | None = None
 
         # Shutdown handling
         self._shutdown_event = asyncio.Event()
@@ -324,10 +321,8 @@ class SchedulerDaemon:
                             self._wait_for_running_jobs(),
                             timeout=self._graceful_timeout,
                         )
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            "Graceful shutdown timed out, forcing stop"
-                        )
+                    except TimeoutError:
+                        logger.warning("Graceful shutdown timed out, forcing stop")
 
                 self._scheduler.shutdown(wait=graceful)
                 self._scheduler = None
@@ -392,8 +387,7 @@ class SchedulerDaemon:
 
         self._stats.total_jobs = len(self._jobs)
         self._stats.active_jobs = sum(
-            1 for j in self._jobs.values()
-            if j.status == JobStatus.ENABLED
+            1 for j in self._jobs.values() if j.status == JobStatus.ENABLED
         )
 
     async def _add_job_from_config(self, job_config: SchedulerJobConfig) -> None:
@@ -430,9 +424,7 @@ class SchedulerDaemon:
             elif "." in handler_path:
                 module_path, func_name = handler_path.rsplit(".", 1)
             else:
-                raise SchedulerDaemonError(
-                    f"Invalid handler path: {handler_path}"
-                )
+                raise SchedulerDaemonError(f"Invalid handler path: {handler_path}")
 
             # Import the module
             parts = module_path.split(".")
@@ -443,9 +435,7 @@ class SchedulerDaemon:
             handler = getattr(module, func_name)
 
             if not callable(handler):
-                raise SchedulerDaemonError(
-                    f"Handler {handler_path} is not callable"
-                )
+                raise SchedulerDaemonError(f"Handler {handler_path} is not callable")
 
             return handler
 
@@ -458,9 +448,9 @@ class SchedulerDaemon:
         self,
         handler: Callable,
         cron: str,
-        job_id: Optional[str] = None,
-        name: Optional[str] = None,
-        kwargs: Optional[dict[str, Any]] = None,
+        job_id: str | None = None,
+        name: str | None = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> str:
         """
         Add a new scheduled job.
@@ -492,6 +482,7 @@ class SchedulerDaemon:
 
         if job_id is None:
             import uuid
+
             job_id = f"job-{uuid.uuid4().hex[:8]}"
 
         # Create job info
@@ -530,7 +521,7 @@ class SchedulerDaemon:
         self,
         job_id: str,
         handler: Callable,
-        kwargs: Optional[dict[str, Any]] = None,
+        kwargs: dict[str, Any] | None = None,
     ) -> Callable:
         """
         Create a wrapped handler that tracks execution.
@@ -543,6 +534,7 @@ class SchedulerDaemon:
         Returns:
             Wrapped handler function
         """
+
         async def wrapped(*args, **handler_kwargs) -> JobExecutionResult:
             result = JobExecutionResult(job_id=job_id)
             self._running_executions[job_id] = result
@@ -631,8 +623,7 @@ class SchedulerDaemon:
             self._jobs.pop(job_id, None)
             self._stats.total_jobs = len(self._jobs)
             self._stats.active_jobs = sum(
-                1 for j in self._jobs.values()
-                if j.status == JobStatus.ENABLED
+                1 for j in self._jobs.values() if j.status == JobStatus.ENABLED
             )
             logger.info("Removed job %s", job_id)
             return True
@@ -687,7 +678,7 @@ class SchedulerDaemon:
         except Exception:
             return False
 
-    async def run_job_now(self, job_id: str) -> Optional[JobExecutionResult]:
+    async def run_job_now(self, job_id: str) -> JobExecutionResult | None:
         """
         Trigger a job to run immediately.
 
@@ -718,7 +709,7 @@ class SchedulerDaemon:
                 error=str(e),
             )
 
-    def get_job_info(self, job_id: str) -> Optional[JobInfo]:
+    def get_job_info(self, job_id: str) -> JobInfo | None:
         """
         Get information about a job.
 
@@ -752,7 +743,8 @@ class SchedulerDaemon:
                 "is_running": self.is_running,
                 "started_at": (
                     self._stats.started_at.isoformat()
-                    if self._stats.started_at else None
+                    if self._stats.started_at
+                    else None
                 ),
             },
             "stats": self._stats.model_dump(),
@@ -761,12 +753,8 @@ class SchedulerDaemon:
                     "handler": info.handler,
                     "cron": info.cron,
                     "status": info.status.value,
-                    "next_run": (
-                        info.next_run.isoformat() if info.next_run else None
-                    ),
-                    "last_run": (
-                        info.last_run.isoformat() if info.last_run else None
-                    ),
+                    "next_run": (info.next_run.isoformat() if info.next_run else None),
+                    "last_run": (info.last_run.isoformat() if info.last_run else None),
                     "total_runs": info.total_runs,
                     "success_rate": info.success_rate,
                 }
@@ -783,7 +771,7 @@ class SchedulerDaemon:
         """
         await self._shutdown_event.wait()
 
-    async def __aenter__(self) -> "SchedulerDaemon":
+    async def __aenter__(self) -> SchedulerDaemon:
         """Async context manager entry."""
         await self.start()
         return self
@@ -803,7 +791,7 @@ class SchedulerDaemon:
 
 
 async def run_daemon(
-    config_path: Optional[str] = None,
+    config_path: str | None = None,
     foreground: bool = True,
 ) -> None:
     """
@@ -829,15 +817,15 @@ def main() -> None:
     """CLI entry point for the scheduler daemon."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Autoflow Scheduler Daemon"
-    )
+    parser = argparse.ArgumentParser(description="Autoflow Scheduler Daemon")
     parser.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         help="Path to configuration file",
     )
     parser.add_argument(
-        "--daemon", "-d",
+        "--daemon",
+        "-d",
         action="store_true",
         help="Run as background daemon",
     )

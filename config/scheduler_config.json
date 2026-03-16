@@ -10,7 +10,14 @@
       "enabled": true,
       "cron": "*/5 * * * *",
       "max_instances": 1,
-      "description": "Run continuous iteration loop every 5 minutes"
+      "description": "Run continuous iteration loop every 5 minutes",
+      "args": {
+        "spec": "",
+        "config": "config/continuous-iteration.example.json",
+        "dispatch": true,
+        "commit_if_dirty": false,
+        "push": false
+      }
     },
     "nightly_maintenance": {
       "enabled": true,

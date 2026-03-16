@@ -3,24 +3,25 @@ Tests for the scheduler module.
 """
 
 import json
-import pytest
-from pathlib import Path
+import subprocess
 import sys
-from unittest.mock import patch, MagicMock, AsyncMock
-import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from scheduler import (
-    SchedulerConfig,
+    APSCHEDULER_AVAILABLE,
     JobRegistry,
-    cmd_status,
+    SchedulerConfig,
     cmd_add_job,
     cmd_list_jobs,
     cmd_remove_job,
     cmd_run_once,
-    APSCHEDULER_AVAILABLE,
+    cmd_status,
 )
 
 
@@ -64,12 +65,9 @@ class TestSchedulerConfig:
         """Test loading config from custom path."""
         config_path = tmp_path / "custom_scheduler_config.json"
         custom_config = {
-            "scheduler": {
-                "timezone": "America/New_York",
-                "max_instances": 5
-            },
+            "scheduler": {"timezone": "America/New_York", "max_instances": 5},
             "jobs": {},
-            "job_defaults": {}
+            "job_defaults": {},
         }
         with open(config_path, "w") as f:
             json.dump(custom_config, f)
@@ -146,15 +144,82 @@ class TestJobRegistryJobExecution:
 
     @pytest.mark.asyncio
     async def test_continuous_iteration_job(self):
-        """Test continuous iteration job execution."""
-        registry = JobRegistry()
+        """Test continuous iteration job execution with configured args."""
+        config_path = Path(__file__).parent / "scheduler-job-config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "scheduler": {"timezone": "UTC", "max_instances": 3},
+                    "jobs": {
+                        "continuous_iteration": {
+                            "enabled": True,
+                            "cron": "*/5 * * * *",
+                            "max_instances": 1,
+                            "args": {
+                                "spec": "demo-spec",
+                                "config": "config/continuous-iteration.example.json",
+                                "dispatch": True,
+                                "commit_if_dirty": False,
+                                "push": False,
+                            },
+                        }
+                    },
+                    "job_defaults": {"max_instances": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry = JobRegistry(SchedulerConfig(config_path))
         job_func = registry.get("continuous_iteration")
-
-        result = await job_func()
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='{"dispatch":{"dispatched":true}}\n',
+            stderr="",
+        )
+        try:
+            with patch("scheduler.subprocess.run", return_value=completed) as mock_run:
+                result = await job_func()
+        finally:
+            config_path.unlink(missing_ok=True)
 
         assert "job" in result
         assert result["job"] == "continuous_iteration"
-        assert "success" in result
+        assert result["success"] is True
+        assert "--spec" in result["command"]
+        assert "demo-spec" in result["command"]
+        mock_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_continuous_iteration_job_requires_spec(self):
+        """Test continuous iteration job fails clearly when spec is missing."""
+        config_path = Path(__file__).parent / "scheduler-job-config-missing-spec.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "scheduler": {"timezone": "UTC", "max_instances": 3},
+                    "jobs": {
+                        "continuous_iteration": {
+                            "enabled": True,
+                            "cron": "*/5 * * * *",
+                            "max_instances": 1,
+                            "args": {},
+                        }
+                    },
+                    "job_defaults": {"max_instances": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
+        registry = JobRegistry(SchedulerConfig(config_path))
+        job_func = registry.get("continuous_iteration")
+        try:
+            result = await job_func()
+        finally:
+            config_path.unlink(missing_ok=True)
+
+        assert result["success"] is False
+        assert "requires jobs.continuous_iteration.args.spec" in result["error"]
 
     @pytest.mark.asyncio
     async def test_nightly_maintenance_job(self):
@@ -199,6 +264,7 @@ class TestCmdStatus:
     def test_cmd_status_returns_zero(self):
         """Test that status command returns 0."""
         args = MagicMock()
+        args.config = ""
 
         result = cmd_status(args)
 
@@ -217,7 +283,7 @@ class TestCmdAddJob:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -230,6 +296,12 @@ class TestCmdAddJob:
         args.job_id = None
         args.max_instances = 1
         args.description = "Test job"
+        args.config = ""
+        args.spec = ""
+        args.iteration_config = ""
+        args.dispatch = False
+        args.commit_if_dirty = False
+        args.push = False
 
         result = cmd_add_job(args)
 
@@ -247,7 +319,7 @@ class TestCmdListJobs:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -255,6 +327,7 @@ class TestCmdListJobs:
         monkeypatch.setattr("scheduler.SCHEDULER_CONFIG_PATH", config_path)
 
         args = MagicMock()
+        args.config = ""
         result = cmd_list_jobs(args)
 
         assert result == 0
@@ -270,10 +343,10 @@ class TestCmdListJobs:
                 "test_job": {
                     "enabled": True,
                     "cron": "*/5 * * * *",
-                    "description": "Test job"
+                    "description": "Test job",
                 }
             },
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -281,6 +354,7 @@ class TestCmdListJobs:
         monkeypatch.setattr("scheduler.SCHEDULER_CONFIG_PATH", config_path)
 
         args = MagicMock()
+        args.config = ""
         result = cmd_list_jobs(args)
 
         assert result == 0
@@ -296,13 +370,8 @@ class TestCmdRemoveJob:
 
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
-            "jobs": {
-                "job_to_remove": {
-                    "enabled": True,
-                    "cron": "*/5 * * * *"
-                }
-            },
-            "job_defaults": {"max_instances": 1}
+            "jobs": {"job_to_remove": {"enabled": True, "cron": "*/5 * * * *"}},
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -311,6 +380,7 @@ class TestCmdRemoveJob:
 
         args = MagicMock()
         args.job_id = "job_to_remove"
+        args.config = ""
         result = cmd_remove_job(args)
 
         assert result == 0
@@ -323,7 +393,7 @@ class TestCmdRemoveJob:
         initial_config = {
             "scheduler": {"timezone": "UTC", "max_instances": 3},
             "jobs": {},
-            "job_defaults": {"max_instances": 1}
+            "job_defaults": {"max_instances": 1},
         }
         with open(config_path, "w") as f:
             json.dump(initial_config, f)
@@ -332,6 +402,7 @@ class TestCmdRemoveJob:
 
         args = MagicMock()
         args.job_id = "nonexistent_job"
+        args.config = ""
         result = cmd_remove_job(args)
 
         assert result == 1
@@ -345,6 +416,7 @@ class TestCmdRunOnce:
         args = MagicMock()
         args.job_type = "unknown_job_type"
         args.verbose = False
+        args.config = ""
 
         result = cmd_run_once(args)
 
@@ -353,10 +425,49 @@ class TestCmdRunOnce:
     def test_cmd_run_once_known_job(self):
         """Test running a known job type."""
         args = MagicMock()
-        args.job_type = "weekly_consolidation"  # Simple job that doesn't require subprocess
+        args.job_type = (
+            "weekly_consolidation"  # Simple job that doesn't require subprocess
+        )
         args.verbose = True
+        args.config = ""
 
         result = cmd_run_once(args)
+
+        assert result == 0
+
+    def test_cmd_run_once_continuous_iteration_uses_custom_config(self, tmp_path):
+        """Test run-once loads the provided scheduler config."""
+        config_path = tmp_path / "scheduler_config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "scheduler": {"timezone": "UTC", "max_instances": 3},
+                    "jobs": {
+                        "continuous_iteration": {
+                            "enabled": True,
+                            "cron": "*/5 * * * *",
+                            "max_instances": 1,
+                            "args": {"spec": "demo-spec", "config": "config/continuous-iteration.example.json"},
+                        }
+                    },
+                    "job_defaults": {"max_instances": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
+        args = MagicMock()
+        args.job_type = "continuous_iteration"
+        args.verbose = True
+        args.config = str(config_path)
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='{"dispatch":{"dispatched":true}}\n',
+            stderr="",
+        )
+
+        with patch("scheduler.subprocess.run", return_value=completed):
+            result = cmd_run_once(args)
 
         assert result == 0
 

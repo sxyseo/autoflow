@@ -7,19 +7,13 @@ Integrates with the verification system to check coverage thresholds.
 """
 
 import argparse
-import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from autoflow.review.coverage import (
-    CoverageTracker,
-    CoverageThreshold,
-    CoverageReport
-)
+from autoflow.review.coverage import CoverageReport, CoverageThreshold, CoverageTracker
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,77 +35,69 @@ Examples:
   %(prog)s --source autoflow,utils  Measure specific directories
   %(prog)s --min-coverage 90        Require 90%% minimum coverage
   %(prog)s --show-files             Show per-file coverage breakdown
-        """
+        """,
     )
 
     parser.add_argument(
         "--check",
         "-c",
         action="store_true",
-        help="Check coverage against configured thresholds"
+        help="Check coverage against configured thresholds",
     )
 
     parser.add_argument(
-        "--output",
-        "-o",
-        help="Output file for coverage report (JSON format)"
+        "--output", "-o", help="Output file for coverage report (JSON format)"
     )
 
     parser.add_argument(
         "--source",
         "-s",
         default="autoflow",
-        help="Comma-separated list of source directories to measure (default: autoflow)"
+        help="Comma-separated list of source directories to measure (default: autoflow)",
     )
 
     parser.add_argument(
         "--test-command",
         default="python -m unittest discover tests/",
-        help="Command to run tests (default: 'python -m unittest discover tests/')"
+        help="Command to run tests (default: 'python -m unittest discover tests/')",
     )
 
     parser.add_argument(
         "--min-coverage",
         type=float,
-        help="Override minimum coverage threshold (default: from config)"
+        help="Override minimum coverage threshold (default: from config)",
     )
 
-    parser.add_argument(
-        "--config",
-        help="Path to QA gates configuration file"
-    )
+    parser.add_argument("--config", help="Path to QA gates configuration file")
 
     parser.add_argument(
         "--show-files",
         "-f",
         action="store_true",
-        help="Show per-file coverage breakdown"
+        help="Show per-file coverage breakdown",
     )
 
     parser.add_argument(
         "--show-uncovered",
         action="store_true",
-        help="Show files with zero or low coverage"
+        help="Show files with zero or low coverage",
     )
 
     parser.add_argument(
         "--threshold",
         type=float,
         default=80.0,
-        help="Coverage threshold for --show-uncovered (default: 80.0)"
+        help="Coverage threshold for --show-uncovered (default: 80.0)",
     )
 
     parser.add_argument(
         "--work-dir",
         default=".",
-        help="Working directory for coverage execution (default: .)"
+        help="Working directory for coverage execution (default: .)",
     )
 
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action="store_true",
-        help="Enable verbose output"
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
 
     return parser.parse_args()
@@ -144,11 +130,7 @@ def print_report(report: CoverageReport, show_files: bool = False) -> None:
         print("-" * 60)
 
         # Sort files by coverage
-        sorted_files = sorted(
-            report.files.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        sorted_files = sorted(report.files.items(), key=lambda x: x[1], reverse=True)
 
         for filename, coverage in sorted_files:
             status = "✓" if coverage >= 80.0 else "✗"
@@ -158,9 +140,7 @@ def print_report(report: CoverageReport, show_files: bool = False) -> None:
 
 
 def print_uncovered_files(
-    tracker: CoverageTracker,
-    report: CoverageReport,
-    threshold: float
+    tracker: CoverageTracker, report: CoverageReport, threshold: float
 ) -> None:
     """
     Print files below coverage threshold.
@@ -183,10 +163,7 @@ def print_uncovered_files(
         print(f"  {filename:50s} {coverage:5.1f}%")
 
 
-def check_thresholds(
-    tracker: CoverageTracker,
-    report: CoverageReport
-) -> int:
+def check_thresholds(tracker: CoverageTracker, report: CoverageReport) -> int:
     """
     Check coverage against thresholds and return exit code.
 
@@ -200,10 +177,10 @@ def check_thresholds(
     passes, failing = tracker.check_thresholds(report)
 
     if passes:
-        print(f"\n✓ Coverage meets all thresholds")
+        print("\n✓ Coverage meets all thresholds")
         return 0
     else:
-        print(f"\n✗ Coverage thresholds not met:")
+        print("\n✗ Coverage thresholds not met:")
         for metric in failing:
             print(f"  - {metric}")
         return 1
@@ -219,10 +196,7 @@ def main() -> int:
     args = parse_args()
 
     # Create coverage tracker
-    tracker = CoverageTracker(
-        config_path=args.config,
-        work_dir=args.work_dir
-    )
+    tracker = CoverageTracker(config_path=args.config, work_dir=args.work_dir)
 
     # Override threshold if specified
     if args.min_coverage is not None:
@@ -230,24 +204,23 @@ def main() -> int:
 
     # Run coverage
     if args.verbose:
-        print(f"Running coverage analysis...")
+        print("Running coverage analysis...")
         print(f"  Source: {args.source}")
         print(f"  Test command: {args.test_command}")
 
     source_dirs = [s.strip() for s in args.source.split(",")]
     exit_code, output = tracker.run_coverage(
-        test_command=args.test_command,
-        source_dirs=source_dirs
+        test_command=args.test_command, source_dirs=source_dirs
     )
 
     if exit_code != 0:
-        print(f"Error running tests:", file=sys.stderr)
+        print("Error running tests:", file=sys.stderr)
         print(output, file=sys.stderr)
         return 1
 
     if args.verbose:
-        print(f"Tests completed successfully")
-        print(f"Generating coverage report...\n")
+        print("Tests completed successfully")
+        print("Generating coverage report...\n")
 
     # Generate report
     try:

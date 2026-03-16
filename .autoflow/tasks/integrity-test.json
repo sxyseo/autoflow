@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Verify integrity checks",
+      "description": "Verify that integrity checks work correctly",
+      "status": "in_progress",
+      "dependencies": [],
+      "owner_role": "tester",
+      "notes": [
+        {
+          "at": "20260309T063700Z",
+          "note": "run pending for role tester"
+        }
+      ]
+    }
+  ],
+  "updated_at": "20260309T063700Z"
+}

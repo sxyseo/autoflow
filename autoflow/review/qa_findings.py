@@ -7,11 +7,9 @@ Integrates with the verification system to track issues and generate fix tasks.
 """
 
 import json
-import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 
 class SeverityLevel(Enum):
@@ -24,6 +22,7 @@ class SeverityLevel(Enum):
         MEDIUM: Warning (doesn't block)
         LOW: Info only (doesn't block)
     """
+
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -59,7 +58,7 @@ class SeverityLevel(Enum):
             raise ValueError(
                 f"Invalid severity level '{value}'. "
                 f"Must be one of: {', '.join(valid)}"
-            )
+            ) from None
 
 
 @dataclass
@@ -78,15 +77,16 @@ class QAFinding:
         context: Additional context or code snippet
         rule_id: Identifier for the rule that triggered this finding
     """
+
     file: str
     line: int
     severity: SeverityLevel
     message: str
     category: str
-    suggested_fix: Optional[str] = None
-    column: Optional[int] = None
-    context: Optional[str] = None
-    rule_id: Optional[str] = None
+    suggested_fix: str | None = None
+    column: int | None = None
+    context: str | None = None
+    rule_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert finding to dictionary for JSON serialization."""
@@ -99,7 +99,7 @@ class QAFinding:
             "message": self.message,
             "suggested_fix": self.suggested_fix,
             "context": self.context,
-            "rule_id": self.rule_id
+            "rule_id": self.rule_id,
         }
 
     @classmethod
@@ -122,7 +122,7 @@ class QAFinding:
             message=data["message"],
             suggested_fix=data.get("suggested_fix"),
             context=data.get("context"),
-            rule_id=data.get("rule_id")
+            rule_id=data.get("rule_id"),
         )
 
     def __str__(self) -> str:
@@ -144,7 +144,8 @@ class QAFindingReport:
         timestamp: Report generation timestamp
         source: Source of the findings (e.g., "test", "coverage", "lint")
     """
-    findings: List[QAFinding] = field(default_factory=list)
+
+    findings: list[QAFinding] = field(default_factory=list)
     timestamp: str = ""
     source: str = ""
 
@@ -154,7 +155,7 @@ class QAFindingReport:
             "findings": [f.to_dict() for f in self.findings],
             "timestamp": self.timestamp,
             "source": self.source,
-            "summary": self.get_summary()
+            "summary": self.get_summary(),
         }
 
     @classmethod
@@ -171,7 +172,7 @@ class QAFindingReport:
         return cls(
             findings=[QAFinding.from_dict(f) for f in data.get("findings", [])],
             timestamp=data.get("timestamp", ""),
-            source=data.get("source", "")
+            source=data.get("source", ""),
         )
 
     def add_finding(self, finding: QAFinding) -> None:
@@ -183,10 +184,7 @@ class QAFindingReport:
         """
         self.findings.append(finding)
 
-    def get_findings_by_severity(
-        self,
-        severity: SeverityLevel
-    ) -> List[QAFinding]:
+    def get_findings_by_severity(self, severity: SeverityLevel) -> list[QAFinding]:
         """
         Get all findings of a specific severity level.
 
@@ -198,7 +196,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.severity == severity]
 
-    def get_blocking_findings(self) -> List[QAFinding]:
+    def get_blocking_findings(self) -> list[QAFinding]:
         """
         Get all findings that block commits.
 
@@ -207,7 +205,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.severity.blocks_commit()]
 
-    def get_findings_by_file(self, file_path: str) -> List[QAFinding]:
+    def get_findings_by_file(self, file_path: str) -> list[QAFinding]:
         """
         Get all findings for a specific file.
 
@@ -219,7 +217,7 @@ class QAFindingReport:
         """
         return [f for f in self.findings if f.file == file_path]
 
-    def get_summary(self) -> Dict[str, int]:
+    def get_summary(self) -> dict[str, int]:
         """
         Get summary statistics of findings.
 
@@ -231,7 +229,7 @@ class QAFindingReport:
             "high": 0,
             "medium": 0,
             "low": 0,
-            "total": len(self.findings)
+            "total": len(self.findings),
         }
 
         for finding in self.findings:
@@ -248,14 +246,14 @@ class QAFindingReport:
         """
         return any(f.severity.blocks_commit() for f in self.findings)
 
-    def get_unique_files(self) -> List[str]:
+    def get_unique_files(self) -> list[str]:
         """
         Get list of unique files with findings.
 
         Returns:
             Sorted list of unique file paths
         """
-        return sorted(set(f.file for f in self.findings))
+        return sorted({f.file for f in self.findings})
 
 
 class QAFindingsManager:
@@ -286,11 +284,7 @@ class QAFindingsManager:
         """
         return QAFindingReport(source=source)
 
-    def save_report(
-        self,
-        report: QAFindingReport,
-        output_path: str
-    ) -> None:
+    def save_report(self, report: QAFindingReport, output_path: str) -> None:
         """
         Save QA findings report to file.
 
@@ -316,7 +310,7 @@ class QAFindingsManager:
         """
         input_file = self.work_dir / input_path
 
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             data = json.load(f)
 
         return QAFindingReport.from_dict(data)
@@ -326,7 +320,7 @@ class QAFindingsManager:
         test_name: str,
         error_message: str,
         file_path: str,
-        line_number: Optional[int] = None
+        line_number: int | None = None,
     ) -> QAFinding:
         """
         Parse test failure into QA finding.
@@ -349,14 +343,11 @@ class QAFindingsManager:
             message=f"Test failure: {test_name}",
             suggested_fix=error_message,
             context=test_name,
-            rule_id="test-failure"
+            rule_id="test-failure",
         )
 
     def parse_coverage_gap(
-        self,
-        file_path: str,
-        coverage_percent: float,
-        threshold: float
+        self, file_path: str, coverage_percent: float, threshold: float
     ) -> QAFinding:
         """
         Parse coverage gap into QA finding.
@@ -378,13 +369,11 @@ class QAFindingsManager:
             message=f"Coverage below threshold: {coverage_percent:.1f}% < {threshold:.1f}%",
             suggested_fix=f"Add tests to increase coverage to at least {threshold:.1f}%",
             context=f"Current: {coverage_percent:.1f}%, Required: {threshold:.1f}%",
-            rule_id="coverage-threshold"
+            rule_id="coverage-threshold",
         )
 
     def merge_reports(
-        self,
-        reports: List[QAFindingReport],
-        source: str = "merged"
+        self, reports: list[QAFindingReport], source: str = "merged"
     ) -> QAFindingReport:
         """
         Merge multiple QA findings reports into one.
@@ -406,11 +395,9 @@ class QAFindingsManager:
             SeverityLevel.CRITICAL: 0,
             SeverityLevel.HIGH: 1,
             SeverityLevel.MEDIUM: 2,
-            SeverityLevel.LOW: 3
+            SeverityLevel.LOW: 3,
         }
 
-        merged.findings.sort(
-            key=lambda f: (severity_order[f.severity], f.file, f.line)
-        )
+        merged.findings.sort(key=lambda f: (severity_order[f.severity], f.file, f.line))
 
         return merged

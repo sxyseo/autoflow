@@ -8,12 +8,10 @@ and track coverage metrics over time.
 """
 
 import json
-import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -31,13 +29,14 @@ class CoverageThreshold:
             Patterns can be exact file paths or glob patterns.
             Example: {"autoflow/core/*": {"minimum": 90.0}}
     """
-    minimum: float = 80.0
-    branches: Optional[float] = None
-    functions: Optional[float] = None
-    lines: Optional[float] = None
-    module_overrides: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
-    def get_threshold_for_module(self, module_path: str) -> 'CoverageThreshold':
+    minimum: float = 80.0
+    branches: float | None = None
+    functions: float | None = None
+    lines: float | None = None
+    module_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def get_threshold_for_module(self, module_path: str) -> "CoverageThreshold":
         """
         Get threshold configuration for a specific module.
 
@@ -62,18 +61,17 @@ class CoverageThreshold:
                 branches=override.get("branches", self.branches),
                 functions=override.get("functions", self.functions),
                 lines=override.get("lines", self.lines),
-                module_overrides=self.module_overrides
+                module_overrides=self.module_overrides,
             )
 
         # Check for pattern matches (e.g., "autoflow/core/*")
         # Sort patterns by specificity (longer first)
         patterns = sorted(
-            self.module_overrides.keys(),
-            key=lambda p: len(p),
-            reverse=True
+            self.module_overrides.keys(), key=lambda p: len(p), reverse=True
         )
 
         import fnmatch
+
         for pattern in patterns:
             if fnmatch.fnmatch(normalized_path, pattern):
                 override = self.module_overrides[pattern]
@@ -82,7 +80,7 @@ class CoverageThreshold:
                     branches=override.get("branches", self.branches),
                     functions=override.get("functions", self.functions),
                     lines=override.get("lines", self.lines),
-                    module_overrides=self.module_overrides
+                    module_overrides=self.module_overrides,
                 )
 
         # No override found, return self
@@ -91,10 +89,10 @@ class CoverageThreshold:
     def check_passes(
         self,
         total: float,
-        branches: Optional[float] = None,
-        functions: Optional[float] = None,
-        lines: Optional[float] = None,
-        module_path: Optional[str] = None
+        branches: float | None = None,
+        functions: float | None = None,
+        lines: float | None = None,
+        module_path: str | None = None,
     ) -> bool:
         """
         Check if coverage meets all configured thresholds.
@@ -132,11 +130,11 @@ class CoverageThreshold:
     def get_failing_metrics(
         self,
         total: float,
-        branches: Optional[float] = None,
-        functions: Optional[float] = None,
-        lines: Optional[float] = None,
-        module_path: Optional[str] = None
-    ) -> List[str]:
+        branches: float | None = None,
+        functions: float | None = None,
+        lines: float | None = None,
+        module_path: str | None = None,
+    ) -> list[str]:
         """
         Get list of metrics that fail thresholds.
 
@@ -170,7 +168,9 @@ class CoverageThreshold:
 
         if threshold.functions is not None and functions is not None:
             if functions < threshold.functions:
-                msg = f"function coverage ({functions:.1f}% < {threshold.functions:.1f}%)"
+                msg = (
+                    f"function coverage ({functions:.1f}% < {threshold.functions:.1f}%)"
+                )
                 if module_path:
                     msg = f"{module_path}: {msg}"
                 failing.append(msg)
@@ -198,11 +198,12 @@ class CoverageReport:
         files: Per-file coverage data
         timestamp: Report generation timestamp
     """
+
     total: float
-    branches: Optional[float]
-    functions: Optional[float]
-    lines: Optional[float]
-    files: Dict[str, float] = field(default_factory=dict)
+    branches: float | None
+    functions: float | None
+    lines: float | None
+    files: dict[str, float] = field(default_factory=dict)
     timestamp: str = field(default_factory="")
 
     def to_dict(self) -> dict[str, Any]:
@@ -213,7 +214,7 @@ class CoverageReport:
             "functions": self.functions,
             "lines": self.lines,
             "files": self.files,
-            "timestamp": self.timestamp
+            "timestamp": self.timestamp,
         }
 
 
@@ -225,11 +226,7 @@ class CoverageTracker:
     and check coverage against configured thresholds.
     """
 
-    def __init__(
-        self,
-        config_path: Optional[str] = None,
-        work_dir: str = "."
-    ):
+    def __init__(self, config_path: str | None = None, work_dir: str = "."):
         """
         Initialize coverage tracker.
 
@@ -255,7 +252,7 @@ class CoverageTracker:
 
         if config_file.exists():
             try:
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     config = json.load(f)
                     coverage_config = config.get("coverage", {})
                     thresholds = coverage_config.get("thresholds", {})
@@ -265,9 +262,9 @@ class CoverageTracker:
                         branches=thresholds.get("branches"),
                         functions=thresholds.get("functions"),
                         lines=thresholds.get("lines"),
-                        module_overrides=coverage_config.get("module_overrides", {})
+                        module_overrides=coverage_config.get("module_overrides", {}),
                     )
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 pass
 
         return CoverageThreshold()
@@ -275,8 +272,8 @@ class CoverageTracker:
     def run_coverage(
         self,
         test_command: str = "python -m unittest discover tests/",
-        source_dirs: Optional[List[str]] = None
-    ) -> Tuple[int, str]:
+        source_dirs: list[str] | None = None,
+    ) -> tuple[int, str]:
         """
         Run coverage analysis.
 
@@ -292,8 +289,12 @@ class CoverageTracker:
 
         # Build coverage command
         cov_args = [
-            sys.executable, "-m", "coverage", "run",
-            "--source", ",".join(source_dirs),
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "--source",
+            ",".join(source_dirs),
             "--branch",
         ]
 
@@ -304,10 +305,7 @@ class CoverageTracker:
         # Run coverage
         try:
             result = subprocess.run(
-                cov_args,
-                cwd=self.work_dir,
-                capture_output=True,
-                text=True
+                cov_args, cwd=self.work_dir, capture_output=True, text=True
             )
             return result.returncode, result.stdout + result.stderr
         except Exception as e:
@@ -330,13 +328,13 @@ class CoverageTracker:
                 cwd=self.work_dir,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             data = json.loads(result.stdout)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to generate coverage report: {e.stderr}")
+            raise RuntimeError(f"Failed to generate coverage report: {e.stderr}") from e
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse coverage JSON: {e}")
+            raise RuntimeError(f"Failed to parse coverage JSON: {e}") from e
 
         # Extract totals
         totals = data.get("totals", {})
@@ -355,21 +353,21 @@ class CoverageTracker:
             normalized_name = filename.replace("\\", "/")
             if normalized_name.startswith("./"):
                 normalized_name = normalized_name[2:]
-            files[normalized_name] = file_data.get("summary", {}).get("percent_covered", 0.0)
+            files[normalized_name] = file_data.get("summary", {}).get(
+                "percent_covered", 0.0
+            )
 
         return CoverageReport(
             total=total_coverage,
             branches=branches,
             functions=functions,
             lines=lines,
-            files=files
+            files=files,
         )
 
     def check_thresholds(
-        self,
-        report: CoverageReport,
-        check_per_module: bool = False
-    ) -> Tuple[bool, List[str]]:
+        self, report: CoverageReport, check_per_module: bool = False
+    ) -> tuple[bool, list[str]]:
         """
         Check if coverage report meets configured thresholds.
 
@@ -384,7 +382,7 @@ class CoverageTracker:
             total=report.total,
             branches=report.branches,
             functions=report.functions,
-            lines=report.lines
+            lines=report.lines,
         )
 
         # Check per-module thresholds if enabled
@@ -392,16 +390,16 @@ class CoverageTracker:
             for module_path, coverage in report.files.items():
                 module_threshold = self.threshold.get_threshold_for_module(module_path)
                 if not module_threshold.check_passes(coverage):
-                    module_failing = module_threshold.get_failing_metrics(coverage, module_path=module_path)
+                    module_failing = module_threshold.get_failing_metrics(
+                        coverage, module_path=module_path
+                    )
                     failing.append(f"{module_path}: {', '.join(module_failing)}")
 
         return len(failing) == 0, failing
 
     def check_module_threshold(
-        self,
-        module_path: str,
-        coverage: float
-    ) -> Tuple[bool, List[str]]:
+        self, module_path: str, coverage: float
+    ) -> tuple[bool, list[str]]:
         """
         Check if a specific module meets its coverage threshold.
 
@@ -413,15 +411,13 @@ class CoverageTracker:
             Tuple of (passes, failing_metrics)
         """
         module_threshold = self.threshold.get_threshold_for_module(module_path)
-        failing = module_threshold.get_failing_metrics(coverage, module_path=module_path)
+        failing = module_threshold.get_failing_metrics(
+            coverage, module_path=module_path
+        )
 
         return len(failing) == 0, failing
 
-    def save_report(
-        self,
-        report: CoverageReport,
-        output_path: str
-    ) -> None:
+    def save_report(self, report: CoverageReport, output_path: str) -> None:
         """
         Save coverage report to file.
 
@@ -447,7 +443,7 @@ class CoverageTracker:
         """
         input_file = self.work_dir / input_path
 
-        with open(input_file, "r") as f:
+        with open(input_file) as f:
             data = json.load(f)
 
         return CoverageReport(
@@ -456,14 +452,12 @@ class CoverageTracker:
             functions=data.get("functions"),
             lines=data.get("lines"),
             files=data.get("files", {}),
-            timestamp=data.get("timestamp", "")
+            timestamp=data.get("timestamp", ""),
         )
 
     def get_uncovered_files(
-        self,
-        report: CoverageReport,
-        threshold: float = 0.0
-    ) -> List[str]:
+        self, report: CoverageReport, threshold: float = 0.0
+    ) -> list[str]:
         """
         Get list of files below coverage threshold.
 
@@ -483,10 +477,8 @@ class CoverageTracker:
         return sorted(uncovered)
 
     def get_low_coverage_files(
-        self,
-        report: CoverageReport,
-        threshold: float = 80.0
-    ) -> List[Tuple[str, float]]:
+        self, report: CoverageReport, threshold: float = 80.0
+    ) -> list[tuple[str, float]]:
         """
         Get list of files below coverage threshold with their coverage.
 

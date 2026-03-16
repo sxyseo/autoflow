@@ -1,0 +1,22 @@
+{
+  "spec_slug": "001-example",
+  "updated_at": "20260307T230000Z",
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "Example Task 1",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": ["Task is complete"]
+    },
+    {
+      "id": "task-2",
+      "title": "Example Task 2",
+      "status": "todo",
+      "depends_on": ["task-1"],
+      "owner_role": "reviewer",
+      "acceptance_criteria": ["Review is complete"]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ analyzing tests in the Autoflow project. It supports:
 - Flaky test detection
 """
 
+import contextlib
 import fnmatch
 import json
 import subprocess
@@ -17,11 +18,11 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 
 class TestStatus(Enum):
     """Status of a test execution."""
+
     PASSED = "passed"
     FAILED = "failed"
     SKIPPED = "skipped"
@@ -32,17 +33,19 @@ class TestStatus(Enum):
 @dataclass
 class TestResult:
     """Result of a single test execution."""
+
     name: str
     file_path: str
     status: TestStatus
     duration: float
-    message: Optional[str] = None
-    output: Optional[str] = None
+    message: str | None = None
+    output: str | None = None
 
 
 @dataclass
 class TestRunResult:
     """Result of a complete test run."""
+
     total: int
     passed: int
     failed: int
@@ -60,6 +63,7 @@ class TestRunResult:
 @dataclass
 class TestFile:
     """Represents a discovered test file."""
+
     path: Path
     module_name: str
     test_functions: list[str] = field(default_factory=list)
@@ -68,7 +72,7 @@ class TestFile:
 class TestConfig:
     """Configuration for test framework."""
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         """Initialize test configuration.
 
         Args:
@@ -85,7 +89,7 @@ class TestConfig:
         if not self.config_path.exists():
             return self._default_config()
 
-        with open(self.config_path, "r") as f:
+        with open(self.config_path) as f:
             return json.load(f)
 
     def _default_config(self) -> dict:
@@ -94,7 +98,7 @@ class TestConfig:
             "test_discovery": {
                 "test_directories": ["tests"],
                 "test_patterns": ["test_*.py", "*_test.py"],
-                "exclude_patterns": ["__pycache__", "*.pyc"]
+                "exclude_patterns": ["__pycache__", "*.pyc"],
             },
             "test_execution": {
                 "default_timeout": 300,
@@ -102,19 +106,19 @@ class TestConfig:
                     "enabled": True,
                     "max_attempts": 3,
                     "backoff_factor": 2.0,
-                    "initial_delay": 1.0
-                }
+                    "initial_delay": 1.0,
+                },
             },
             "coverage": {
                 "enabled": True,
                 "threshold": 80,
-                "fail_under_threshold": True
+                "fail_under_threshold": True,
             },
             "flaky_detection": {
                 "enabled": True,
                 "min_runs": 3,
-                "quarantine_threshold": 0.3
-            }
+                "quarantine_threshold": 0.3,
+            },
         }
 
     @property
@@ -125,7 +129,9 @@ class TestConfig:
     @property
     def test_patterns(self) -> list[str]:
         """Get test file patterns."""
-        return self._config.get("test_discovery", {}).get("test_patterns", ["test_*.py"])
+        return self._config.get("test_discovery", {}).get(
+            "test_patterns", ["test_*.py"]
+        )
 
     @property
     def exclude_patterns(self) -> list[str]:
@@ -135,22 +141,38 @@ class TestConfig:
     @property
     def auto_retry_enabled(self) -> bool:
         """Check if auto-retry is enabled."""
-        return self._config.get("test_execution", {}).get("auto_retry", {}).get("enabled", True)
+        return (
+            self._config.get("test_execution", {})
+            .get("auto_retry", {})
+            .get("enabled", True)
+        )
 
     @property
     def max_retry_attempts(self) -> int:
         """Get maximum retry attempts."""
-        return self._config.get("test_execution", {}).get("auto_retry", {}).get("max_attempts", 3)
+        return (
+            self._config.get("test_execution", {})
+            .get("auto_retry", {})
+            .get("max_attempts", 3)
+        )
 
     @property
     def retry_backoff_factor(self) -> float:
         """Get retry backoff factor."""
-        return self._config.get("test_execution", {}).get("auto_retry", {}).get("backoff_factor", 2.0)
+        return (
+            self._config.get("test_execution", {})
+            .get("auto_retry", {})
+            .get("backoff_factor", 2.0)
+        )
 
     @property
     def retry_initial_delay(self) -> float:
         """Get initial retry delay."""
-        return self._config.get("test_execution", {}).get("auto_retry", {}).get("initial_delay", 1.0)
+        return (
+            self._config.get("test_execution", {})
+            .get("auto_retry", {})
+            .get("initial_delay", 1.0)
+        )
 
     @property
     def coverage_threshold(self) -> int:
@@ -171,7 +193,7 @@ class TestConfig:
 class TestDiscovery:
     """Discovers test files in the project."""
 
-    def __init__(self, config: Optional[TestConfig] = None):
+    def __init__(self, config: TestConfig | None = None):
         """Initialize test discovery.
 
         Args:
@@ -179,7 +201,7 @@ class TestDiscovery:
         """
         self.config = config or TestConfig()
 
-    def discover(self, base_path: Optional[Path] = None) -> list[TestFile]:
+    def discover(self, base_path: Path | None = None) -> list[TestFile]:
         """Discover all test files.
 
         Args:
@@ -223,12 +245,14 @@ class TestDiscovery:
 
             # Calculate module name
             relative_path = file_path.relative_to(base_path)
-            module_name = str(relative_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+            module_name = (
+                str(relative_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+            )
 
             test_file = TestFile(
                 path=file_path,
                 module_name=module_name,
-                test_functions=self._extract_test_functions(file_path)
+                test_functions=self._extract_test_functions(file_path),
             )
             test_files.append(test_file)
 
@@ -275,7 +299,7 @@ class TestDiscovery:
 class TestExecutor:
     """Executes tests with retry logic."""
 
-    def __init__(self, config: Optional[TestConfig] = None):
+    def __init__(self, config: TestConfig | None = None):
         """Initialize test executor.
 
         Args:
@@ -285,10 +309,10 @@ class TestExecutor:
 
     def run_tests(
         self,
-        test_paths: Optional[list[str]] = None,
+        test_paths: list[str] | None = None,
         auto_retry: bool = False,
-        max_attempts: Optional[int] = None,
-        verbose: bool = False
+        max_attempts: int | None = None,
+        verbose: bool = False,
     ) -> TestRunResult:
         """Run tests with optional auto-retry.
 
@@ -323,12 +347,7 @@ class TestExecutor:
         while attempt < max_attempts:
             attempt += 1
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
             # Parse results
             test_result = self._parse_pytest_output(result.stdout, result.stderr)
@@ -379,25 +398,17 @@ class TestExecutor:
                 parts = line.split()
                 for i, part in enumerate(parts):
                     if part == "passed" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             passed = int(parts[i - 1])
-                        except ValueError:
-                            pass
                     if part == "failed" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             failed = int(parts[i - 1])
-                        except ValueError:
-                            pass
                     if part == "skipped" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             skipped = int(parts[i - 1])
-                        except ValueError:
-                            pass
                     if part == "error" or part == "errors" and i > 0:
-                        try:
+                        with contextlib.suppress(ValueError):
                             errors = int(parts[i - 1])
-                        except ValueError:
-                            pass
 
         total = passed + failed + skipped + errors
 
@@ -408,13 +419,11 @@ class TestExecutor:
             skipped=skipped,
             errors=errors,
             duration=0.0,
-            output=output
+            output=output,
         )
 
     def run_coverage(
-        self,
-        threshold: Optional[int] = None,
-        source_dirs: Optional[list[str]] = None
+        self, threshold: int | None = None, source_dirs: list[str] | None = None
     ) -> tuple[bool, float, str]:
         """Run tests with coverage tracking.
 
@@ -433,19 +442,16 @@ class TestExecutor:
 
         # Build coverage command
         cmd = [
-            "python3", "-m", "pytest",
+            "python3",
+            "-m",
+            "pytest",
             "tests/",
             "--cov=" + ",".join(source_dirs),
             f"--cov-fail-under={threshold}",
-            "--cov-report=term-missing"
+            "--cov-report=term-missing",
         ]
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
         output = result.stdout + result.stderr
 
@@ -469,7 +475,7 @@ class TestExecutor:
 class FlakyTestDetector:
     """Detects flaky tests by running them multiple times."""
 
-    def __init__(self, config: Optional[TestConfig] = None):
+    def __init__(self, config: TestConfig | None = None):
         """Initialize flaky test detector.
 
         Args:
@@ -478,9 +484,7 @@ class FlakyTestDetector:
         self.config = config or TestConfig()
 
     def detect(
-        self,
-        test_path: Optional[str] = None,
-        runs: Optional[int] = None
+        self, test_path: str | None = None, runs: int | None = None
     ) -> dict[str, dict]:
         """Detect flaky tests by running them multiple times.
 
@@ -497,19 +501,14 @@ class FlakyTestDetector:
         # Run tests multiple times and track results
         test_results: dict[str, list[bool]] = {}
 
-        for run_num in range(runs):
+        for _run_num in range(runs):
             cmd = ["python3", "-m", "pytest", "-v", "--tb=no"]
             if test_path:
                 cmd.append(test_path)
             else:
                 cmd.append("tests/")
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
             output = result.stdout + result.stderr
 
@@ -545,13 +544,13 @@ class FlakyTestDetector:
                     "runs": len(results),
                     "passed": sum(results),
                     "failed": len(results) - sum(results),
-                    "is_flaky": pass_rate > threshold
+                    "is_flaky": pass_rate > threshold,
                 }
 
         return flaky_tests
 
 
-def discover_tests(config_path: Optional[Path] = None) -> list[TestFile]:
+def discover_tests(config_path: Path | None = None) -> list[TestFile]:
     """Discover all test files.
 
     Args:
@@ -566,9 +565,9 @@ def discover_tests(config_path: Optional[Path] = None) -> list[TestFile]:
 
 
 def run_tests(
-    test_paths: Optional[list[str]] = None,
+    test_paths: list[str] | None = None,
     auto_retry: bool = False,
-    config_path: Optional[Path] = None
+    config_path: Path | None = None,
 ) -> TestRunResult:
     """Run tests with optional auto-retry.
 

@@ -14,11 +14,11 @@ Usage:
 
 from __future__ import annotations
 
-import joblib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
+import joblib
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
@@ -83,7 +83,7 @@ class QualityModel:
     def __init__(
         self,
         n_estimators: int = 100,
-        max_depth: Optional[int] = None,
+        max_depth: int | None = None,
         random_state: int = 42,
     ) -> None:
         """
@@ -175,7 +175,9 @@ class QualityModel:
         prediction = self._binary_to_outcome(prediction_binary)
 
         # Calculate confidence (probability of predicted class)
-        confidence = float(probabilities[self.label_encoder.transform([prediction_binary])[0]])
+        confidence = float(
+            probabilities[self.label_encoder.transform([prediction_binary])[0]]
+        )
 
         # Extract feature importances
         feature_importances = self._extract_feature_importances()
@@ -247,15 +249,12 @@ class QualityModel:
         for feature_dict in features:
             all_features.update(feature_dict.keys())
 
-        self.feature_names = sorted(list(all_features))
+        self.feature_names = sorted(all_features)
 
         # Build matrix row by row
         matrix = []
         for feature_dict in features:
-            row = [
-                feature_dict.get(name, 0.0)
-                for name in self.feature_names
-            ]
+            row = [feature_dict.get(name, 0.0) for name in self.feature_names]
             matrix.append(row)
 
         return np.array(matrix)
@@ -272,10 +271,7 @@ class QualityModel:
         Returns:
             1D numpy array of features
         """
-        vector = [
-            features.get(name, 0.0)
-            for name in self.feature_names
-        ]
+        vector = [features.get(name, 0.0) for name in self.feature_names]
         return np.array(vector)
 
     def _extract_feature_importances(self) -> dict[str, float]:
@@ -430,7 +426,7 @@ class QualityModel:
         return path
 
     @classmethod
-    def load(cls, path: Path | None = None) -> "QualityModel":
+    def load(cls, path: Path | None = None) -> QualityModel:
         """
         Load a trained model from disk.
 
@@ -482,11 +478,7 @@ class QualityModel:
         importances = self._extract_feature_importances()
 
         # Sort features by importance
-        sorted_features = sorted(
-            importances.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        sorted_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)
 
         # Build explanation
         lines = ["Feature Importances:"]

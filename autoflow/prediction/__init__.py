@@ -31,7 +31,6 @@ from autoflow.prediction.feature_extractor import (
     SpecFeatures,
     TemporalFeatures,
 )
-
 from autoflow.prediction.feedback import (
     FeedbackCollector,
     FeedbackSummary,

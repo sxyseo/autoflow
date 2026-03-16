@@ -10,9 +10,7 @@ CI tools to be installed in the test environment.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,11 +34,10 @@ from autoflow.ci import (
     TestGate,
     TypeCheckGate,
     VerificationResult,
-    create_verifier,
     create_default_gates,
     create_default_runner,
+    create_verifier,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -276,8 +273,16 @@ class TestVerificationResult:
         """Test required_failures property."""
         result = VerificationResult()
         result.check_results = [
-            CheckResult(name="required-fail", status=CheckStatus.FAILED, metadata={"required": True}),
-            CheckResult(name="optional-fail", status=CheckStatus.FAILED, metadata={"required": False}),
+            CheckResult(
+                name="required-fail",
+                status=CheckStatus.FAILED,
+                metadata={"required": True},
+            ),
+            CheckResult(
+                name="optional-fail",
+                status=CheckStatus.FAILED,
+                metadata={"required": False},
+            ),
         ]
 
         assert len(result.failed_checks) == 2
@@ -516,7 +521,9 @@ class TestCIVerifierRunCheck:
             check_type=CheckType.TEST,
         )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess_success):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_subprocess_success
+        ):
             result = await verifier.run_check("pytest")
 
         assert result.status == CheckStatus.PASSED
@@ -536,7 +543,9 @@ class TestCIVerifierRunCheck:
             check_type=CheckType.TEST,
         )
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_subprocess_failure):
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=mock_subprocess_failure
+        ):
             result = await verifier.run_check("pytest")
 
         assert result.status == CheckStatus.FAILED
@@ -555,12 +564,12 @@ class TestCIVerifierRunCheck:
 
         # Create a mock process that hangs
         mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_process.communicate = AsyncMock(side_effect=TimeoutError())
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            with patch("asyncio.wait_for", side_effect=TimeoutError()):
                 result = await verifier.run_check("slow-check")
 
         assert result.status == CheckStatus.TIMEOUT
@@ -1106,7 +1115,9 @@ class TestGateRunnerResult:
         result.gates = [
             GateResult(gate_name="pass1", gate_type="test", passed=True),
             GateResult(gate_name="pass2", gate_type="lint", passed=True),
-            GateResult(gate_name="fail1", gate_type="security", passed=False, required=True),
+            GateResult(
+                gate_name="fail1", gate_type="security", passed=False, required=True
+            ),
         ]
 
         assert result.total_gates == 3

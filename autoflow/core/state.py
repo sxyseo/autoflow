@@ -32,6 +32,8 @@ from typing import Any, Optional, TypeVar, Union, overload, cast
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from autoflow.core.sanitization import sanitize_dict
+
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
 T = TypeVar("T")
@@ -337,6 +339,8 @@ class StateManager:
     TASKS_DIR = "tasks"
     RUNS_DIR = "runs"
     MEMORY_DIR = "memory"
+    REPOSITORIES_DIR = "repositories"
+    DEPENDENCIES_DIR = "dependencies"
     PARALLEL_DIR = "parallel"
     WORKSPACES_DIR = "workspaces"
     ACTIVITIES_DIR = "activities"
@@ -380,6 +384,16 @@ class StateManager:
         return self.state_dir / self.MEMORY_DIR
 
     @property
+    def repositories_dir(self) -> Path:
+        """Path to repositories directory."""
+        return self.state_dir / self.REPOSITORIES_DIR
+
+    @property
+    def dependencies_dir(self) -> Path:
+        """Path to dependencies directory."""
+        return self.state_dir / self.DEPENDENCIES_DIR
+
+    @property
     def parallel_dir(self) -> Path:
         """Path to parallel groups directory."""
         return self.state_dir / self.PARALLEL_DIR
@@ -418,6 +432,8 @@ class StateManager:
         self.tasks_dir.mkdir(exist_ok=True)
         self.runs_dir.mkdir(exist_ok=True)
         self.memory_dir.mkdir(exist_ok=True)
+        self.repositories_dir.mkdir(exist_ok=True)
+        self.dependencies_dir.mkdir(exist_ok=True)
         self.parallel_dir.mkdir(exist_ok=True)
         self.workspaces_dir.mkdir(exist_ok=True)
         self.activities_dir.mkdir(exist_ok=True)
@@ -434,20 +450,32 @@ class StateManager:
         Returns:
             Path to the backup file
         """
-        relative = file_path.relative_to(self.state_dir)
+        # Resolve both paths to handle symlinks
+        resolved_file = file_path.resolve()
+        resolved_state_dir = self.state_dir.resolve()
+        relative = resolved_file.relative_to(resolved_state_dir)
         return self.backup_dir / f"{relative}.bak"
 
     def _create_backup(self, file_path: Path) -> Optional[Path]:
         """
         Create a backup of an existing file.
 
+        Only creates backups for files within the state directory.
+
         Args:
             file_path: Path to the file to backup
 
         Returns:
-            Path to the backup file, or None if file doesn't exist
+            Path to the backup file, or None if file doesn't exist or is outside state_dir
         """
         if not file_path.exists():
+            return None
+
+        # Only create backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip backup
             return None
 
         backup_path = self._get_backup_path(file_path)
@@ -459,12 +487,21 @@ class StateManager:
         """
         Restore a file from its backup.
 
+        Only restores backups for files within the state directory.
+
         Args:
             file_path: Path to the file to restore
 
         Returns:
-            True if restored, False if no backup exists
+            True if restored, False if no backup exists or is outside state_dir
         """
+        # Only restore backups for files within state directory
+        try:
+            file_path.resolve().relative_to(self.state_dir.resolve())
+        except ValueError:
+            # File is outside state directory, skip restore
+            return False
+
         backup_path = self._get_backup_path(file_path)
         if backup_path.exists():
             shutil.copy2(backup_path, file_path)
@@ -576,7 +613,8 @@ class StateManager:
         Write JSON data to a file atomically.
 
         Uses write-to-temporary-and-rename pattern for crash safety.
-        Creates parent directories if needed.
+        Creates parent directories if needed. Sanitizes sensitive data
+        before writing to prevent information disclosure.
 
         Args:
             file_path: Destination path
@@ -600,6 +638,9 @@ class StateManager:
         # Create backup of existing file
         self._create_backup(path)
 
+        # Sanitize data to remove sensitive information
+        sanitized_data = sanitize_dict(data) if isinstance(data, dict) else data
+
         # Write to temporary file in same directory (ensures same filesystem)
         temp_fd, temp_path = tempfile.mkstemp(
             dir=path.parent,
@@ -610,7 +651,7 @@ class StateManager:
         try:
             # Write data to temp file
             with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=indent, ensure_ascii=False)
+                json.dump(sanitized_data, f, indent=indent, ensure_ascii=False)
 
             # Atomic rename
             os.replace(temp_path, path)

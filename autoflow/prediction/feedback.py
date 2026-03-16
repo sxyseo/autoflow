@@ -17,17 +17,17 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from autoflow.prediction.data_collector import QualityOutcome
 from autoflow.prediction.model import PredictionResult
 
 
-class PredictionStatus(str, Enum):
+class PredictionStatus(StrEnum):
     """
     Status of a prediction relative to actual outcome.
 
@@ -64,7 +64,7 @@ class PredictionRecord:
     confidence: float
     rationale: str
     feature_importances: dict[str, float]
-    actual_outcome: Optional[str] = None
+    actual_outcome: str | None = None
     status: PredictionStatus = PredictionStatus.PENDING
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,7 +81,7 @@ class PredictionRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PredictionRecord":
+    def from_dict(cls, data: dict[str, Any]) -> PredictionRecord:
         """Create from dictionary for JSON deserialization."""
         return cls(
             spec_id=data["spec_id"],
@@ -147,7 +147,9 @@ class FeedbackCollector:
     # Default feedback file path
     DEFAULT_FEEDBACK_PATH = Path(".autoflow/feedback.json")
 
-    def __init__(self, feedback_path: Optional[Path] = None, root_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self, feedback_path: Path | None = None, root_dir: Path | None = None
+    ) -> None:
         """
         Initialize the feedback collector.
 
@@ -188,9 +190,11 @@ class FeedbackCollector:
         record = PredictionRecord(
             spec_id=spec_id,
             timestamp=datetime.now(UTC).isoformat(),
-            predicted_outcome=prediction.prediction.value
-            if isinstance(prediction.prediction, QualityOutcome)
-            else prediction.prediction,
+            predicted_outcome=(
+                prediction.prediction.value
+                if isinstance(prediction.prediction, QualityOutcome)
+                else prediction.prediction
+            ),
             confidence=prediction.confidence,
             rationale=prediction.rationale,
             feature_importances=prediction.feature_importances,
@@ -204,7 +208,9 @@ class FeedbackCollector:
         # Persist to disk
         self._save_feedback()
 
-    def record_outcome(self, spec_id: str, actual_outcome: QualityOutcome | str) -> None:
+    def record_outcome(
+        self, spec_id: str, actual_outcome: QualityOutcome | str
+    ) -> None:
         """
         Record the actual outcome for a spec.
 
@@ -241,9 +247,7 @@ class FeedbackCollector:
         actual = outcome_str.lower()
 
         # Match prediction to outcome (success vs issues)
-        if predicted == actual:
-            record.status = PredictionStatus.CORRECT
-        elif "success" in predicted and "success" in actual:
+        if predicted == actual or "success" in predicted and "success" in actual:
             record.status = PredictionStatus.CORRECT
         elif "success" not in predicted and "success" not in actual:
             # Both are issues (needs_changes or failed)
@@ -379,8 +383,16 @@ class FeedbackCollector:
         accuracy = correct / completed if completed > 0 else 0.0
 
         # Calculate average confidences
-        avg_conf_correct = sum(confidences_correct) / len(confidences_correct) if confidences_correct else 0.0
-        avg_conf_incorrect = sum(confidences_incorrect) / len(confidences_incorrect) if confidences_incorrect else 0.0
+        avg_conf_correct = (
+            sum(confidences_correct) / len(confidences_correct)
+            if confidences_correct
+            else 0.0
+        )
+        avg_conf_incorrect = (
+            sum(confidences_incorrect) / len(confidences_incorrect)
+            if confidences_incorrect
+            else 0.0
+        )
 
         # Calculate precision, recall, F1
         precision, recall, f1 = self.get_precision_recall_f1()
@@ -512,8 +524,7 @@ class FeedbackCollector:
         """
         # Convert predictions to dictionaries
         predictions_data = {
-            spec_id: record.to_dict()
-            for spec_id, record in self.predictions.items()
+            spec_id: record.to_dict() for spec_id, record in self.predictions.items()
         }
 
         # Build feedback structure
@@ -528,15 +539,19 @@ class FeedbackCollector:
         # Write to file with atomic update
         temp_path = self.feedback_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(feedback_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(feedback_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(self.feedback_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write feedback to {self.feedback_path}: {e}") from e
+            raise OSError(
+                f"Failed to write feedback to {self.feedback_path}: {e}"
+            ) from e
 
-    def save_performance_metrics(self, performance_path: Optional[Path] = None) -> None:
+    def save_performance_metrics(self, performance_path: Path | None = None) -> None:
         """
         Save current performance metrics to a JSON file.
 
@@ -587,18 +602,20 @@ class FeedbackCollector:
         # Write to file with atomic update
         temp_path = performance_path.with_suffix(".tmp")
         try:
-            temp_path.write_text(json.dumps(performance_data, indent=2) + "\n", encoding="utf-8")
+            temp_path.write_text(
+                json.dumps(performance_data, indent=2) + "\n", encoding="utf-8"
+            )
             temp_path.replace(performance_path)
         except OSError as e:
             # Clean up temp file if write fails
             if temp_path.exists():
                 temp_path.unlink()
-            raise IOError(f"Failed to write performance metrics to {performance_path}: {e}") from e
+            raise OSError(
+                f"Failed to write performance metrics to {performance_path}: {e}"
+            ) from e
 
     def should_retrain(
-        self,
-        accuracy_threshold: float = 0.7,
-        min_samples_threshold: int = 10
+        self, accuracy_threshold: float = 0.7, min_samples_threshold: int = 10
     ) -> bool:
         """
         Determine if model should be retrained based on feedback metrics.
@@ -628,7 +645,8 @@ class FeedbackCollector:
         # Count completed predictions (non-pending)
         # These are samples available for retraining
         completed_samples = sum(
-            1 for record in self.predictions.values()
+            1
+            for record in self.predictions.values()
             if record.status != PredictionStatus.PENDING
         )
 
