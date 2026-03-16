@@ -971,3 +971,183 @@ class DuplicationDetector:
             data = json.load(f)
 
         return DuplicationReport.from_dict(data)
+
+
+class DuplicationReportManager:
+    """
+    Manager for duplication report collection and persistence.
+
+    Provides functionality to create, store, and load duplication reports.
+    Follows the same pattern as QAFindingsManager for consistency.
+    """
+
+    def __init__(self, work_dir: str = "."):
+        """
+        Initialize duplication report manager.
+
+        Args:
+            work_dir: Working directory for report storage
+        """
+        self.work_dir = Path(work_dir)
+
+    def create_report(self) -> DuplicationReport:
+        """
+        Create a new duplication report.
+
+        Returns:
+            New DuplicationReport instance
+        """
+        return DuplicationReport()
+
+    def save_report(self, report: DuplicationReport, output_path: str) -> None:
+        """
+        Save duplication report to file.
+
+        Args:
+            report: DuplicationReport to save
+            output_path: Path to output file
+        """
+        output_file = self.work_dir / output_path
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            json.dump(report.to_dict(), f, indent=2)
+
+    def load_report(self, input_path: str) -> DuplicationReport:
+        """
+        Load duplication report from file.
+
+        Args:
+            input_path: Path to input file
+
+        Returns:
+            DuplicationReport with loaded data
+        """
+        input_file = self.work_dir / input_path
+
+        with open(input_file) as f:
+            data = json.load(f)
+
+        return DuplicationReport.from_dict(data)
+
+    def create_finding(
+        self,
+        file: str,
+        line_start: int,
+        line_end: int,
+        similarity: float,
+        duplicated_in: str,
+        duplicated_line_start: int,
+        duplicated_line_end: int,
+        snippet: str,
+        category: str = "structural",
+    ) -> DuplicationFinding:
+        """
+        Create a duplication finding.
+
+        Args:
+            file: File path where duplication was found
+            line_start: Start line of duplicated code
+            line_end: End line of duplicated code
+            similarity: Similarity percentage (0.0-1.0)
+            duplicated_in: File path where the duplicate code exists
+            duplicated_line_start: Start line in the duplicated file
+            duplicated_line_end: End line in the duplicated file
+            snippet: Snippet of the duplicated code
+            category: Type of duplication (e.g., "exact", "structural", "token")
+
+        Returns:
+            DuplicationFinding instance
+        """
+        return DuplicationFinding(
+            file=file,
+            line_start=line_start,
+            line_end=line_end,
+            similarity=similarity,
+            duplicated_in=duplicated_in,
+            duplicated_line_start=duplicated_line_start,
+            duplicated_line_end=duplicated_line_end,
+            snippet=snippet,
+            category=category,
+        )
+
+    def merge_reports(
+        self, reports: list[DuplicationReport]
+    ) -> DuplicationReport:
+        """
+        Merge multiple duplication reports into one.
+
+        Args:
+            reports: List of reports to merge
+
+        Returns:
+            Merged DuplicationReport
+        """
+        if not reports:
+            return DuplicationReport()
+
+        merged = DuplicationReport()
+        total_duplication = 0.0
+        total_files = 0
+
+        for report in reports:
+            merged.findings.extend(report.findings)
+            total_duplication += report.total_duplication
+            total_files += report.files_analyzed
+
+        # Calculate average total duplication
+        if reports:
+            merged.total_duplication = total_duplication / len(reports)
+            merged.files_analyzed = total_files
+
+        # Sort findings by similarity (descending) and file
+        merged.findings.sort(key=lambda f: (-f.similarity, f.file, f.line_start))
+
+        return merged
+
+    def filter_by_similarity(
+        self, report: DuplicationReport, min_similarity: float
+    ) -> DuplicationReport:
+        """
+        Filter report findings by minimum similarity.
+
+        Args:
+            report: DuplicationReport to filter
+            min_similarity: Minimum similarity threshold (0.0-1.0)
+
+        Returns:
+            Filtered DuplicationReport
+        """
+        filtered = DuplicationReport()
+        filtered.files_analyzed = report.files_analyzed
+        filtered.timestamp = report.timestamp
+
+        for finding in report.findings:
+            if finding.similarity >= min_similarity:
+                filtered.findings.append(finding)
+
+        # Recalculate total duplication
+        if filtered.findings:
+            filtered.total_duplication = (
+                sum(f.similarity for f in filtered.findings) / len(filtered.findings)
+            )
+
+        return filtered
+
+    def get_top_duplications(
+        self, report: DuplicationReport, count: int = 10
+    ) -> list[DuplicationFinding]:
+        """
+        Get top N duplications by similarity.
+
+        Args:
+            report: DuplicationReport to extract from
+            count: Number of top findings to return
+
+        Returns:
+            List of top DuplicationFinding objects
+        """
+        sorted_findings = sorted(
+            report.findings, key=lambda f: f.similarity, reverse=True
+        )
+        return sorted_findings[:count]
