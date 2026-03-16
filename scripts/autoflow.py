@@ -107,6 +107,8 @@ from scripts.cli.utils import (
     task_file,
     tmux_session_exists,
     validate_slug_safe,
+    worktree_branch,
+    worktree_path,
     write_json,
     write_run_metadata,
 )
@@ -324,37 +326,6 @@ def load_agents() -> dict[str, AgentSpec]:
         )
     _agents_config_cache = agents
     return _agents_config_cache
-
-
-def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
-    """
-    Get the worktree path for a spec.
-
-    Args:
-        spec_slug: Spec slug identifier
-        repository: Optional repository ID for multi-repo worktrees
-
-    Returns:
-        Path to the worktree directory
-    """
-    if not validate_slug_safe(spec_slug):
-        raise SystemExit(f"invalid spec slug: {spec_slug}")
-    if repository:
-        return WORKTREES_DIR / repository / spec_slug
-    return WORKTREES_DIR / spec_slug
-
-
-def worktree_branch(spec_slug: str) -> str:
-    """
-    Get the git branch name for a spec's worktree.
-
-    Args:
-        spec_slug: Spec slug identifier
-
-    Returns:
-        Branch name for the worktree (format: codex/{slugified_spec_slug})
-    """
-    return f"codex/{slugify(spec_slug)}"
 
 
 def review_state_default() -> dict[str, Any]:

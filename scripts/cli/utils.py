@@ -363,6 +363,40 @@ def spec_files(slug: str) -> dict[str, Path]:
     }
 
 
+def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
+    """
+    Get the worktree path for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+        repository: Optional repository ID for multi-repo worktrees
+
+    Returns:
+        Path to the worktree directory
+
+    Raises:
+        SystemExit: If the spec slug is invalid
+    """
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit(f"invalid spec slug: {spec_slug}")
+    if repository:
+        return WORKTREES_DIR / repository / spec_slug
+    return WORKTREES_DIR / spec_slug
+
+
+def worktree_branch(spec_slug: str) -> str:
+    """
+    Get the git branch name for a spec's worktree.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Branch name for the worktree (format: codex/{slugified_spec_slug})
+    """
+    return f"codex/{slugify(spec_slug)}"
+
+
 def load_spec_metadata(spec_slug: str) -> dict[str, Any]:
     """
     Load metadata for a spec.
