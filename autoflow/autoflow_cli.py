@@ -707,6 +707,10 @@ class AutoflowCLI:
             config = default
             self.write_json(self.system_config_file, config)
 
+            # Invalidate cache after writing system config file
+            # (Cache will be repopulated below)
+            invalidate_system_config_cache()
+
         # Cache the result
         _system_config_cache = config
         return config
