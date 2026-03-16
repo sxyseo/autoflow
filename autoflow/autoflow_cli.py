@@ -2024,3 +2024,61 @@ def _populate_agents_cache() -> None:
     config = load_config()
     cli = AutoflowCLI(config)
     _agents_config_cache = cli.load_agents()
+
+
+def invalidate_system_config_cache() -> None:
+    """Invalidate the system configuration cache.
+
+    This clears the cached system configuration, forcing the next call to
+    reload from disk. Use this when the system configuration file has been
+    modified and you need to ensure fresh data is loaded.
+
+    Cache Behavior:
+        Sets _system_config_cache to None, causing the next call to
+        _populate_system_config_cache() to reload from disk.
+
+    Usage:
+        invalidate_system_config_cache()
+        # Next access will reload from disk
+    """
+    global _system_config_cache
+    _system_config_cache = None
+
+
+def invalidate_agents_cache() -> None:
+    """Invalidate the agents configuration cache.
+
+    This clears the cached agents configuration, forcing the next call to
+    reload from disk. Use this when the agents configuration file has been
+    modified and you need to ensure fresh data is loaded.
+
+    Cache Behavior:
+        Sets _agents_config_cache to None, causing the next call to
+        _populate_agents_cache() to reload from disk.
+
+    Usage:
+        invalidate_agents_cache()
+        # Next access will reload from disk
+    """
+    global _agents_config_cache
+    _agents_config_cache = None
+
+
+def invalidate_config_cache() -> None:
+    """Invalidate all configuration-related caches.
+
+    This clears both the system configuration cache and the agents configuration
+    cache, forcing both to be reloaded from disk on next access. Use this when
+    configuration files have been modified and you need to ensure fresh data.
+
+    Cache Behavior:
+        Sets both _system_config_cache and _agents_config_cache to None,
+        causing the next calls to their respective populate functions to
+        reload from disk.
+
+    Usage:
+        invalidate_config_cache()
+        # Next access to either cache will reload from disk
+    """
+    invalidate_system_config_cache()
+    invalidate_agents_cache()
