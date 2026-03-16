@@ -36,7 +36,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, TypedDict, Union
 
 from pydantic import ValidationError
 
@@ -46,6 +46,75 @@ from autoflow.core.repository import (
     RepositoryManager,
 )
 from autoflow.core.state import StateManager
+
+
+# === TypedDict Definitions ===
+
+
+class DependencyData(TypedDict, total=False):
+    """
+    TypedDict for dependency data dictionary input.
+
+    This type provides type safety for dependency data passed to add_dependency.
+    All fields are optional to support partial updates and various input formats.
+
+    Attributes:
+        source_repo_id: ID of the repository that has this dependency
+        target_repo_id: ID of the repository being depended on
+        dependency_type: Type of dependency relationship (runtime, development, etc.)
+        branch_constraint: Required branch for the target repository
+        version_constraint: Optional version constraint
+        required: Whether this dependency must be satisfied
+        created_at: When this dependency was created
+        metadata: Additional metadata about the dependency
+    """
+
+    source_repo_id: str
+    target_repo_id: str
+    dependency_type: str
+    branch_constraint: str | None
+    version_constraint: str | None
+    required: bool
+    created_at: str
+    metadata: dict[str, Any]
+
+
+class DependencyTypeCounts(TypedDict, total=False):
+    """
+    TypedDict for dependency type counts.
+
+    Maps dependency type names to the number of dependencies of that type.
+
+    Attributes:
+        runtime: Count of runtime dependencies
+        development: Count of development dependencies
+        peer: Count of peer dependencies
+        optional: Count of optional dependencies
+    """
+
+    runtime: int
+    development: int
+    peer: int
+    optional: int
+
+
+class DependencyStatus(TypedDict, total=False):
+    """
+    TypedDict for dependency tracker status summary.
+
+    Provides a typed structure for the status information returned by get_status.
+
+    Attributes:
+        total: Total number of dependencies
+        by_type: Dictionary counting dependencies by type
+        repositories: Total number of repositories
+        has_errors: Whether there are validation errors
+    """
+
+    total: int
+    by_type: DependencyTypeCounts
+    repositories: int
+    has_errors: bool
 
 
 class DependencyTracker:
@@ -133,7 +202,7 @@ class DependencyTracker:
 
     def add_dependency(
         self,
-        dependency: Union[RepositoryDependency, dict[str, Any]],
+        dependency: Union[RepositoryDependency, DependencyData],
     ) -> str:
         """
         Add a dependency relationship between repositories.
@@ -553,7 +622,7 @@ class DependencyTracker:
         """
         return f"{source_id}-to-{target_id}"
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self) -> DependencyStatus:
         """
         Get status summary of dependencies.
 
@@ -576,9 +645,9 @@ class DependencyTracker:
     def _count_dependencies_by_type(
         self,
         dependencies: list[RepositoryDependency],
-    ) -> dict[str, int]:
+    ) -> DependencyTypeCounts:
         """Count dependencies by type."""
-        counts: dict[str, int] = defaultdict(int)
+        counts = defaultdict(int)
 
         for dep in dependencies:
             # Convert enum to string value
