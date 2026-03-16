@@ -8,6 +8,25 @@
       "memory_scopes": [
         "spec"
       ]
+    },
+    "codex": {
+      "command": "codex",
+      "args": [],
+      "resume": {
+        "subcommand": "resume"
+      }
+    },
+    "claude": {
+      "command": "claude",
+      "args": [],
+      "resume": {
+        "subcommand": "continue"
+      }
+    },
+    "test-acp": {
+      "command": "test-acp",
+      "args": [],
+      "resume": null
     }
   }
 }

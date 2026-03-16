@@ -1,9 +1,9 @@
 {
-  "valid": true,
-  "invalidated_at": "",
-  "invalidated_reason": "",
-  "spec_hash": "f53a09ff220ff3aa2b41145a516d6acb9286ea5bfaa12e352c3474c7d8105d2d",
+  "valid": false,
+  "invalidated_at": "20260316T004429Z",
+  "invalidated_reason": "run_completed",
+  "spec_hash": "9d1d311292bdac0b397ffdd28cb52e962a70feea1ffe85ba85493ef174389d20",
   "feedback": [],
   "feedback_count": 0,
-  "spec_changed": false
+  "spec_changed": true
 }
