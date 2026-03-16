@@ -190,16 +190,27 @@ mypy .
 **Ruff configuration** (pyproject.toml):
 ```toml
 [tool.ruff]
-line-length = 100
-target-version = "py310"
+target-version = "py311"
+line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
-ignore = []
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+]
 
 [tool.ruff.format]
-quote-style = "double"
 indent-style = "space"
+quote-style = "double"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 ```
 
 ### Code Quality Guidelines
