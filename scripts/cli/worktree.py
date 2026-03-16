@@ -37,34 +37,14 @@ from scripts.cli.utils import (
     write_json,
 )
 
-# For now, import helper functions from the monolithic autoflow.py
-# These will be moved to utils.py in subtask-2-2
-import sys
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-
-def _get_worktree_helper_functions():
-    """Import worktree helper functions from autoflow.py (temporary)."""
-    # These functions will be moved to utils.py in subtask-2-2
-    import scripts.autoflow as af
-
-    return {
-        'spec_files': af.spec_files,
-        'load_spec_metadata': af.load_spec_metadata,
-        'save_spec_metadata': af.save_spec_metadata,
-        'record_event': af.record_event,
-        'repository_manager': af.repository_manager,
-    }
-
-
-# Get helper functions
-_helpers = _get_worktree_helper_functions()
-spec_files = _helpers['spec_files']
-load_spec_metadata = _helpers['load_spec_metadata']
-save_spec_metadata = _helpers['save_spec_metadata']
-record_event = _helpers['record_event']
-repository_manager = _helpers['repository_manager']
+# Import helper functions from utils and repository
+from scripts.cli.utils import (
+    spec_files,
+    load_spec_metadata,
+    save_spec_metadata,
+    record_event,
+)
+from scripts.cli.repository import repository_manager
 
 
 def worktree_path(spec_slug: str, repository: str | None = None) -> Path:
