@@ -19,16 +19,16 @@ if str(_root) not in sys.path:
         sys.path.remove(scripts_path)
     sys.path.insert(1, scripts_path)
 
-import cli_healthcheck
-import continuous_iteration
+import cli_healthcheck  # noqa: E402
+import continuous_iteration  # noqa: E402
 
-from autoflow.core.commands import (
+from autoflow.core.commands import (  # noqa: E402
     get_strategy_summary,
     get_workflow_state,
     taskmaster_export,
     taskmaster_import,
 )
-from autoflow.utils import load_json, load_config
+from autoflow.utils import load_config, load_json  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"

@@ -7,10 +7,10 @@ error handling and default values.
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
-def load_json(path: Path, default: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Load a JSON file, returning a default value if the file doesn't exist.
 

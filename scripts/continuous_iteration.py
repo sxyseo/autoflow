@@ -24,7 +24,7 @@ if str(_root) not in sys.path:
     sys.path.insert(1, scripts_path)
 
 # Import shared utilities from autoflow.utils
-from autoflow.utils import load_config, load_json, run_cmd
+from autoflow.utils import load_config, load_json, run_cmd  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"

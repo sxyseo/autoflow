@@ -38,7 +38,6 @@ import json
 import os
 import shlex
 import shutil
-import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -65,13 +64,13 @@ else:
     sys.path.insert(1, scripts_path)
 
 # Import shared utilities from autoflow.utils
-from autoflow.utils import run_cmd
+from autoflow.core.sanitization import sanitize_dict, sanitize_value  # noqa: E402
+from autoflow.utils import run_cmd  # noqa: E402
 
 # Import now_stamp from time_helpers for timestamp generation
-from autoflow.utils.time_helpers import now_stamp
+from autoflow.utils.time_helpers import now_stamp  # noqa: E402
+from scripts.integrity import hash_file_content  # noqa: E402
 
-from scripts.integrity import hash_file_content, verify_file_integrity
-from autoflow.core.sanitization import sanitize_dict, sanitize_value
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -220,10 +219,7 @@ def validate_slug_safe(slug: str) -> bool:
         return False
 
     # Check for drive letters (Windows absolute paths like C:)
-    if len(slug) >= 2 and slug[1] == ":":
-        return False
-
-    return True
+    return not (len(slug) >= 2 and slug[1] == ":")
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -1522,7 +1518,7 @@ def load_tasks_from_repository(repository_id: str, spec_slug: str) -> dict[str, 
     return read_json(other_tasks_file)
 
 
-def task_lookup(data: dict[str, Any], task_id: str, spec_slug: str | None = None) -> dict[str, Any]:
+def task_lookup(data: dict[str, Any], task_id: str, _spec_slug: str | None = None) -> dict[str, Any]:
     """
     Look up a task by ID, supporting cross-repository references.
 
@@ -2771,7 +2767,7 @@ def _populate_tasks_cache(spec_slug: str) -> None:
     # This enables opportunistic caching of all specs in one scan
     spec_tasks = {}
     for task_file_path in sorted(TASKS_DIR.iterdir()):
-        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
+        if not task_file_path.is_file() or task_file_path.suffix != ".json":
             continue
         # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
         file_spec = task_file_path.stem
@@ -4987,7 +4983,6 @@ def remove_worktree(args: argparse.Namespace) -> None:
     worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
     if repository:
         worktree_metadata["repository"] = repository
-    metadata["worktree"] = worktree_metadata
     metadata = load_spec_metadata(args.spec)
     metadata["worktree"] = worktree_metadata
     save_spec_metadata(args.spec, metadata)
@@ -5249,7 +5244,6 @@ def repo_validate_cmd(args: argparse.Namespace) -> None:
         # Count errors
         total_repos = len(repo_results)
         invalid_repos = {repo_id: errs for repo_id, errs in repo_results.items() if errs}
-        valid_repos = total_repos - len(invalid_repos)
 
         # Print repository results
         if invalid_repos:
