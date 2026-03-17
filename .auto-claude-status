@@ -3,13 +3,13 @@
   "spec": "080-real-time-collaboration-indicators",
   "state": "building",
   "subtasks": {
-    "completed": 2,
+    "completed": 3,
     "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Presence and Conflict Data Models",
+    "current": "Presence Tracking Service",
     "id": null,
     "total": 3
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 4,
+    "number": 5,
     "started_at": "2026-03-17T21:57:23.853280"
   },
-  "last_update": "2026-03-17T22:03:36.018854"
+  "last_update": "2026-03-17T22:05:05.093548"
 }
