@@ -421,3 +421,110 @@ class Notification(BaseModel):
         if self.expires_at is None:
             return False
         return datetime.utcnow() > self.expires_at
+
+
+class PresenceStatus(str, Enum):
+    """Presence status for users in real-time collaboration."""
+
+    ONLINE = "online"  # User is actively online
+    AWAY = "away"  # User is away from keyboard
+    BUSY = "busy"  # User is busy and should not be disturbed
+    OFFLINE = "offline"  # User is offline
+
+
+class UserPresence(BaseModel):
+    """
+    Represents a user's real-time presence information.
+
+    UserPresence tracks the online status and activity of users within
+    workspaces, enabling real-time collaboration features like showing
+    who is currently active, away, or busy.
+
+    Attributes:
+        user_id: User ID for this presence record
+        status: Current presence status (online, away, busy, offline)
+        workspace_id: Workspace ID where the user is present (optional)
+        team_id: Team ID associated with the user (optional)
+        last_seen: Timestamp when the user was last active
+        status_message: Custom status message (optional)
+        metadata: Additional presence data
+
+    Example:
+        >>> presence = UserPresence(
+        ...     user_id="user-001",
+        ...     status=PresenceStatus.ONLINE,
+        ...     workspace_id="workspace-001",
+        ...     last_seen=datetime.utcnow()
+        ... )
+        >>> print(presence.status)
+        online
+    """
+
+    user_id: str
+    status: PresenceStatus = PresenceStatus.OFFLINE
+    workspace_id: Optional[str] = None
+    team_id: Optional[str] = None
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
+    status_message: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def update_status(self, status: PresenceStatus) -> None:
+        """
+        Update the user's presence status.
+
+        Args:
+            status: New presence status
+        """
+        self.status = status
+        self.last_seen = datetime.utcnow()
+
+    def set_online(self, workspace_id: Optional[str] = None) -> None:
+        """
+        Set the user's status to online.
+
+        Args:
+            workspace_id: Optional workspace ID where user is active
+        """
+        self.status = PresenceStatus.ONLINE
+        self.last_seen = datetime.utcnow()
+        if workspace_id:
+            self.workspace_id = workspace_id
+
+    def set_away(self) -> None:
+        """Set the user's status to away."""
+        self.status = PresenceStatus.AWAY
+        self.last_seen = datetime.utcnow()
+
+    def set_busy(self) -> None:
+        """Set the user's status to busy."""
+        self.status = PresenceStatus.BUSY
+        self.last_seen = datetime.utcnow()
+
+    def set_offline(self) -> None:
+        """Set the user's status to offline."""
+        self.status = PresenceStatus.OFFLINE
+        self.last_seen = datetime.utcnow()
+
+    def is_online(self) -> bool:
+        """
+        Check if the user is currently online.
+
+        Returns:
+            True if user is online, False otherwise
+        """
+        return self.status == PresenceStatus.ONLINE
+
+    def is_active(self, timeout_seconds: int = 300) -> bool:
+        """
+        Check if the user was recently active.
+
+        Args:
+            timeout_seconds: Seconds of inactivity before considering user inactive
+
+        Returns:
+            True if user was active within timeout, False otherwise
+        """
+        if self.status == PresenceStatus.OFFLINE:
+            return False
+        time_since_last_seen = datetime.utcnow() - self.last_seen
+        return time_since_last_seen.total_seconds() <= timeout_seconds
