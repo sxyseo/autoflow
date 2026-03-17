@@ -303,19 +303,18 @@ class ConflictManager:
                 self._write_lock(existing_lock)
                 return True, existing_lock, None
 
-            # Lock held by different user
-            conflict_msg = (
-                f"Task {task_id} is currently locked by {existing_lock.user_id} "
-                f"since {existing_lock.locked_at.strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            return False, existing_lock, conflict_msg
-
-        # Check for stale locks if auto-release is enabled
-        if self.config.auto_release_stale and existing_lock:
-            if existing_lock.is_expired():
-                # Remove expired lock
+            # Check if existing lock is stale and auto-release is enabled
+            if self.config.auto_release_stale and existing_lock.is_expired():
+                # Remove expired lock and continue to acquire new lock
                 self._get_lock_file_path(task_id).unlink(missing_ok=True)
                 existing_lock = None
+            else:
+                # Lock held by different user and is still valid
+                conflict_msg = (
+                    f"Task {task_id} is currently locked by {existing_lock.user_id} "
+                    f"since {existing_lock.locked_at.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                return False, existing_lock, conflict_msg
 
         # Create new lock
         lock_duration = duration_seconds or self.config.lock_timeout_seconds
