@@ -528,3 +528,191 @@ class UserPresence(BaseModel):
             return False
         time_since_last_seen = datetime.utcnow() - self.last_seen
         return time_since_last_seen.total_seconds() <= timeout_seconds
+
+
+class TaskLock(BaseModel):
+    """
+    Represents a lock on a task to prevent concurrent editing conflicts.
+
+    TaskLocks ensure that only one user can edit a task at a time, preventing
+    conflicting changes. Locks can have optional expiration times to handle
+    cases where users forget to release locks.
+
+    Attributes:
+        id: Unique lock identifier
+        task_id: Task ID that is locked
+        user_id: User ID who holds the lock
+        workspace_id: Workspace ID where the task exists
+        locked_at: Timestamp when the lock was acquired
+        expires_at: Optional expiration timestamp for auto-release
+        metadata: Additional lock data
+
+    Example:
+        >>> lock = TaskLock(
+        ...     id="lock-001",
+        ...     task_id="task-001",
+        ...     user_id="user-001",
+        ...     workspace_id="workspace-001"
+        ... )
+        >>> print(lock.is_valid())
+        True
+    """
+
+    id: str
+    task_id: str
+    user_id: str
+    workspace_id: str
+    locked_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: Optional[datetime] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def is_valid(self) -> bool:
+        """
+        Check if the lock is still valid (not expired).
+
+        Returns:
+            True if lock is valid, False if expired
+        """
+        if self.expires_at is None:
+            return True
+        return datetime.utcnow() < self.expires_at
+
+    def is_expired(self) -> bool:
+        """
+        Check if the lock has expired.
+
+        Returns:
+            True if lock is expired, False otherwise
+        """
+        return not self.is_valid()
+
+    def refresh(self, duration_seconds: Optional[int] = None) -> None:
+        """
+        Refresh the lock expiration time.
+
+        Args:
+            duration_seconds: Optional duration in seconds from now for new expiration.
+                             If None, uses existing duration from locked_at.
+        """
+        if duration_seconds is not None:
+            from datetime import timedelta
+            self.expires_at = datetime.utcnow() + timedelta(seconds=duration_seconds)
+
+    def release(self) -> None:
+        """Release the lock by setting expiration to now."""
+        self.expires_at = datetime.utcnow()
+
+
+class EditSessionStatus(str, Enum):
+    """Status of an edit session."""
+
+    ACTIVE = "active"  # User is actively editing
+    IDLE = "idle"  # User has not made changes recently
+    COMPLETED = "completed"  # Session completed normally
+    ABANDONED = "abandoned"  # Session abandoned (timeout)
+
+
+class EditSession(BaseModel):
+    """
+    Represents an active editing session for a task.
+
+    EditSessions track when users are actively editing tasks, providing real-time
+    awareness of who is working on what. Sessions can detect idle users and
+    abandoned edits through activity timeouts.
+
+    Attributes:
+        id: Unique session identifier
+        task_id: Task ID being edited
+        user_id: User ID who is editing
+        workspace_id: Workspace ID where the task exists
+        started_at: Timestamp when the session started
+        last_activity: Timestamp of the last detected activity
+        status: Current session status
+        idle_timeout_seconds: Seconds of inactivity before marking as idle
+        metadata: Additional session data
+
+    Example:
+        >>> session = EditSession(
+        ...     id="session-001",
+        ...     task_id="task-001",
+        ...     user_id="user-001",
+        ...     workspace_id="workspace-001"
+        ... )
+        >>> session.record_activity()
+        >>> print(session.is_active())
+        True
+    """
+
+    id: str
+    task_id: str
+    user_id: str
+    workspace_id: str
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    last_activity: datetime = Field(default_factory=datetime.utcnow)
+    status: EditSessionStatus = EditSessionStatus.ACTIVE
+    idle_timeout_seconds: int = 300  # 5 minutes default
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def record_activity(self) -> None:
+        """Record that the user is active in this session."""
+        self.last_activity = datetime.utcnow()
+        if self.status in (EditSessionStatus.IDLE, EditSessionStatus.ABANDONED):
+            self.status = EditSessionStatus.ACTIVE
+
+    def check_idle(self) -> None:
+        """Check if the session is idle and update status if needed."""
+        if self.status == EditSessionStatus.ACTIVE:
+            time_since_activity = datetime.utcnow() - self.last_activity
+            if time_since_activity.total_seconds() > self.idle_timeout_seconds:
+                self.status = EditSessionStatus.IDLE
+
+    def is_active(self) -> bool:
+        """
+        Check if the session is currently active.
+
+        Returns:
+            True if session is active, False otherwise
+        """
+        self.check_idle()
+        return self.status == EditSessionStatus.ACTIVE
+
+    def is_abandoned(self, timeout_seconds: Optional[int] = None) -> bool:
+        """
+        Check if the session has been abandoned.
+
+        Args:
+            timeout_seconds: Optional custom timeout for abandonment check.
+                            If None, uses 2x idle_timeout_seconds.
+
+        Returns:
+            True if session is abandoned, False otherwise
+        """
+        timeout = timeout_seconds or (self.idle_timeout_seconds * 2)
+        time_since_activity = datetime.utcnow() - self.last_activity
+        return time_since_activity.total_seconds() > timeout
+
+    def complete(self) -> None:
+        """Mark the session as completed."""
+        self.status = EditSessionStatus.COMPLETED
+
+    def abandon(self) -> None:
+        """Mark the session as abandoned."""
+        self.status = EditSessionStatus.ABANDONED
+
+    def get_duration_seconds(self) -> float:
+        """
+        Get the duration of the session in seconds.
+
+        Returns:
+            Duration in seconds from start to now
+        """
+        return (datetime.utcnow() - self.started_at).total_seconds()
+
+    def get_idle_time_seconds(self) -> float:
+        """
+        Get the idle time in seconds.
+
+        Returns:
+            Idle time in seconds since last activity
+        """
+        return (datetime.utcnow() - self.last_activity).total_seconds()
