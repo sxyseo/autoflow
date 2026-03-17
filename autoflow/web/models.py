@@ -7,6 +7,7 @@ FastAPI backend.
 
 Usage:
     from autoflow.web.models import TaskResponse, RunResponse, StatusResponse
+    from autoflow.web.models import PresenceResponse, TaskLockResponse
 
     # Create a task response
     task_resp = TaskResponse(
@@ -22,6 +23,20 @@ Usage:
         version="0.1.0",
         tasks_total=10,
         runs_total=5
+    )
+
+    # Create a presence response
+    presence = PresenceResponse(
+        user_id="user-001",
+        status="online",
+        current_task="task-001"
+    )
+
+    # Create a task lock response
+    lock = TaskLockResponse(
+        task_id="task-001",
+        locked_by="user-001",
+        is_valid=True
     )
 """
 
@@ -318,3 +333,145 @@ class SpecListResponse(BaseModel):
     specs: list[SpecResponse]
     total: int
     filtered: bool = False
+
+
+class PresenceResponse(BaseModel):
+    """
+    API response model for user presence information.
+
+    Represents a user's real-time presence status in the collaboration system.
+    Used by GET /api/presence and GET /api/presence/{user_id} endpoints.
+
+    Attributes:
+        user_id: Unique user identifier
+        status: Current presence status (online, away, busy, offline)
+        last_seen: Timestamp when the user was last active
+        current_task: ID of the task the user is currently working on (optional)
+        workspace_id: Workspace ID where the user is present (optional)
+        team_id: Team ID associated with the user (optional)
+        status_message: Custom status message
+
+    Example:
+        >>> presence = PresenceResponse(
+        ...     user_id="user-001",
+        ...     status="online",
+        ...     last_seen=datetime.utcnow(),
+        ...     current_task="task-001"
+        ... )
+    """
+
+    user_id: str
+    status: str = "offline"
+    last_seen: datetime = Field(default_factory=datetime.utcnow)
+    current_task: Optional[str] = None
+    workspace_id: Optional[str] = None
+    team_id: Optional[str] = None
+    status_message: str = ""
+
+    class Config:
+        """Pydantic config for PresenceResponse."""
+
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }
+
+
+class TaskLockResponse(BaseModel):
+    """
+    API response model for task lock information.
+
+    Represents a lock on a task to prevent concurrent editing conflicts.
+    Used by GET /api/tasks/{task_id}/lock endpoint.
+
+    Attributes:
+        task_id: Task ID that is locked
+        locked_by: User ID who holds the lock
+        locked_at: Timestamp when the lock was acquired
+        expires_at: Optional expiration timestamp for auto-release
+        workspace_id: Workspace ID where the task exists
+        is_valid: Whether the lock is still valid (not expired)
+
+    Example:
+        >>> lock = TaskLockResponse(
+        ...     task_id="task-001",
+        ...     locked_by="user-001",
+        ...     locked_at=datetime.utcnow(),
+        ...     is_valid=True
+        ... )
+    """
+
+    task_id: str
+    locked_by: str
+    locked_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: Optional[datetime] = None
+    workspace_id: Optional[str] = None
+    is_valid: bool = True
+
+    class Config:
+        """Pydantic config for TaskLockResponse."""
+
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }
+
+
+class CollaborationStatusResponse(BaseModel):
+    """
+    API response model for overall collaboration status.
+
+    Represents the collaboration status of a workspace with summary statistics.
+    Used by GET /api/collaboration/status endpoint.
+
+    Attributes:
+        online_users: Number of currently online users
+        active_locks: Number of active task locks
+        recent_activity: List of recent activity descriptions
+        workspace_id: Workspace ID for this status
+        timestamp: Timestamp when the status was generated
+
+    Example:
+        >>> status = CollaborationStatusResponse(
+        ...     online_users=5,
+        ...     active_locks=2,
+        ...     recent_activity=["User A started editing task-001"],
+        ...     workspace_id="workspace-001"
+        ... )
+    """
+
+    online_users: int = 0
+    active_locks: int = 0
+    recent_activity: list[str] = Field(default_factory=list)
+    workspace_id: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        """Pydantic config for CollaborationStatusResponse."""
+
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+        }
+
+
+class PresenceListResponse(BaseModel):
+    """
+    API response model for a list of user presence records.
+
+    Wraps a list of presence records with metadata.
+    Used by GET /api/presence endpoint.
+
+    Attributes:
+        presences: List of presence responses
+        total: Total number of presence records
+        online_count: Number of users currently online
+
+    Example:
+        >>> response = PresenceListResponse(
+        ...     presences=[presence1, presence2],
+        ...     total=2,
+        ...     online_count=2
+        ... )
+    """
+
+    presences: list[PresenceResponse]
+    total: int
+    online_count: int = 0
