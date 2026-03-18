@@ -1,45 +1,25 @@
 {
   "active": true,
-<<<<<<< HEAD
-  "spec": "019-distributed-agent-coordination",
-  "state": "building",
+  "spec": "082-mobile-companion-app",
+  "state": "planning",
   "subtasks": {
-    "completed": 20,
-    "total": 24,
+    "completed": 0,
+    "total": 0,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration and CLI",
-=======
-  "spec": "036-improve-type-safety-and-reduce-any-usage",
-  "state": "building",
-  "subtasks": {
-    "completed": 17,
-    "total": 21,
-    "in_progress": 0,
-    "failed": 0
-  },
-  "phase": {
-    "current": "Ensure Mypy Compatibility",
->>>>>>> origin/main
+    "current": "Backend API Extensions",
     "id": null,
-    "total": 3
+    "total": 5
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-<<<<<<< HEAD
-    "number": 3,
-    "started_at": "2026-03-09T14:00:52.947579"
+    "number": 2,
+    "started_at": "2026-03-19T00:09:14.865935"
   },
-  "last_update": "2026-03-09T14:04:10.153061"
-=======
-    "number": 18,
-    "started_at": "2026-03-10T21:16:24.370879"
-  },
-  "last_update": "2026-03-10T22:30:00.000000"
->>>>>>> origin/main
+  "last_update": "2026-03-19T00:12:12.255373"
 }
