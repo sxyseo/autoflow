@@ -67,7 +67,7 @@
             "command": "python tests/test_task_feature_extractor.py",
             "expected": "tests passed"
           },
-          "status": "pending"
+          "status": "completed"
         }
       ]
     },
