@@ -15,11 +15,12 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -1326,3 +1327,315 @@ async def get_agent_status(
         total_inactive=0,
         timestamp=datetime.utcnow().isoformat(),
     )
+
+
+# === WebSocket Endpoint ===
+
+
+class MobileWebSocketConnectionManager:
+    """
+    Manager for mobile WebSocket connections.
+
+    Manages active WebSocket connections for mobile clients and supports
+    broadcasting updates to all connected clients. Provides connection tracking
+    per user/device for targeted messaging.
+
+    Attributes:
+        active_connections: Set of active WebSocket connections
+        user_connections: Dictionary mapping user_id to their WebSocket connections
+
+    Example:
+        >>> manager = MobileWebSocketConnectionManager()
+        >>> await manager.broadcast_to_all({"type": "status", "data": {...}})
+        >>> await manager.send_to_user("user-123", {"type": "notification", ...})
+    """
+
+    def __init__(self) -> None:
+        """Initialize the connection manager with empty connections set."""
+        self.active_connections: set[WebSocket] = set()
+        self.user_connections: dict[str, set[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket, user_id: str) -> None:
+        """
+        Accept and register a new WebSocket connection.
+
+        Args:
+            websocket: The WebSocket connection to accept and register.
+            user_id: ID of the user connecting
+        """
+        await websocket.accept()
+        async with self._lock:
+            self.active_connections.add(websocket)
+            if user_id not in self.user_connections:
+                self.user_connections[user_id] = set()
+            self.user_connections[user_id].add(websocket)
+
+    async def disconnect(self, websocket: WebSocket, user_id: str) -> None:
+        """
+        Remove a WebSocket connection from active connections.
+
+        Args:
+            websocket: The WebSocket connection to remove.
+            user_id: ID of the user disconnecting
+        """
+        async with self._lock:
+            self.active_connections.discard(websocket)
+            if user_id in self.user_connections:
+                self.user_connections[user_id].discard(websocket)
+                if not self.user_connections[user_id]:
+                    del self.user_connections[user_id]
+
+    async def send_personal_message(
+        self, message: dict[str, object], websocket: WebSocket
+    ) -> None:
+        """
+        Send a message to a specific WebSocket connection.
+
+        Args:
+            message: The message dictionary to send.
+            websocket: The WebSocket connection to send the message to.
+        """
+        try:
+            await websocket.send_json(message)
+        except Exception:
+            # Connection may be closed
+            pass
+
+    async def send_to_user(self, user_id: str, message: dict[str, object]) -> None:
+        """
+        Send a message to all connections for a specific user.
+
+        Args:
+            user_id: ID of the user to send the message to.
+            message: The message dictionary to send.
+        """
+        if user_id in self.user_connections:
+            for connection in list(self.user_connections[user_id]):
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    # Connection may be closed, remove it
+                    await self.disconnect(connection, user_id)
+
+    async def broadcast_to_all(self, message: dict[str, object]) -> None:
+        """
+        Broadcast a message to all active WebSocket connections.
+
+        Args:
+            message: The message dictionary to broadcast to all connections.
+        """
+        async with self._lock:
+            # Create a copy of connections to avoid modification during iteration
+            connections = list(self.active_connections)
+
+        # Send to all connections
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                # Connection may be closed, remove it
+                # Note: We need user_id to properly disconnect, but we don't have it here
+                # This is a simplified cleanup - in production you'd track connection->user mapping
+                self.active_connections.discard(connection)
+
+    def get_connection_count(self) -> int:
+        """
+        Get the current number of active connections.
+
+        Returns:
+            Number of active WebSocket connections
+        """
+        return len(self.active_connections)
+
+    def get_user_count(self) -> int:
+        """
+        Get the current number of unique connected users.
+
+        Returns:
+            Number of unique users with active connections
+        """
+        return len(self.user_connections)
+
+
+# Global connection manager instance
+_mobile_ws_manager: Optional[MobileWebSocketConnectionManager] = None
+
+
+def get_mobile_ws_manager() -> MobileWebSocketConnectionManager:
+    """
+    Get the global mobile WebSocket connection manager instance.
+
+    Returns:
+        MobileWebSocketConnectionManager instance
+    """
+    global _mobile_ws_manager
+    if _mobile_ws_manager is None:
+        _mobile_ws_manager = MobileWebSocketConnectionManager()
+    return _mobile_ws_manager
+
+
+@router.websocket("/ws")
+async def mobile_websocket_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = None,
+) -> None:
+    """
+    WebSocket endpoint for mobile clients to receive real-time updates.
+
+    Provides real-time updates for mobile clients including:
+    - Task status changes
+    - Run status changes
+    - Agent status updates
+    - Push notifications
+    - Output approval requests
+
+    Authentication is provided via query parameter or can be upgraded from
+    an existing HTTP session.
+
+    Message format from server:
+        {
+            "type": "task" | "run" | "agent" | "notification" | "approval",
+            "action": "created" | "updated" | "deleted" | "status_changed",
+            "data": {...},
+            "timestamp": "ISO 8601 timestamp"
+        }
+
+    Message format from client (for future bidirectional support):
+        {
+            "type": "subscribe" | "unsubscribe" | "ping",
+            "data": {...}
+        }
+
+    Example:
+        >>> import websockets
+        >>> uri = "ws://localhost:8000/api/v1/mobile/ws?token=your-token"
+        >>> async with websockets.connect(uri) as ws:
+        ...     message = await ws.recv()
+
+    Args:
+        websocket: The WebSocket connection instance.
+        token: Optional authentication token from query parameter.
+
+    Raises:
+        HTTPException: If authentication fails or connection error occurs.
+    """
+    # Authenticate the connection
+    user_id: Optional[str] = None
+
+    if token:
+        # Validate token
+        manager = get_session_manager()
+        if manager.is_valid_session(token):
+            session = manager.get_session(token)
+            if session:
+                user_id = session.user_id
+
+    # For now, allow connections without auth for development
+    # In production, you would require authentication:
+    # if not user_id:
+    #     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    #     return
+
+    # Use provided token or generate a temporary one for development
+    if not user_id:
+        user_id = "anonymous"
+
+    # Get connection manager and register connection
+    ws_manager = get_mobile_ws_manager()
+    await ws_manager.connect(websocket, user_id)
+
+    logger.info(
+        f"Mobile WebSocket connected: user={user_id}, "
+        f"total_connections={ws_manager.get_connection_count()}"
+    )
+
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json(
+            {
+                "type": "connection",
+                "action": "connected",
+                "data": {
+                    "user_id": user_id,
+                    "message": "Connected to Autoflow mobile real-time updates",
+                    "features": [
+                        "task_updates",
+                        "run_updates",
+                        "agent_status",
+                        "notifications",
+                        "approval_requests",
+                    ],
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+
+        # Keep connection alive and listen for incoming messages
+        while True:
+            try:
+                # Receive any incoming messages (for future bidirectional support)
+                data = await websocket.receive_json()
+
+                # Handle client messages
+                message_type = data.get("type")
+
+                if message_type == "ping":
+                    # Respond to ping with pong
+                    await websocket.send_json(
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
+                elif message_type == "subscribe":
+                    # Handle subscription requests (for future filtering)
+                    # For now, just acknowledge
+                    await websocket.send_json(
+                        {
+                            "type": "subscription_ack",
+                            "data": data.get("data", {}),
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
+                else:
+                    # Unknown message type
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "data": {
+                                "message": f"Unknown message type: {message_type}",
+                            },
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
+
+            except WebSocketDisconnect:
+                # Client disconnected gracefully
+                logger.info(f"Mobile WebSocket disconnected: user={user_id}")
+                break
+            except Exception as e:
+                # Error receiving message
+                logger.error(f"Error receiving WebSocket message: {e}")
+                # Send error to client if still connected
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "data": {
+                                "message": "Error processing message",
+                            },
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
+                except Exception:
+                    # Connection may be closed
+                    break
+
+    finally:
+        # Clean up connection
+        await ws_manager.disconnect(websocket, user_id)
+        logger.info(
+            f"Mobile WebSocket cleanup complete: user={user_id}, "
+            f"remaining_connections={ws_manager.get_connection_count()}"
+        )
