@@ -128,6 +128,10 @@ python3 scripts/autoflow.py complete-run \
   --result <success|needs_changes|blocked|failed> \
   --summary "<summary>"
 
+# Resume a run by creating a new run from a previous one
+python3 scripts/autoflow.py resume-run \
+  --run <run-id>
+
 # Cancel a run and revert task to previous status
 python3 scripts/autoflow.py cancel-run \
   --run <run-id> \
