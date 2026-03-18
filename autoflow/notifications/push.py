@@ -42,6 +42,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+import logging
+
 from autoflow.notifications.providers import (
     FirebaseProvider,
     MockProvider,
@@ -49,6 +51,8 @@ from autoflow.notifications.providers import (
     PushProvider,
     PushResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PushNotificationType(str, Enum):
@@ -714,3 +718,103 @@ class PushNotificationService:
         )
 
         return await self.send_notification(user_id, notification)
+
+
+def send_task_notification(
+    user_id: str,
+    task_id: str,
+    task_title: str,
+    notification_type: str = "task_completed",
+    reason: Optional[str] = None,
+    state_dir: Union[str, Path] = ".autoflow",
+) -> bool:
+    """
+    Send a task notification to a user.
+
+    This is a convenience function that provides a simple interface for sending
+    task-related notifications. It handles both task completion and attention-needed
+    notifications synchronously by creating a background task.
+
+    Args:
+        user_id: User ID to notify
+        task_id: Task ID the notification is about
+        task_title: Title of the task
+        notification_type: Type of notification ('task_completed', 'task_failed', 'attention_needed')
+        reason: Optional reason for attention-needed notifications
+        state_dir: State directory for push notification service
+
+    Returns:
+        True if notification was queued successfully, False otherwise
+
+    Example:
+        >>> success = send_task_notification(
+        ...     user_id="user-001",
+        ...     task_id="task-001",
+        ...     task_title="Fix authentication bug",
+        ...     notification_type="task_completed"
+        ... )
+        >>> print(success)
+        True
+    """
+    try:
+        import asyncio
+        from functools import partial
+
+        service = PushNotificationService(state_dir)
+        service.initialize()
+
+        # Create notification based on type
+        if notification_type == "task_completed":
+            notification = PushNotification(
+                title="Task Completed",
+                body=f"Task '{task_title}' has been completed successfully",
+                notification_type=PushNotificationType.TASK_COMPLETED,
+                data={"task_id": task_id, "task_title": task_title},
+                priority=ProviderPriority.NORMAL,
+            )
+        elif notification_type == "task_failed":
+            body = f"Task '{task_title}' has failed"
+            if reason:
+                body += f": {reason[:100]}"
+            notification = PushNotification(
+                title="Task Failed",
+                body=body,
+                notification_type=PushNotificationType.TASK_FAILED,
+                data={"task_id": task_id, "task_title": task_title},
+                priority=ProviderPriority.HIGH,
+            )
+        elif notification_type == "attention_needed":
+            body = f"Attention needed for task '{task_title}'"
+            if reason:
+                body += f": {reason}"
+            notification = PushNotification(
+                title="Attention Needed",
+                body=body,
+                notification_type=PushNotificationType.AGENT_ATTENTION,
+                data={"task_id": task_id, "task_title": task_title, "reason": reason},
+                priority=ProviderPriority.HIGH,
+                badge=1,
+            )
+        else:
+            logger.warning(f"Unknown notification type: {notification_type}")
+            return False
+
+        # Try to send notification asynchronously
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If there's already a running loop, schedule the coroutine
+                asyncio.create_task(service.send_notification(user_id, notification))
+            else:
+                # If no running loop, run in a new one
+                asyncio.run(service.send_notification(user_id, notification))
+        except RuntimeError:
+            # No event loop, create one
+            asyncio.run(service.send_notification(user_id, notification))
+
+        logger.info(f"Task notification sent to {user_id} for task {task_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send task notification: {e}")
+        return False

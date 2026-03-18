@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -33,6 +34,8 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from autoflow.core.sanitization import sanitize_dict
+
+logger = logging.getLogger(__name__)
 
 # Type alias for JSON-serializable data
 JSONData = dict[str, Any] | list[Any] | str | int | float | bool | None
@@ -681,6 +684,10 @@ class StateManager:
             ...     "status": "in_progress"
             ... })
         """
+        # Load existing task to detect status changes
+        old_task = self.load_task(task_id)
+        old_status = old_task.get("status") if old_task else None
+
         # Convert Task model to dict if necessary
         if isinstance(task_data, Task):
             data: JSONData = cast(JSONData, task_data.model_dump())
@@ -693,8 +700,21 @@ class StateManager:
                 data["created_at"] = datetime.utcnow().isoformat()
             data["updated_at"] = datetime.utcnow().isoformat()
 
+        # Save the task
         file_path = self.tasks_dir / f"{task_id}.json"
-        return self.write_json(file_path, data)
+        result_path = self.write_json(file_path, data)
+
+        # Send notifications for status changes
+        new_status = data.get("status")
+        if old_status != new_status:
+            self._notify_task_status_change(
+                task_id=task_id,
+                old_status=old_status,
+                new_status=new_status,
+                task_data=data,
+            )
+
+        return result_path
 
     def load_task(self, task_id: str) -> Optional[TaskData]:
         """
@@ -772,6 +792,109 @@ class StateManager:
             file_path.unlink()
             return True
         return False
+
+    def _notify_task_status_change(
+        self,
+        task_id: str,
+        old_status: Optional[str],
+        new_status: str,
+        task_data: JSONData,
+    ) -> None:
+        """
+        Send notifications for task status changes.
+
+        This method is called automatically when a task's status changes.
+        It sends appropriate push notifications for task completion,
+        failure, or when attention is needed.
+
+        Args:
+            task_id: Task ID that changed
+            old_status: Previous status (None for new tasks)
+            new_status: New status
+            task_data: Task data dictionary
+        """
+        try:
+            # Only notify for specific status transitions
+            if new_status == TaskStatus.COMPLETED.value and old_status != TaskStatus.COMPLETED.value:
+                self._send_task_completion_notification(task_id, task_data)
+            elif new_status == TaskStatus.FAILED.value and old_status != TaskStatus.FAILED.value:
+                self._send_task_failure_notification(task_id, task_data)
+
+        except Exception as e:
+            # Log but don't fail the save operation
+            logger.error(f"Failed to send task notification: {e}")
+
+    def _send_task_completion_notification(
+        self,
+        task_id: str,
+        task_data: JSONData,
+    ) -> None:
+        """
+        Send a task completion notification.
+
+        Args:
+            task_id: Task ID that completed
+            task_data: Task data dictionary
+        """
+        try:
+            from autoflow.notifications.push import send_task_notification
+
+            task_title = task_data.get("title", task_id)
+            assigned_agent = task_data.get("assigned_agent")
+
+            if assigned_agent:
+                # Send notification to the assigned agent/user
+                send_task_notification(
+                    user_id=assigned_agent,
+                    task_id=task_id,
+                    task_title=task_title,
+                    notification_type="task_completed",
+                    state_dir=str(self.state_dir),
+                )
+                logger.info(f"Sent task completion notification for {task_id} to {assigned_agent}")
+
+        except ImportError:
+            # Push notification module not available, skip silently
+            logger.debug("Push notification module not available, skipping notification")
+        except Exception as e:
+            logger.error(f"Failed to send task completion notification: {e}")
+
+    def _send_task_failure_notification(
+        self,
+        task_id: str,
+        task_data: JSONData,
+    ) -> None:
+        """
+        Send a task failure notification.
+
+        Args:
+            task_id: Task ID that failed
+            task_data: Task data dictionary
+        """
+        try:
+            from autoflow.notifications.push import send_task_notification
+
+            task_title = task_data.get("title", task_id)
+            assigned_agent = task_data.get("assigned_agent")
+            error_message = task_data.get("error")
+
+            if assigned_agent:
+                # Send notification to the assigned agent/user
+                send_task_notification(
+                    user_id=assigned_agent,
+                    task_id=task_id,
+                    task_title=task_title,
+                    notification_type="task_failed",
+                    reason=error_message,
+                    state_dir=str(self.state_dir),
+                )
+                logger.info(f"Sent task failure notification for {task_id} to {assigned_agent}")
+
+        except ImportError:
+            # Push notification module not available, skip silently
+            logger.debug("Push notification module not available, skipping notification")
+        except Exception as e:
+            logger.error(f"Failed to send task failure notification: {e}")
 
     # === Parallel Group Operations ===
 
