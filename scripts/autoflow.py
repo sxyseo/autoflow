@@ -4777,6 +4777,15 @@ def archive_spec(args: argparse.Namespace) -> None:
 def list_specs(_: argparse.Namespace) -> None:
     items = []
     for metadata_path in SPECS_DIR.glob("*/metadata.json"):
+        # Skip archived specs (those in the archive directory)
+        # Check if the spec directory is inside the archive directory
+        try:
+            metadata_path.parent.relative_to(ARCHIVE_DIR)
+            # If relative_to succeeds, this spec is inside the archive directory
+            continue
+        except ValueError:
+            # relative_to raises ValueError if the path is not a subdirectory
+            pass
         metadata = read_json(metadata_path)
         slug = metadata.get("slug", metadata_path.parent.name)
         review_state = load_review_state(slug)
