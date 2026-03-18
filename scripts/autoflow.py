@@ -4988,6 +4988,8 @@ def build_parser() -> argparse.ArgumentParser:
         invalidate-review: Manually invalidate approval state
         create-worktree: Create or reuse an isolated git worktree for a spec
         remove-worktree: Remove a spec worktree
+        list-specs: List all specs with metadata including status, worktree, and review state
+        archive-spec: Archive a completed spec by moving it to the archive directory
         list-worktrees: Show known spec worktrees
         init-system-config: Write the local system config scaffold
         show-system-config: Show system memory/model/tool config
@@ -5122,6 +5124,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
     list_specs_cmd.set_defaults(func=list_specs)
+
+    archive_spec_cmd = sub.add_parser("archive-spec", help="archive a completed spec by moving it to the archive directory")
+    archive_spec_cmd.add_argument("--spec", required=True)
+    archive_spec_cmd.set_defaults(func=archive_spec)
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
