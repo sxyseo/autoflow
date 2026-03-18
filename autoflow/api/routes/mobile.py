@@ -349,6 +349,44 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
 
 
+class AgentStatusInfo(BaseModel):
+    """
+    Agent status information model.
+
+    Attributes:
+        name: Agent name/identifier
+        status: Agent status (active or inactive)
+        current_task: ID of the task currently being executed (if active)
+        current_task_title: Title of the current task (if active)
+        last_activity: Timestamp of last activity
+        capabilities: List of agent capabilities/roles
+    """
+
+    name: str
+    status: str
+    current_task: Optional[str] = None
+    current_task_title: Optional[str] = None
+    last_activity: str
+    capabilities: list[str] = []
+
+
+class AgentStatusResponse(BaseModel):
+    """
+    Agent status response model.
+
+    Attributes:
+        agents: List of agent status information
+        total_active: Count of active agents
+        total_inactive: Count of inactive agents
+        timestamp: Response timestamp
+    """
+
+    agents: list[AgentStatusInfo]
+    total_active: int
+    total_inactive: int
+    timestamp: str
+
+
 # === Mobile Dashboard Endpoints ===
 
 
@@ -891,4 +929,58 @@ async def approve_or_reject_output(
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Run '{run_id}' not found",
+    )
+
+
+# === Agent Status Endpoints ===
+
+
+@router.get(
+    "/agents/status",
+    response_model=AgentStatusResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Insufficient permissions"},
+    },
+)
+async def get_agent_status(
+    current_user_id: str = Depends(get_current_user_id),
+) -> AgentStatusResponse:
+    """
+    Get status of all agents including active/inactive state and current tasks.
+
+    Returns a comprehensive view of all configured agents, their current status,
+    and any tasks they are actively working on. Requires authentication.
+
+    Args:
+        current_user_id: ID of the authenticated user
+
+    Returns:
+        AgentStatusResponse with agent status information and summary counts
+
+    Raises:
+        HTTPException: If not authenticated or insufficient permissions
+
+    Example:
+        >>> GET /api/v1/mobile/agents/status
+    """
+    # TODO: Implement actual agent status retrieval from agent manager
+    # For now, return placeholder response to demonstrate the pattern
+    # In production, you would:
+    # 1. Check user permissions (mobile:read)
+    # 2. Query agent manager for all configured agents
+    # 3. Query active runs to determine current tasks per agent
+    # 4. Determine agent status (active if has running task, inactive otherwise)
+    # 5. Calculate summary counts (total_active, total_inactive)
+    # 6. Return mobile-optimized response
+
+    logger.info(f"User {current_user_id} requesting agent status")
+
+    # Placeholder: Return empty agent list
+    return AgentStatusResponse(
+        agents=[],
+        total_active=0,
+        total_inactive=0,
+        timestamp=datetime.utcnow().isoformat(),
     )
