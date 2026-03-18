@@ -413,6 +413,94 @@ class AgentStatusResponse(BaseModel):
     timestamp: str
 
 
+# === Mobile Authentication Endpoints ===
+
+
+class DeviceTokenRegistrationRequest(BaseModel):
+    """
+    Device token registration request model.
+
+    Attributes:
+        device_token: Push notification token from the mobile device
+        platform: Platform type (ios or android)
+    """
+
+    device_token: str = Field(..., min_length=1)
+    platform: str = Field(..., pattern="^(ios|android)$")
+
+
+class DeviceTokenRegistrationResponse(BaseModel):
+    """
+    Device token registration response model.
+
+    Attributes:
+        device_token: Registered device token
+        platform: Platform type
+        registered_at: Registration timestamp
+        status: Registration status
+    """
+
+    device_token: str
+    platform: str
+    registered_at: str
+    status: str
+
+
+@router.post(
+    "/auth/register-device",
+    response_model=DeviceTokenRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+    },
+)
+async def register_device_token(
+    request: DeviceTokenRegistrationRequest,
+) -> DeviceTokenRegistrationResponse:
+    """
+    Register a mobile device token for push notifications.
+
+    Registers the device token for sending push notifications to mobile devices.
+    This is a simplified registration endpoint that accepts just the token and platform,
+    suitable for initial app setup and quick token registration.
+
+    Args:
+        request: Device token registration request with token and platform
+
+    Returns:
+        DeviceTokenRegistrationResponse with registration details
+
+    Raises:
+        HTTPException: If input is invalid
+
+    Example:
+        >>> POST /api/v1/mobile/auth/register-device
+        >>> {
+        ...     "device_token": "test-token",
+        ...     "platform": "ios"
+        ... }
+    """
+    # TODO: Implement actual device token registration
+    # For now, return placeholder response
+    # In production, you would:
+    # 1. Validate device token format for the platform
+    # 2. Check for duplicate tokens
+    # 3. Store token in database with platform metadata
+    # 4. Return registration confirmation
+
+    logger.info(
+        f"Device token registration request: platform={request.platform}, "
+        f"token={request.device_token[:10]}..."
+    )
+
+    return DeviceTokenRegistrationResponse(
+        device_token=request.device_token,
+        platform=request.platform,
+        registered_at=datetime.utcnow().isoformat(),
+        status="registered",
+    )
+
+
 # === Mobile Dashboard Endpoints ===
 
 
