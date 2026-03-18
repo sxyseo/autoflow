@@ -150,6 +150,23 @@ class MobileTaskSummary(BaseModel):
     updated_at: str
 
 
+class MobileTaskStatusResponse(BaseModel):
+    """
+    Mobile task status response model with pagination.
+
+    Attributes:
+        tasks: List of task summaries
+        total: Total number of tasks matching the filter
+        limit: Maximum number of tasks per page
+        offset: Number of tasks skipped
+    """
+
+    tasks: list[MobileTaskSummary]
+    total: int
+    limit: int
+    offset: int
+
+
 class MobileRunSummary(BaseModel):
     """
     Mobile-optimized run summary model.
@@ -383,6 +400,72 @@ async def get_mobile_dashboard(
         total_pending=0,
         total_in_progress=0,
         total_completed_today=0,
+    )
+
+
+@router.get(
+    "/tasks/status",
+    response_model=MobileTaskStatusResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Insufficient permissions"},
+    },
+)
+async def get_task_status(
+    status: Optional[str] = Query(None, description="Filter by task status"),
+    agent: Optional[str] = Query(None, description="Filter by assigned agent"),
+    priority: Optional[int] = Query(None, ge=1, le=10, description="Filter by priority"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of tasks per page"),
+    offset: int = Query(0, ge=0, description="Number of tasks to skip"),
+    current_user_id: str = Depends(get_current_user_id),
+) -> MobileTaskStatusResponse:
+    """
+    Get mobile-friendly task status list with filtering and pagination.
+
+    Provides a paginated list of tasks with optional filtering by status, agent,
+    and priority. Optimized for mobile consumption with concise task summaries.
+    Requires authentication.
+
+    Args:
+        status: Optional status filter (pending, in_progress, completed, failed)
+        agent: Optional agent name filter
+        priority: Optional priority filter (1-10)
+        limit: Maximum number of tasks per page (1-100)
+        offset: Number of tasks to skip for pagination
+        current_user_id: ID of the authenticated user
+
+    Returns:
+        MobileTaskStatusResponse with paginated task list and metadata
+
+    Raises:
+        HTTPException: If not authenticated or insufficient permissions
+
+    Example:
+        >>> GET /api/v1/mobile/tasks/status?status=in_progress&limit=20&offset=0
+    """
+    # TODO: Implement actual task status retrieval from state/database
+    # For now, return empty response to demonstrate the pattern
+    # In production, you would:
+    # 1. Check user permissions (mobile:read)
+    # 2. Query tasks from state manager or database
+    # 3. Apply filters (status, agent, priority)
+    # 4. Apply pagination (limit, offset)
+    # 5. Calculate total count for pagination metadata
+    # 6. Return mobile-optimized response
+
+    logger.info(
+        f"User {current_user_id} requesting task status: "
+        f"status={status}, agent={agent}, priority={priority}, "
+        f"limit={limit}, offset={offset}"
+    )
+
+    # Placeholder: Return empty list
+    return MobileTaskStatusResponse(
+        tasks=[],
+        total=0,
+        limit=limit,
+        offset=offset,
     )
 
 
