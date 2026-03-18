@@ -336,6 +336,32 @@ class ApprovalResponse(BaseModel):
     processed_at: str
 
 
+class TaskApprovalRequest(BaseModel):
+    """
+    Task approval/rejection request model.
+
+    Attributes:
+        comment: Optional comment explaining the decision
+    """
+
+    comment: Optional[str] = None
+
+
+class TaskApprovalResponse(BaseModel):
+    """
+    Task approval response model.
+
+    Attributes:
+        task_id: Task ID that was approved/rejected
+        action: Action taken
+        processed_at: Processing timestamp
+    """
+
+    task_id: str
+    action: str
+    processed_at: str
+
+
 class ErrorResponse(BaseModel):
     """
     Error response model.
@@ -929,6 +955,137 @@ async def approve_or_reject_output(
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=f"Run '{run_id}' not found",
+    )
+
+
+# === Task Review Endpoints ===
+
+
+@router.post(
+    "/tasks/{task_id}/approve",
+    response_model=TaskApprovalResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Insufficient permissions"},
+        404: {"model": ErrorResponse, "description": "Task not found"},
+        400: {"model": ErrorResponse, "description": "Invalid task state"},
+    },
+)
+async def approve_task(
+    task_id: str,
+    request: TaskApprovalRequest,
+    current_user_id: str = Depends(get_current_user_id),
+) -> TaskApprovalResponse:
+    """
+    Approve a task from mobile device.
+
+    Allows users to approve completed tasks, marking them as accepted and
+    allowing downstream tasks to proceed. Requires authentication and
+    appropriate permissions.
+
+    Args:
+        task_id: ID of the task to approve
+        request: Task approval request with optional comment
+        current_user_id: ID of the authenticated user
+
+    Returns:
+        TaskApprovalResponse with approval confirmation
+
+    Raises:
+        HTTPException: If not authenticated, insufficient permissions,
+                      task not found, or task in invalid state
+
+    Example:
+        >>> POST /api/v1/mobile/tasks/task-001/approve
+        >>> {
+        ...     "comment": "Task completed successfully, proceeding"
+        ... }
+    """
+    # TODO: Implement actual task approval logic
+    # For now, return placeholder response
+    # In production, you would:
+    # 1. Check user permissions (mobile:approve)
+    # 2. Verify task exists and is in approvable state (e.g., in_review)
+    # 3. Update task status to approved/completed
+    # 4. Unblock dependent tasks
+    # 5. Send notification to relevant parties
+    # 6. Log audit event
+
+    logger.info(
+        f"User {current_user_id} approving task {task_id}"
+        + (f" with comment: {request.comment}" if request.comment else "")
+    )
+
+    # Placeholder: Return mock response
+    return TaskApprovalResponse(
+        task_id=task_id,
+        action="approve",
+        processed_at=datetime.utcnow().isoformat(),
+    )
+
+
+@router.post(
+    "/tasks/{task_id}/reject",
+    response_model=TaskApprovalResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Insufficient permissions"},
+        404: {"model": ErrorResponse, "description": "Task not found"},
+        400: {"model": ErrorResponse, "description": "Invalid task state"},
+    },
+)
+async def reject_task(
+    task_id: str,
+    request: TaskApprovalRequest,
+    current_user_id: str = Depends(get_current_user_id),
+) -> TaskApprovalResponse:
+    """
+    Reject a task from mobile device.
+
+    Allows users to reject tasks that require revision, marking them as
+    rejected and triggering rework. Requires authentication and
+    appropriate permissions.
+
+    Args:
+        task_id: ID of the task to reject
+        request: Task rejection request with optional comment explaining the rejection
+        current_user_id: ID of the authenticated user
+
+    Returns:
+        TaskApprovalResponse with rejection confirmation
+
+    Raises:
+        HTTPException: If not authenticated, insufficient permissions,
+                      task not found, or task in invalid state
+
+    Example:
+        >>> POST /api/v1/mobile/tasks/task-001/reject
+        >>> {
+        ...     "comment": "Tests failing, needs revision"
+        ... }
+    """
+    # TODO: Implement actual task rejection logic
+    # For now, return placeholder response
+    # In production, you would:
+    # 1. Check user permissions (mobile:approve)
+    # 2. Verify task exists and is in rejectable state
+    # 3. Update task status to rejected/needs_changes
+    # 4. Add rejection reason to task metadata
+    # 5. Send notification to relevant parties
+    # 6. Log audit event
+
+    logger.info(
+        f"User {current_user_id} rejecting task {task_id}"
+        + (f" with comment: {request.comment}" if request.comment else "")
+    )
+
+    # Placeholder: Return mock response
+    return TaskApprovalResponse(
+        task_id=task_id,
+        action="reject",
+        processed_at=datetime.utcnow().isoformat(),
     )
 
 
