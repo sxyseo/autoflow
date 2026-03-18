@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -570,3 +571,356 @@ class TaskFeatureExtractor:
                 continue
 
         return results
+
+    def dependency_analysis(
+        self, tasks: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Perform comprehensive dependency graph analysis for task ordering.
+
+        Analyzes the dependency structure of tasks to determine optimal execution
+        order, identify critical paths, blocking tasks, and parallel execution
+        opportunities.
+
+        Args:
+            tasks: List of task dictionaries with 'id' and 'depends_on' fields
+
+        Returns:
+            Dictionary containing:
+                - execution_order: List of task IDs in topological order
+                - critical_path: List of task IDs forming the longest dependency chain
+                - blocking_tasks: List of task IDs that block other tasks
+                - parallel_safe: List of task IDs that can run in parallel
+                - levels: Dictionary mapping task IDs to their dependency depth
+                - cycles: List of detected circular dependencies (if any)
+
+        Raises:
+            ValueError: If tasks list is empty or malformed
+
+        Example:
+            >>> extractor = TaskFeatureExtractor()
+            >>> tasks = [
+            ...     {"id": "task-1", "depends_on": []},
+            ...     {"id": "task-2", "depends_on": ["task-1"]},
+            ...     {"id": "task-3", "depends_on": ["task-1"]},
+            ... ]
+            >>> analysis = extractor.dependency_analysis(tasks)
+            >>> print(analysis["execution_order"])
+            ['task-1', 'task-2', 'task-3']
+        """
+        if not tasks:
+            raise ValueError("Tasks list cannot be empty")
+
+        # Build dependency graph
+        graph = self._build_dependency_graph(tasks)
+        reverse_graph = self._build_reverse_dependency_graph(tasks)
+
+        # Detect circular dependencies
+        cycles = self._detect_all_cycles(graph)
+
+        # Calculate execution order using topological sort
+        execution_order = self._topological_sort(graph, reverse_graph)
+
+        # Calculate dependency levels (depth)
+        levels = self._calculate_dependency_levels(graph)
+
+        # Find critical path (longest chain)
+        critical_path = self._find_critical_path(graph, levels)
+
+        # Find blocking tasks (tasks that others depend on)
+        blocking_tasks = list(reverse_graph.keys())
+
+        # Find parallel-safe tasks (tasks at same level that don't depend on each other)
+        parallel_safe = self._find_parallel_safe_tasks(graph, levels)
+
+        return {
+            "execution_order": execution_order,
+            "critical_path": critical_path,
+            "blocking_tasks": blocking_tasks,
+            "parallel_safe": parallel_safe,
+            "levels": levels,
+            "cycles": cycles,
+        }
+
+    def _build_dependency_graph(
+        self, tasks: list[dict[str, Any]]
+    ) -> dict[str, set[str]]:
+        """
+        Build a dependency graph mapping tasks to their dependencies.
+
+        Args:
+            tasks: List of task dictionaries
+
+        Returns:
+            Dictionary mapping task IDs to sets of task IDs they depend on
+        """
+        graph: dict[str, set[str]] = defaultdict(set)
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+
+            task_id = task.get("id", "")
+            if not task_id:
+                continue
+
+            depends_on = task.get("depends_on", [])
+            if isinstance(depends_on, list):
+                graph[task_id] = set(depends_on)
+            else:
+                graph[task_id] = set()
+
+        return dict(graph)
+
+    def _build_reverse_dependency_graph(
+        self, tasks: list[dict[str, Any]]
+    ) -> dict[str, set[str]]:
+        """
+        Build a reverse dependency graph mapping tasks to their dependents.
+
+        Args:
+            tasks: List of task dictionaries
+
+        Returns:
+            Dictionary mapping task IDs to sets of task IDs that depend on them
+        """
+        graph: dict[str, set[str]] = defaultdict(set)
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+
+            task_id = task.get("id", "")
+            if not task_id:
+                continue
+
+            depends_on = task.get("depends_on", [])
+            if isinstance(depends_on, list):
+                for dep_id in depends_on:
+                    graph[dep_id].add(task_id)
+
+        return dict(graph)
+
+    def _topological_sort(
+        self,
+        graph: dict[str, set[str]],
+        reverse_graph: dict[str, set[str]],
+    ) -> list[str]:
+        """
+        Perform topological sort using Kahn's algorithm.
+
+        Args:
+            graph: Dependency graph (task -> dependencies)
+            reverse_graph: Reverse dependency graph (task -> dependents)
+
+        Returns:
+            List of task IDs in topological order
+        """
+        # Calculate in-degrees
+        in_degree: dict[str, int] = {
+            task_id: len(deps) for task_id, deps in graph.items()
+        }
+
+        # Add tasks with no dependencies to in_degree
+        all_task_ids = set(graph.keys()) | set(
+            dep_id for deps in graph.values() for dep_id in deps
+        )
+        for task_id in all_task_ids:
+            if task_id not in in_degree:
+                in_degree[task_id] = 0
+
+        # Start with tasks that have no dependencies
+        queue = [task_id for task_id, degree in in_degree.items() if degree == 0]
+        queue.sort()  # Sort for deterministic ordering
+        result: list[str] = []
+
+        while queue:
+            task_id = queue.pop(0)
+            result.append(task_id)
+
+            # Reduce in-degree for dependents
+            for dependent in reverse_graph.get(task_id, set()):
+                if dependent in in_degree:
+                    in_degree[dependent] -= 1
+                    if in_degree[dependent] == 0:
+                        queue.append(dependent)
+                        queue.sort()  # Maintain deterministic ordering
+
+        return result
+
+    def _calculate_dependency_levels(
+        self, graph: dict[str, set[str]]
+    ) -> dict[str, int]:
+        """
+        Calculate the dependency level (depth) for each task.
+
+        Args:
+            graph: Dependency graph (task -> dependencies)
+
+        Returns:
+            Dictionary mapping task IDs to their dependency level
+        """
+        levels: dict[str, int] = {}
+
+        def calculate_level(task_id: str, visited: set[str]) -> int:
+            """Recursively calculate the level of a task."""
+            if task_id in levels:
+                return levels[task_id]
+
+            if task_id in visited:
+                # Circular dependency - assign a high level
+                return 999
+
+            visited.add(task_id)
+
+            dependencies = graph.get(task_id, set())
+            if not dependencies:
+                levels[task_id] = 0
+            else:
+                max_dep_level = 0
+                for dep_id in dependencies:
+                    dep_level = calculate_level(dep_id, visited.copy())
+                    max_dep_level = max(max_dep_level, dep_level)
+                levels[task_id] = max_dep_level + 1
+
+            return levels[task_id]
+
+        # Calculate levels for all tasks
+        all_task_ids = set(graph.keys()) | set(
+            dep_id for deps in graph.values() for dep_id in deps
+        )
+
+        for task_id in all_task_ids:
+            if task_id not in levels:
+                calculate_level(task_id, set())
+
+        return levels
+
+    def _find_critical_path(
+        self, graph: dict[str, set[str]], levels: dict[str, int]
+    ) -> list[str]:
+        """
+        Find the critical path (longest dependency chain) in the graph.
+
+        Args:
+            graph: Dependency graph (task -> dependencies)
+            levels: Dependency levels for each task
+
+        Returns:
+            List of task IDs forming the critical path
+        """
+        if not levels:
+            return []
+
+        # Find the task with the maximum level
+        max_level = max(levels.values())
+        max_level_tasks = [task_id for task_id, level in levels.items() if level == max_level]
+
+        if not max_level_tasks:
+            return []
+
+        # Build the critical path by following dependencies backward
+        critical_path: list[str] = []
+        current_task = max_level_tasks[0]
+
+        while current_task:
+            critical_path.append(current_task)
+
+            # Find the dependency with the highest level
+            dependencies = graph.get(current_task, set())
+            if not dependencies:
+                break
+
+            next_task = max(dependencies, key=lambda d: levels.get(d, 0))
+            if levels.get(next_task, 0) >= levels.get(current_task, 0):
+                # This shouldn't happen in a valid DAG
+                break
+
+            current_task = next_task
+
+        return critical_path[::-1]  # Reverse to get topological order
+
+    def _find_parallel_safe_tasks(
+        self, graph: dict[str, set[str]], levels: dict[str, int]
+    ) -> list[list[str]]:
+        """
+        Find groups of tasks that can be executed in parallel.
+
+        Tasks are parallel-safe if they are at the same dependency level
+        and don't depend on each other.
+
+        Args:
+            graph: Dependency graph (task -> dependencies)
+            levels: Dependency levels for each task
+
+        Returns:
+            List of groups, where each group is a list of task IDs that can run in parallel
+        """
+        # Group tasks by level
+        level_groups: dict[int, list[str]] = defaultdict(list)
+
+        for task_id, level in levels.items():
+            level_groups[level].append(task_id)
+
+        # Filter groups to remove dependencies within the same level
+        parallel_safe_groups: list[list[str]] = []
+
+        for level, tasks in sorted(level_groups.items()):
+            # Check if tasks within this level depend on each other
+            task_set = set(tasks)
+            independent_tasks = []
+
+            for task_id in tasks:
+                dependencies = graph.get(task_id, set())
+                # Task is independent if it doesn't depend on other tasks at the same level
+                if not dependencies.intersection(task_set):
+                    independent_tasks.append(task_id)
+
+            if independent_tasks:
+                parallel_safe_groups.append(sorted(independent_tasks))
+
+        return parallel_safe_groups
+
+    def _detect_all_cycles(
+        self, graph: dict[str, set[str]]
+    ) -> list[list[str]]:
+        """
+        Detect all circular dependencies using DFS.
+
+        Args:
+            graph: Dependency graph (task -> dependencies)
+
+        Returns:
+            List of cycles, where each cycle is a list of task IDs
+        """
+        cycles: list[list[str]] = []
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+        path: list[str] = []
+
+        def dfs(node: str) -> bool:
+            """DFS helper that returns True if a cycle is found."""
+            visited.add(node)
+            rec_stack.add(node)
+            path.append(node)
+
+            for neighbor in graph.get(node, set()):
+                if neighbor not in visited:
+                    if dfs(neighbor):
+                        return True
+                elif neighbor in rec_stack:
+                    # Found a cycle - extract it from the path
+                    cycle_start = path.index(neighbor)
+                    cycle = path[cycle_start:] + [neighbor]
+                    cycles.append(cycle)
+                    return True
+
+            path.pop()
+            rec_stack.remove(node)
+            return False
+
+        for node in graph:
+            if node not in visited:
+                dfs(node)
+
+        return cycles
