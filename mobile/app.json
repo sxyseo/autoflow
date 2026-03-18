@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "Autoflow Mobile",
+    "slug": "autoflow-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.autoflow.mobile",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Allow Autoflow to use Face ID for secure authentication.",
+        "NSCameraUsageDescription": "Allow Autoflow to access the camera for scanning QR codes.",
+        "NSLocalNetworkUsageDescription": "Allow Autoflow to connect to local API server for development."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.autoflow.mobile",
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-local-authentication",
+      "expo-secure-store",
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "autoflow-mobile"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/autoflow-mobile"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  }
+}
