@@ -2,10 +2,13 @@
 Tests for the scheduler module.
 """
 
+import asyncio
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,11 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 from scheduler import (
     APSCHEDULER_AVAILABLE,
     JobRegistry,
+    Scheduler,
     SchedulerConfig,
     cmd_add_job,
     cmd_list_jobs,
     cmd_remove_job,
     cmd_run_once,
+    cmd_start,
     cmd_status,
 )
 
@@ -271,6 +276,43 @@ class TestCmdStatus:
         assert result == 0
 
 
+class TestCmdStart:
+    """Tests for cmd_start function."""
+
+    def test_cmd_start_uses_custom_config(self, tmp_path, monkeypatch):
+        """Test cmd_start loads the provided scheduler config and starts the scheduler."""
+        config_path = tmp_path / "scheduler_config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "scheduler": {"timezone": "UTC", "max_instances": 2},
+                    "jobs": {},
+                    "job_defaults": {"max_instances": 1},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        captured: dict[str, object] = {}
+
+        class FakeScheduler:
+            def __init__(self, config):
+                captured["config"] = config
+
+            async def start(self):
+                captured["started"] = True
+
+        monkeypatch.setattr("scheduler.Scheduler", FakeScheduler)
+        monkeypatch.setattr("scheduler.APSCHEDULER_AVAILABLE", True)
+
+        args = SimpleNamespace(config=str(config_path))
+        result = cmd_start(args)
+
+        assert result == 0
+        assert captured["started"] is True
+        assert captured["config"].config_path == config_path
+
+
 class TestCmdAddJob:
     """Tests for cmd_add_job function."""
 
@@ -479,3 +521,97 @@ class TestSchedulerAvailability:
         """Test that APSCHEDULER_AVAILABLE flag is set correctly."""
         # This should be a boolean
         assert isinstance(APSCHEDULER_AVAILABLE, bool)
+
+
+class TestSchedulerLifecycle:
+    """Tests for scheduler start/stop lifecycle."""
+
+    @pytest.mark.asyncio
+    async def test_start_stop_cleans_up_state(self, tmp_path, monkeypatch):
+        """Test Scheduler.start enters running state and Scheduler.stop exits cleanly."""
+        config_path = tmp_path / "scheduler_config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "scheduler": {"timezone": "UTC", "max_instances": 2},
+                    "jobs": {
+                        "weekly_consolidation": {
+                            "enabled": True,
+                            "cron": "0 3 * * 0",
+                            "max_instances": 1,
+                            "description": "weekly validation job",
+                        }
+                    },
+                    "job_defaults": {"max_instances": 1, "coalesce": True, "misfire_grace_time": 300},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        created: list[object] = []
+
+        class FakeAsyncScheduler:
+            def __init__(self, timezone=None):
+                self.timezone = timezone
+                self.jobs: list[dict[str, object]] = []
+                self.started = False
+                self.shutdown_calls: list[bool] = []
+
+            def add_job(
+                self,
+                func,
+                *,
+                trigger,
+                id,
+                max_instances,
+                coalesce,
+                misfire_grace_time,
+            ):
+                self.jobs.append(
+                    {
+                        "func": func,
+                        "trigger": trigger,
+                        "id": id,
+                        "max_instances": max_instances,
+                        "coalesce": coalesce,
+                        "misfire_grace_time": misfire_grace_time,
+                    }
+                )
+
+            def start(self):
+                self.started = True
+
+            def shutdown(self, wait=False):
+                self.shutdown_calls.append(wait)
+
+        def fake_factory(*, timezone=None):
+            instance = FakeAsyncScheduler(timezone=timezone)
+            created.append(instance)
+            return instance
+
+        monkeypatch.setattr("scheduler.APSCHEDULER_AVAILABLE", True)
+        monkeypatch.setattr("scheduler.APSCHEDULER_VERSION", 3)
+        monkeypatch.setattr("scheduler.AsyncScheduler", fake_factory)
+        monkeypatch.setattr(
+            "scheduler.asyncio.get_running_loop",
+            lambda: SimpleNamespace(add_signal_handler=lambda *args, **kwargs: None),
+        )
+
+        scheduler = Scheduler(SchedulerConfig(config_path))
+        task = asyncio.create_task(scheduler.start())
+
+        deadline = time.monotonic() + 1.0
+        while not scheduler.get_status()["running"] and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+
+        assert scheduler.get_status()["running"] is True
+        assert scheduler.get_status()["jobs_count"] == 1
+        assert created[0].started is True
+        assert created[0].jobs[0]["id"] == "weekly_consolidation"
+
+        await scheduler.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert scheduler.get_status()["running"] is False
+        assert scheduler.get_status()["jobs_count"] == 0
+        assert created[0].shutdown_calls == [False]

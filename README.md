@@ -545,54 +545,68 @@ All existing functionality is preserved—only the interface has changed. See th
 ### Initialization
 
 ```bash
-# Setup local state directories
-autoflow init
+# Recommended today: use the script-based control plane
+python3 scripts/doctor.py
+python3 scripts/autoflow.py init
+python3 scripts/autoflow.py init-system-config
+python3 scripts/autoflow.py sync-agents
 
-# Check system status
-autoflow status
-
-# Verify agents are available
-autoflow agent check all
+# Check overall status
+python3 scripts/autoflow.py status
 ```
 
 ### Create Your First Spec
 
 ```bash
-# Create a new spec
-autoflow run "Create a user authentication system" \
-  --spec my-first-project \
-  --agent claude-code
+# Create a new spec and inspect the generated task graph
+python3 scripts/autoflow.py new-spec \
+  --slug my-first-project \
+  --title "My First AI Project" \
+  --summary "Build an AI-driven application"
+python3 scripts/autoflow.py init-tasks --spec my-first-project
+python3 scripts/autoflow.py workflow-state --spec my-first-project
 ```
 
 ### Start Autonomous Development
 
 ```bash
-# Start the scheduler for continuous development
-autoflow scheduler start \
+# Start with a single safe tick. Do not commit/push on first run.
+python3 scripts/continuous_iteration.py \
   --spec my-first-project \
-  --max-concurrent 3
+  --config config/continuous-iteration.example.json \
+  --dispatch
 
-# Check scheduler status
-autoflow scheduler status
-
-# View running tasks
-autoflow task list
+# Then let scheduler drive the same job definition
+python3 scripts/scheduler.py run-once \
+  --job-type continuous_iteration \
+  --config config/scheduler_config.json \
+  --verbose
 ```
 
-That's it! Autoflow will now:
-1. Dispatch tasks to available AI agents
-2. Monitor execution in background sessions
-3. Verify and commit changes
-4. Repeat autonomously
+Recommended order:
+1. Run `scripts/doctor.py` first.
+2. Use `continuous_iteration.py` as a single-pass smoke test.
+3. Only after that, use `scheduler.py` for repeated execution.
+
+Important:
+- `continuous_iteration.py` is a single tick, not a long-running daemon
+- repeated execution comes from `scheduler.py`
+- avoid `--commit-if-dirty` and `--push` until the smoke path is green
 
 ### Validate the Runtime Loop
 
 ```bash
+# Read-only environment and dependency check
+python3 scripts/doctor.py
+
 # Command-layer smoke test
 python3 scripts/validate_readme_flow.py --agent codex
 
 # Runtime-loop smoke test (uses a disposable dummy ACP agent and tmux)
 python3 scripts/validate_runtime_loop.py
+
+# Long-running scheduler smoke test (launch, wait, SIGTERM, clean shutdown)
+python3 scripts/validate_scheduler_start.py
 
 # Recovery and bounded QA-loop smoke test
 python3 scripts/validate_recovery_loop.py
@@ -602,6 +616,11 @@ The runtime validation confirms that:
 - `continuous_iteration.py --dispatch` creates a real background tmux run and auto-finalizes it after the agent writes `agent_result.json`
 - `scheduler.py run-once --job-type continuous_iteration` can drive the same path from scheduler config
 - Autoflow advances state into reviewer handoff instead of leaving a dangling active run
+
+The scheduler-start validation confirms that:
+- `scheduler.py start` reaches a stable running state with both idle and enabled-job configurations
+- the process handles `SIGTERM` cleanly instead of hanging
+- repeated start/stop cycles do not leave a lingering scheduler process behind
 
 The recovery validation confirms that:
 - stale runs can be recovered into retry runs

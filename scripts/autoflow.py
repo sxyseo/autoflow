@@ -74,6 +74,8 @@ VALID_TASK_STATUSES = {
     "done",
 }
 RUN_RESULTS = {"success", "needs_changes", "blocked", "failed"}
+ACTIVE_RUN_STATUSES = {"created", "running"}
+INACTIVE_RUN_STATUSES = {"completed", "cancelled", "abandoned", "cleaned", "stale", "recovered"}
 
 
 # === TypedDict Definitions for Scripts State Structures ===
@@ -412,6 +414,40 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def parse_stamp(value: str) -> datetime | None:
+    """Parse Autoflow timestamps in YYYYMMDDTHHMMSSZ format."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def replace_markdown_section(markdown: str, heading: str, body: str) -> str:
+    """Replace a level-2 markdown section body while preserving the rest of the document."""
+    section_header = f"## {heading}"
+    lines = markdown.splitlines()
+    output: list[str] = []
+    index = 0
+    replaced = False
+    while index < len(lines):
+        line = lines[index]
+        if line.strip() == section_header:
+            replaced = True
+            output.extend([section_header, "", body.strip(), ""])
+            index += 1
+            while index < len(lines) and not lines[index].startswith("## "):
+                index += 1
+            continue
+        output.append(line)
+        index += 1
+    if replaced:
+        return "\n".join(output).strip() + "\n"
+    suffix = "\n".join(output).rstrip()
+    return f"{suffix}\n\n{section_header}\n\n{body.strip()}\n"
+
+
 def ensure_state() -> None:
     """
     Ensure all required Autoflow state directories exist.
@@ -557,8 +593,15 @@ def resolve_root_path(raw: str | Path) -> Path:
     Returns:
         Absolute Path object
     """
-    path = Path(raw)
-    return path if path.is_absolute() else ROOT / path
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        return ROOT / path
+    parts = path.parts
+    if ".autoflow" in parts:
+        marker = parts.index(".autoflow")
+        suffix = Path(*parts[marker + 1 :]) if marker + 1 < len(parts) else Path()
+        return STATE_DIR / suffix
+    return path
 
 
 def resolve_agent_profiles(spec: dict[str, Any], system_config: dict[str, Any]) -> dict[str, Any]:
@@ -2543,6 +2586,22 @@ def invalidate_run_cache() -> None:
     _cache_loaded_specs.clear()
 
 
+def load_run_metadata(run_id: str) -> dict[str, Any]:
+    """Load run metadata by run id."""
+    metadata_path = RUNS_DIR / run_id / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {run_id}")
+    return cast(dict[str, Any], read_json(metadata_path))
+
+
+def write_run_metadata(run_id: str, metadata: dict[str, Any]) -> Path:
+    """Persist run metadata and invalidate the cached run index."""
+    metadata_path = RUNS_DIR / run_id / "run.json"
+    write_json(metadata_path, metadata)
+    invalidate_run_cache()
+    return metadata_path
+
+
 def run_metadata_iter() -> list[dict[str, Any]]:
     """Return all run metadata using a lazy-loaded cache.
 
@@ -2595,7 +2654,7 @@ def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
     return [
         item
         for item in _run_metadata_cache.get(spec_slug, [])
-        if item.get("status") != "completed"
+        if item.get("status", "") not in INACTIVE_RUN_STATUSES
     ]
 
 
@@ -2986,6 +3045,123 @@ Describe the problem this system is solving.
     print(str(files["dir"]))
 
 
+def show_spec_payload(slug: str) -> dict[str, Any]:
+    """Build a spec payload used by show-spec and update-spec."""
+    files = spec_files(slug)
+    if not files["spec"].exists():
+        raise SystemExit(f"unknown spec: {slug}")
+    return {
+        "slug": slug,
+        "metadata": read_json_or_default(files["metadata"], {}),
+        "spec_markdown": files["spec"].read_text(encoding="utf-8"),
+        "paths": {
+            "spec": str(files["spec"]),
+            "metadata": str(files["metadata"]),
+            "handoff": str(files["handoff"]),
+            "tasks": str(task_file(slug)),
+        },
+    }
+
+
+def show_spec(args: argparse.Namespace) -> None:
+    """Show spec metadata and markdown content."""
+    print(json.dumps(show_spec_payload(args.slug), indent=2, ensure_ascii=True))
+
+
+def update_spec(args: argparse.Namespace) -> None:
+    """Update spec metadata and markdown in a README-compatible shape."""
+    files = spec_files(args.slug)
+    if not files["spec"].exists():
+        raise SystemExit(f"unknown spec: {args.slug}")
+
+    metadata = read_json_or_default(files["metadata"], {})
+    markdown = files["spec"].read_text(encoding="utf-8")
+    title = getattr(args, "title", "") or metadata.get("title", "")
+    summary = getattr(args, "summary", "") or metadata.get("summary", "")
+    status = getattr(args, "status", "") or metadata.get("status", "")
+    append_text = getattr(args, "append", "").strip()
+
+    if title:
+        lines = markdown.splitlines()
+        if lines and lines[0].startswith("# "):
+            lines[0] = f"# {title}"
+            markdown = "\n".join(lines).strip() + "\n"
+    if summary:
+        markdown = replace_markdown_section(markdown, "Summary", summary)
+    if append_text:
+        markdown = markdown.rstrip() + f"\n\n## Notes\n\n{append_text}\n"
+
+    files["spec"].write_text(markdown, encoding="utf-8")
+    if title:
+        metadata["title"] = title
+    if summary:
+        metadata["summary"] = summary
+    if status:
+        metadata["status"] = status
+    metadata["updated_at"] = now_stamp()
+    write_json(files["metadata"], metadata)
+    record_event(args.slug, "spec.updated", {"status": metadata.get("status", ""), "title": metadata.get("title", "")})
+    print(json.dumps(show_spec_payload(args.slug), indent=2, ensure_ascii=True))
+
+
+def init_tasks_cmd(args: argparse.Namespace) -> None:
+    """Create the default task graph if it does not exist, or reset it when forced."""
+    path = task_file(args.spec)
+    created = bool(getattr(args, "force", False) or not path.exists())
+    if created:
+        write_json(
+            path,
+            {
+                "spec_slug": args.spec,
+                "updated_at": now_stamp(),
+                "tasks": default_tasks(),
+            },
+        )
+        sync_review_state(args.spec, reason="task_graph_initialized")
+        record_event(args.spec, "tasks.initialized", {"force": bool(getattr(args, "force", False))})
+    payload = load_tasks(args.spec)
+    print(json.dumps({"created": created, "tasks": payload["tasks"]}, indent=2, ensure_ascii=True))
+
+
+def update_task_cmd(args: argparse.Namespace) -> None:
+    """README-compatible task update command supporting status and metadata edits."""
+    data = load_tasks(args.spec)
+    task = task_lookup(data, args.task)
+
+    status = getattr(args, "status", "")
+    if status:
+        if status not in VALID_TASK_STATUSES:
+            raise SystemExit(f"invalid status: {status}")
+        task["status"] = status
+    if getattr(args, "title", ""):
+        task["title"] = args.title
+    if getattr(args, "owner_role", ""):
+        task["owner_role"] = args.owner_role
+    if getattr(args, "append_criterion", ""):
+        task.setdefault("acceptance_criteria", []).append(args.append_criterion)
+    if getattr(args, "note", ""):
+        task.setdefault("notes", []).append({"at": now_stamp(), "note": args.note})
+    task["updated_at"] = now_stamp()
+    save_tasks(args.spec, data, reason="task_updated")
+    record_event(args.spec, "task.updated", {"task": args.task, "status": task.get("status", "")})
+    print(json.dumps(task, indent=2, ensure_ascii=True))
+
+
+def reset_task_cmd(args: argparse.Namespace) -> None:
+    """Reset a task back to todo with an optional note."""
+    update_task_cmd(
+        argparse.Namespace(
+            spec=args.spec,
+            task=args.task,
+            status="todo",
+            title="",
+            owner_role="",
+            append_criterion="",
+            note=getattr(args, "note", "") or "task reset to todo",
+        )
+    )
+
+
 def list_tasks(args: argparse.Namespace) -> None:
     """
     List all tasks for a spec in JSON format.
@@ -3275,6 +3451,7 @@ def build_prompt(
     role: str,
     task_id: str | None,
     agent: AgentSpec,
+    run_id: str | None = None,
     resume_from: str | None = None,
 ) -> str:
     """
@@ -3316,11 +3493,27 @@ def build_prompt(
         handoff_sections.append(f"### {handoff_path.name}\n")
         handoff_sections.append(handoff_path.read_text(encoding="utf-8"))
     recovery = recovery_context(spec_slug, selected_task["id"]) if selected_task else "No task selected."
+    completion_contract = "No completion contract for this prompt."
+    if run_id:
+        result_path = f".autoflow/runs/{run_id}/agent_result.json"
+        completion_contract = "\n".join(
+            [
+                "## Completion contract",
+                "",
+                "When you finish, write a single JSON object to the agent result path below.",
+                f"Path: `{result_path}`",
+                "Required keys: result, summary, findings",
+                "Allowed result values: success, needs_changes, blocked, failed",
+                "Findings must be a JSON array. Use an empty array when there are no findings.",
+            ]
+        )
+
     return "\n".join(
         [
             f"Role: {role}",
             f"Spec slug: {spec_slug}",
             f"Task id: {selected_task['id'] if selected_task else 'none'}",
+            f"Run id: {run_id or 'none'}",
             "",
             "Read the repository state and execute the role carefully.",
             "Follow the selected task acceptance criteria.",
@@ -3362,6 +3555,8 @@ def build_prompt(
             "",
             "## Resume context",
             resume_context(resume_from),
+            "",
+            completion_contract,
             "",
             "## QA fix request (structured)",
             json.dumps(fix_request_data, indent=2, ensure_ascii=True),
@@ -3426,14 +3621,15 @@ def create_run_record(
         suffix += 1
     run_dir.mkdir(parents=True, exist_ok=False)
     prompt_path = run_dir / "prompt.md"
+    result_path = run_dir / "agent_result.json"
+    run_json_path = run_dir / "run.json"
     prompt_path.write_text(
-        build_prompt(spec_slug, role, task_id, agent, resume_from=resume_from),
+        build_prompt(spec_slug, role, task_id, agent, run_id=run_id, resume_from=resume_from),
         encoding="utf-8",
     )
     branch = branch or f"codex/{slugify(spec_slug)}-{slugify(task_id)}"
     target_workdir = worktree_path(spec_slug) if worktree_path(spec_slug).exists() else ROOT
     command = [agent.command, *agent.args, str(prompt_path)]
-    run_json_path = run_dir / "run.json"
     run_script = run_dir / "run.sh"
     run_script.write_text(
         "\n".join(
@@ -3441,7 +3637,12 @@ def create_run_record(
                 "#!/usr/bin/env bash",
                 "set -euo pipefail",
                 f"cd {shlex.quote(str(target_workdir))}",
-                f"exec {shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))}",
+                "EXIT_CODE=0",
+                f"export AUTOFLOW_RUN_ID={shlex.quote(run_id)}",
+                f"export AUTOFLOW_AGENT_RESULT={shlex.quote(str(result_path))}",
+                f"{shlex.quote(str(ROOT / 'scripts' / 'run-agent.sh'))} {shlex.quote(agent_name)} {shlex.quote(str(prompt_path))} {shlex.quote(str(run_json_path))} || EXIT_CODE=$?",
+                f"python3 {shlex.quote(str(ROOT / 'scripts' / 'autoflow.py'))} finalize-run --run {shlex.quote(run_id)} --exit-code \"$EXIT_CODE\" --result-file {shlex.quote(str(result_path))}",
+                "exit \"$EXIT_CODE\"",
                 "",
             ]
         ),
@@ -3463,6 +3664,7 @@ def create_run_record(
         "status": "created",
         "attempt_count": len(task_run_history(spec_slug, task_id)) + 1,
         "resume_from": resume_from or "",
+        "agent_result_path": str(result_path),
         "resume_command": f"python3 scripts/autoflow.py resume-run --run {run_id}",
         "native_resume_supported": bool(agent.resume),
         "native_resume_command_preview": native_resume_preview(agent),
@@ -3537,6 +3739,122 @@ def create_run(args: argparse.Namespace) -> None:
     print(str(run_dir))
 
 
+def fallback_task_status_for_run(spec_slug: str, metadata: dict[str, Any]) -> str:
+    """Choose a safe task status when an active run is cleaned up or marked stale."""
+    if metadata.get("role") == "reviewer":
+        return "in_review"
+    if metadata.get("role") in {"implementation-runner", "maintainer"} and load_fix_request(spec_slug):
+        return "needs_changes"
+    return "todo"
+
+
+def set_task_status_for_run(
+    spec_slug: str,
+    task_id: str,
+    status: str,
+    note: str,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Update a task as part of run lifecycle management."""
+    data = load_tasks(spec_slug)
+    task = task_lookup(data, task_id)
+    task["status"] = status
+    task.setdefault("notes", []).append({"at": now_stamp(), "note": note})
+    save_tasks(spec_slug, data, reason=reason)
+    return task
+
+
+def complete_run_record(
+    run_id: str,
+    result: str,
+    summary: str,
+    findings: list[dict[str, Any]] | None = None,
+    *,
+    result_source: str = "manual",
+) -> dict[str, Any]:
+    """Finalize a run and return the completion payload."""
+    if result not in RUN_RESULTS:
+        raise SystemExit(f"invalid result: {result}")
+    metadata = load_run_metadata(run_id)
+    run_dir = RUNS_DIR / run_id
+    normalized_findings = findings or []
+    metadata["status"] = "completed"
+    metadata["result"] = result
+    metadata["result_source"] = result_source
+    metadata["summary"] = summary
+    metadata["completed_at"] = now_stamp()
+    metadata["findings_count"] = len(normalized_findings)
+    write_run_metadata(run_id, metadata)
+    (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
+
+    tasks = load_tasks(metadata["spec"])
+    task = task_lookup(tasks, metadata["task"])
+    if metadata["role"] == "reviewer":
+        next_status = "done" if result == "success" else result
+    elif result == "success":
+        next_status = "in_review"
+    else:
+        next_status = result
+    status_map = {
+        "success": next_status,
+        "needs_changes": "needs_changes",
+        "blocked": "blocked",
+        "failed": "blocked",
+    }
+    task["status"] = status_map[result]
+    task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
+    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
+    next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
+    fix_request_path = ""
+    if metadata["role"] == "reviewer" and result in {"needs_changes", "blocked", "failed"}:
+        fix_request_path = str(
+            write_fix_request(
+                metadata["spec"],
+                metadata["task"],
+                summary,
+                result,
+                findings=normalized_findings,
+            )
+        )
+    if metadata["role"] == "implementation-runner" and result == "success":
+        clear_fix_request(metadata["spec"])
+    strategy_paths = record_reflection(metadata["spec"], metadata, result, summary, findings=normalized_findings)
+    memory_cfg = load_system_config().get("memory", {})
+    if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
+        for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
+            append_memory(
+                scope,
+                f"role={metadata['role']}\nresult={result}\nsummary={summary}",
+                spec_slug=metadata["spec"],
+                title=f"{metadata['task']} {metadata['role']} {result}",
+            )
+    handoff_path = write_handoff(
+        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, result
+    )
+    record_event(
+        metadata["spec"],
+        "run.completed",
+        {
+            "run": metadata["id"],
+            "task": metadata["task"],
+            "role": metadata["role"],
+            "result": result,
+            "fix_request": fix_request_path,
+            "result_source": result_source,
+        },
+    )
+    return {
+        "run": metadata["id"],
+        "result": result,
+        "result_source": result_source,
+        "task_status": task["status"],
+        "handoff": str(handoff_path),
+        "fix_request": fix_request_path,
+        "strategy_memory": [str(path) for path in strategy_paths],
+    }
+
+
 def resume_run(args: argparse.Namespace) -> None:
     """
     Resume a previous run by creating a new run record.
@@ -3601,82 +3919,243 @@ def complete_run(args: argparse.Namespace) -> None:
     Raises:
         SystemExit: If result is invalid or run ID is unknown
     """
-    if args.result not in RUN_RESULTS:
-        raise SystemExit(f"invalid result: {args.result}")
-    run_dir = RUNS_DIR / args.run
-    metadata_path = run_dir / "run.json"
-    if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {args.run}")
-    metadata = read_json(metadata_path)
     findings = parse_findings(args)
-    metadata["status"] = "completed"
-    metadata["result"] = args.result
-    metadata["completed_at"] = now_stamp()
-    metadata["findings_count"] = len(findings or [])
-    write_json(metadata_path, metadata)
     summary = args.summary or f"Run {args.run} completed with result {args.result}."
-    (run_dir / "summary.md").write_text(f"# Run Summary\n\n{summary}\n", encoding="utf-8")
+    payload = complete_run_record(args.run, args.result, summary, findings=findings or [], result_source="manual")
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
 
-    tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
-    if metadata["role"] == "reviewer":
-        next_status = "done" if args.result == "success" else args.result
-    elif args.result == "success":
-        next_status = "in_review"
-    else:
-        next_status = args.result
-    status_map = {
-        "success": next_status,
-        "needs_changes": "needs_changes",
-        "blocked": "blocked",
-        "failed": "blocked",
-    }
-    task["status"] = status_map[args.result]
-    task.setdefault("notes", []).append({"at": now_stamp(), "note": summary})
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
-    next_role = "reviewer" if metadata["role"] != "reviewer" else task["owner_role"]
-    fix_request_path = ""
-    if metadata["role"] == "reviewer" and args.result in {"needs_changes", "blocked", "failed"}:
-        fix_request_path = str(write_fix_request(metadata["spec"], metadata["task"], summary, args.result, findings=findings))
-    if metadata["role"] == "implementation-runner" and args.result == "success":
-        clear_fix_request(metadata["spec"])
-    strategy_paths = record_reflection(metadata["spec"], metadata, args.result, summary, findings=findings)
-    memory_cfg = load_system_config().get("memory", {})
-    if memory_cfg.get("enabled", True) and memory_cfg.get("auto_capture_run_results", True):
-        for scope in metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]:
-            append_memory(
-                scope,
-                f"role={metadata['role']}\nresult={args.result}\nsummary={summary}",
-                spec_slug=metadata["spec"],
-                title=f"{metadata['task']} {metadata['role']} {args.result}",
-            )
-    handoff_path = write_handoff(
-        metadata["spec"], metadata["task"], metadata["role"], summary, next_role, args.result
+
+def capture_memory_cmd(args: argparse.Namespace) -> None:
+    """Capture a completed run summary into configured memory scopes."""
+    metadata = load_run_metadata(args.run)
+    run_dir = RUNS_DIR / args.run
+    summary = metadata.get("summary", "")
+    if not summary:
+        summary_path = run_dir / "summary.md"
+        if summary_path.exists():
+            summary = summary_path.read_text(encoding="utf-8").replace("# Run Summary", "").strip()
+    scopes = getattr(args, "scopes", None)
+    scope_list = [item.strip() for item in scopes.split(",") if item.strip()] if scopes else (
+        metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]
     )
-    record_event(
-        metadata["spec"],
-        "run.completed",
-        {
-            "run": metadata["id"],
-            "task": metadata["task"],
-            "role": metadata["role"],
-            "result": args.result,
-            "fix_request": fix_request_path,
-        },
-    )
+    written = []
+    for scope in scope_list:
+        path = append_memory(
+            scope,
+            f"role={metadata.get('role', '')}\nresult={metadata.get('result', '')}\nsummary={summary}",
+            spec_slug=metadata.get("spec"),
+            title=f"{metadata.get('task', '')} {metadata.get('role', '')} captured",
+        )
+        written.append(str(path))
+    print(json.dumps({"run": args.run, "scopes": scope_list, "paths": written}, indent=2, ensure_ascii=True))
+
+
+def validate_config_cmd(_: argparse.Namespace) -> None:
+    """Validate the local Autoflow configuration without mutating the environment."""
+    issues: list[str] = []
+    try:
+        load_system_config()
+    except Exception as exc:  # pragma: no cover - defensive
+        issues.append(f"system_config:{exc}")
+    if AGENTS_FILE.exists():
+        try:
+            load_agents()
+        except Exception as exc:  # pragma: no cover - defensive
+            issues.append(f"agents:{exc}")
     print(
         json.dumps(
             {
-                "run": metadata["id"],
-                "task_status": task["status"],
-                "handoff": str(handoff_path),
-                "fix_request": fix_request_path,
-                "strategy_memory": [str(path) for path in strategy_paths],
+                "valid": not issues,
+                "issues": issues,
+                "paths": {
+                    "system": str(SYSTEM_CONFIG_FILE),
+                    "agents": str(AGENTS_FILE),
+                },
             },
             indent=2,
             ensure_ascii=True,
         )
     )
+
+
+def test_agent_cmd(args: argparse.Namespace) -> None:
+    """Check whether an agent is configured and executable."""
+    configured = False
+    available = False
+    protocol = ""
+    command = ""
+    if AGENTS_FILE.exists():
+        agents = load_agents()
+        if args.agent in agents:
+            configured = True
+            agent = agents[args.agent]
+            protocol = agent.protocol
+            if agent.protocol == "acp":
+                command = (agent.transport or {}).get("command", agent.command)
+            else:
+                command = agent.command
+            available = bool(command) and shutil.which(command) is not None
+    print(
+        json.dumps(
+            {
+                "agent": args.agent,
+                "configured": configured,
+                "ready": configured and available,
+                "protocol": protocol,
+                "command": command,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def heartbeat_run_cmd(args: argparse.Namespace) -> None:
+    """Update the liveness heartbeat for a run."""
+    metadata = load_run_metadata(args.run)
+    if getattr(args, "status", ""):
+        metadata["status"] = args.status
+    metadata["heartbeat_at"] = now_stamp()
+    if getattr(args, "session", ""):
+        metadata["tmux_session"] = args.session
+    if getattr(args, "exit_code", None) is not None:
+        metadata["exit_code"] = args.exit_code
+    write_run_metadata(args.run, metadata)
+    print(json.dumps(metadata, indent=2, ensure_ascii=True))
+
+
+def cleanup_runs_cmd(args: argparse.Namespace) -> None:
+    """Mark unfinished runs inactive and requeue their tasks."""
+    target_status = getattr(args, "target_status", "") or "abandoned"
+    include_status = set(getattr(args, "include_status", None) or list(ACTIVE_RUN_STATUSES))
+    cleaned_runs = []
+    task_updates = []
+    for metadata in run_metadata_iter():
+        if metadata.get("spec") != args.spec or metadata.get("status") not in include_status:
+            continue
+        run_id = metadata["id"]
+        session_name = metadata.get("tmux_session", "")
+        if session_name:
+            run_cmd(["tmux", "kill-session", "-t", session_name], check=False)
+        metadata["status"] = target_status
+        metadata["cleanup_reason"] = getattr(args, "reason", "") or "manual_cleanup"
+        metadata["cleaned_at"] = now_stamp()
+        write_run_metadata(run_id, metadata)
+        cleaned_runs.append({"run": run_id, "status": target_status})
+        task_status = getattr(args, "task_status", "") or fallback_task_status_for_run(args.spec, metadata)
+        task = set_task_status_for_run(
+            args.spec,
+            metadata["task"],
+            task_status,
+            metadata["cleanup_reason"],
+            reason="run_cleanup",
+        )
+        task_updates.append({"task": metadata["task"], "status": task["status"]})
+        record_event(args.spec, "run.cleaned", {"run": run_id, "status": target_status})
+    print(
+        json.dumps(
+            {"spec": args.spec, "cleaned_runs": cleaned_runs, "task_updates": task_updates},
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def sweep_runs_cmd(args: argparse.Namespace) -> None:
+    """Mark stale runs and optionally requeue their tasks."""
+    marked = []
+    task_updates = []
+    include_status = set(getattr(args, "include_status", None) or list(ACTIVE_RUN_STATUSES))
+    stale_after = int(getattr(args, "stale_after", 600))
+    target_status = getattr(args, "target_status", "") or "stale"
+    now = now_utc()
+    for metadata in run_metadata_iter():
+        if metadata.get("spec") != args.spec or metadata.get("status") not in include_status:
+            continue
+        heartbeat_at = parse_stamp(metadata.get("heartbeat_at", "")) or parse_stamp(metadata.get("created_at", ""))
+        if not heartbeat_at:
+            continue
+        if (now - heartbeat_at).total_seconds() < stale_after:
+            continue
+        metadata["status"] = target_status
+        metadata["stale_at"] = now_stamp()
+        write_run_metadata(metadata["id"], metadata)
+        marked.append({"run": metadata["id"], "status": target_status})
+        task_status = getattr(args, "task_status", "") or fallback_task_status_for_run(args.spec, metadata)
+        task = set_task_status_for_run(
+            args.spec,
+            metadata["task"],
+            task_status,
+            f"run {metadata['id']} marked {target_status}",
+            reason="run_stale",
+        )
+        task_updates.append({"task": metadata["task"], "status": task["status"]})
+        record_event(args.spec, "run.stale", {"run": metadata["id"], "status": target_status})
+    print(
+        json.dumps(
+            {"spec": args.spec, "marked_stale": marked, "task_updates": task_updates},
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def recover_run_cmd(args: argparse.Namespace) -> None:
+    """Create a retry run from a stale or abandoned run."""
+    metadata = load_run_metadata(args.run)
+    metadata["status"] = "recovered"
+    metadata["recovered_at"] = now_stamp()
+    metadata["recovery_reason"] = getattr(args, "reason", "") or "manual_recovery"
+    write_run_metadata(args.run, metadata)
+    task = set_task_status_for_run(
+        metadata["spec"],
+        metadata["task"],
+        "in_progress",
+        f"recovery created from {args.run}",
+        reason="run_recovered",
+    )
+    new_run_dir = create_run_record(
+        metadata["spec"],
+        metadata["role"],
+        metadata["agent"],
+        metadata["task"],
+        branch=metadata.get("branch"),
+        resume_from=args.run,
+    )
+    new_metadata = load_run_metadata(new_run_dir.name)
+    new_metadata["recovery_reason"] = metadata["recovery_reason"]
+    write_run_metadata(new_run_dir.name, new_metadata)
+    payload: dict[str, Any] = {
+        "old_run": args.run,
+        "new_run": new_run_dir.name,
+        "task": task["id"],
+        "status": task["status"],
+    }
+    if getattr(args, "dispatch", False):
+        session = run_cmd(["bash", str(ROOT / "scripts" / "tmux-start.sh"), str(new_run_dir / "run.sh")]).stdout.strip()
+        payload["tmux_session"] = session
+    record_event(metadata["spec"], "run.recovered", {"from": args.run, "to": new_run_dir.name})
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def finalize_run_cmd(args: argparse.Namespace) -> None:
+    """Finalize a run from an agent_result artifact or a fallback exit code."""
+    result_source = "fallback"
+    result = "failed"
+    summary = f"Run {args.run} did not write agent_result.json; treating exit code {args.exit_code} as a failure."
+    findings: list[dict[str, Any]] = []
+    if getattr(args, "result_file", ""):
+        result_file = Path(args.result_file)
+        if result_file.exists():
+            payload = read_json(result_file)
+            result = payload.get("result", result)
+            summary = payload.get("summary", summary)
+            findings = payload.get("findings", []) or []
+            result_source = "agent_result"
+        elif int(getattr(args, "exit_code", 1)) != 0:
+            summary = f"Run {args.run} exited with code {args.exit_code} and did not write agent_result.json."
+    payload = complete_run_record(args.run, result, summary, findings=findings, result_source=result_source)
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
 
 
 def cancel_run(args: argparse.Namespace) -> None:
@@ -3969,7 +4448,11 @@ def add_planner_note_cmd(args: argparse.Namespace) -> None:
     Output:
         Prints the path to the updated strategy memory file
     """
-    path = add_planner_note(args.spec, args.title, args.content, category=args.category, scope=args.scope)
+    content = getattr(args, "content", "") or getattr(args, "note", "")
+    if not content:
+        raise SystemExit("planner note content is required")
+    title = getattr(args, "title", "") or "Planner note"
+    path = add_planner_note(args.spec, title, content, category=args.category, scope=args.scope)
     print(str(path))
 
 
@@ -4147,6 +4630,9 @@ def create_worktree(args: argparse.Namespace) -> None:
     branch = worktree_branch(args.spec)
     base_branch = args.base_branch or detect_base_branch()
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
+
+    if getattr(args, "force", False) and path.exists():
+        run_cmd(["git", "worktree", "remove", "--force", str(path)], check=False)
 
     if path.exists():
         metadata["worktree"] = {
@@ -4464,6 +4950,23 @@ def build_parser() -> argparse.ArgumentParser:
     spec_cmd.add_argument("--summary", required=True)
     spec_cmd.set_defaults(func=create_spec)
 
+    show_spec_cmd = sub.add_parser("show-spec", help="show spec metadata and markdown")
+    show_spec_cmd.add_argument("--slug", required=True)
+    show_spec_cmd.set_defaults(func=show_spec)
+
+    update_spec_cmd = sub.add_parser("update-spec", help="update spec metadata and markdown")
+    update_spec_cmd.add_argument("--slug", required=True)
+    update_spec_cmd.add_argument("--title", default="")
+    update_spec_cmd.add_argument("--summary", default="")
+    update_spec_cmd.add_argument("--status", default="")
+    update_spec_cmd.add_argument("--append", default="")
+    update_spec_cmd.set_defaults(func=update_spec)
+
+    init_tasks_parser = sub.add_parser("init-tasks", help="create or reset the default task graph")
+    init_tasks_parser.add_argument("--spec", required=True)
+    init_tasks_parser.add_argument("--force", action="store_true")
+    init_tasks_parser.set_defaults(func=init_tasks_cmd)
+
     tasks_cmd = sub.add_parser("list-tasks", help="print the task graph for a spec")
     tasks_cmd.add_argument("--spec", required=True)
     tasks_cmd.set_defaults(func=list_tasks)
@@ -4479,6 +4982,22 @@ def build_parser() -> argparse.ArgumentParser:
     set_task_cmd.add_argument("--status", required=True)
     set_task_cmd.add_argument("--note", default="")
     set_task_cmd.set_defaults(func=set_task_status)
+
+    update_task_parser = sub.add_parser("update-task", help="update task status or metadata")
+    update_task_parser.add_argument("--spec", required=True)
+    update_task_parser.add_argument("--task", required=True)
+    update_task_parser.add_argument("--status", default="")
+    update_task_parser.add_argument("--title", default="")
+    update_task_parser.add_argument("--owner-role", default="")
+    update_task_parser.add_argument("--append-criterion", default="")
+    update_task_parser.add_argument("--note", default="")
+    update_task_parser.set_defaults(func=update_task_cmd)
+
+    reset_task_parser = sub.add_parser("reset-task", help="reset a task back to todo")
+    reset_task_parser.add_argument("--spec", required=True)
+    reset_task_parser.add_argument("--task", required=True)
+    reset_task_parser.add_argument("--note", default="")
+    reset_task_parser.set_defaults(func=reset_task_cmd)
 
     handoff_cmd = sub.add_parser("create-handoff", help="write a handoff artifact")
     handoff_cmd.add_argument("--spec", required=True)
@@ -4519,6 +5038,7 @@ def build_parser() -> argparse.ArgumentParser:
     worktree_create_cmd = sub.add_parser("create-worktree", help="create or reuse an isolated git worktree for a spec")
     worktree_create_cmd.add_argument("--spec", required=True)
     worktree_create_cmd.add_argument("--base-branch", default="")
+    worktree_create_cmd.add_argument("--force", action="store_true")
     worktree_create_cmd.set_defaults(func=create_worktree)
 
     worktree_remove_cmd = sub.add_parser("remove-worktree", help="remove a spec worktree")
@@ -4557,17 +5077,30 @@ def build_parser() -> argparse.ArgumentParser:
     show_memory.add_argument("--spec")
     show_memory.set_defaults(func=show_memory_cmd)
 
+    capture_memory = sub.add_parser("capture-memory", help="capture a completed run into memory scopes")
+    capture_memory.add_argument("--run", required=True)
+    capture_memory.add_argument("--scopes", default="")
+    capture_memory.set_defaults(func=capture_memory_cmd)
+
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
     strategy_cmd.set_defaults(func=show_strategy_cmd)
 
     planner_cmd = sub.add_parser("add-planner-note", help="append a planner strategy note to strategy memory")
     planner_cmd.add_argument("--spec", required=True)
-    planner_cmd.add_argument("--title", required=True)
-    planner_cmd.add_argument("--content", required=True)
+    planner_cmd.add_argument("--title", default="")
+    planner_cmd.add_argument("--content", default="")
+    planner_cmd.add_argument("--note", default="")
     planner_cmd.add_argument("--category", default="strategy")
     planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
     planner_cmd.set_defaults(func=add_planner_note_cmd)
+
+    validate_config = sub.add_parser("validate-config", help="validate local Autoflow configuration")
+    validate_config.set_defaults(func=validate_config_cmd)
+
+    test_agent = sub.add_parser("test-agent", help="check whether an agent is configured and executable")
+    test_agent.add_argument("--agent", required=True)
+    test_agent.set_defaults(func=test_agent_cmd)
 
     export_taskmaster = sub.add_parser("export-taskmaster", help="export Autoflow tasks in a Taskmaster-friendly JSON shape")
     export_taskmaster.add_argument("--spec", required=True)
@@ -4592,6 +5125,12 @@ def build_parser() -> argparse.ArgumentParser:
     resume_cmd.add_argument("--run", required=True)
     resume_cmd.set_defaults(func=resume_run)
 
+    recover_cmd = sub.add_parser("recover-run", help="recover a stale or abandoned run by creating a retry")
+    recover_cmd.add_argument("--run", required=True)
+    recover_cmd.add_argument("--reason", default="")
+    recover_cmd.add_argument("--dispatch", action="store_true")
+    recover_cmd.set_defaults(func=recover_run_cmd)
+
     complete_cmd = sub.add_parser("complete-run", help="close a run and update task state")
     complete_cmd.add_argument("--run", required=True)
     complete_cmd.add_argument("--result", required=True)
@@ -4600,10 +5139,41 @@ def build_parser() -> argparse.ArgumentParser:
     complete_cmd.add_argument("--findings-file", default="")
     complete_cmd.set_defaults(func=complete_run)
 
+    finalize_cmd = sub.add_parser("finalize-run", help="finalize a run from an agent result artifact")
+    finalize_cmd.add_argument("--run", required=True)
+    finalize_cmd.add_argument("--exit-code", type=int, default=1)
+    finalize_cmd.add_argument("--result-file", default="")
+    finalize_cmd.set_defaults(func=finalize_run_cmd)
+
+    heartbeat_cmd = sub.add_parser("heartbeat-run", help="update run liveness metadata")
+    heartbeat_cmd.add_argument("--run", required=True)
+    heartbeat_cmd.add_argument("--status", default="")
+    heartbeat_cmd.add_argument("--session", default="")
+    heartbeat_cmd.add_argument("--exit-code", type=int)
+    heartbeat_cmd.set_defaults(func=heartbeat_run_cmd)
+
     cancel_cmd = sub.add_parser("cancel-run", help="cancel a run and revert task status")
     cancel_cmd.add_argument("--run", required=True)
     cancel_cmd.add_argument("--reason", default="")
     cancel_cmd.set_defaults(func=cancel_run)
+
+    cleanup_cmd = sub.add_parser("cleanup-runs", help="mark unfinished runs inactive and requeue tasks")
+    cleanup_cmd.add_argument("--spec", required=True)
+    cleanup_cmd.add_argument("--reason", default="")
+    cleanup_cmd.add_argument("--target-status", default="abandoned")
+    cleanup_cmd.add_argument("--task-status", default="")
+    cleanup_cmd.add_argument("--include-status", nargs="*", default=["created", "running"])
+    cleanup_cmd.set_defaults(func=cleanup_runs_cmd)
+
+    sweep_cmd = sub.add_parser("sweep-runs", help="mark stale runs and requeue their tasks")
+    sweep_cmd.add_argument("--spec", required=True)
+    sweep_cmd.add_argument("--stale-after", type=int, default=600)
+    sweep_cmd.add_argument("--target-status", default="stale")
+    sweep_cmd.add_argument("--task-status", default="")
+    sweep_cmd.add_argument("--include-status", nargs="*", default=["created", "running"])
+    sweep_cmd.add_argument("--auto-recover", action="store_true")
+    sweep_cmd.add_argument("--dispatch-recovery", action="store_true")
+    sweep_cmd.set_defaults(func=sweep_runs_cmd)
 
     history_cmd = sub.add_parser("task-history", help="show run history for a task")
     history_cmd.add_argument("--spec", required=True)

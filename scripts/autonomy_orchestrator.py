@@ -9,13 +9,6 @@ from typing import Any
 import cli_healthcheck
 import continuous_iteration
 
-from autoflow.core.commands import (
-    get_strategy_summary,
-    get_workflow_state,
-    taskmaster_export,
-    taskmaster_import,
-)
-
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
@@ -32,6 +25,51 @@ def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, An
 def load_config(path: str) -> dict[str, Any]:
     result: dict[str, Any] = json.loads((ROOT / path).read_text(encoding="utf-8"))
     return result
+
+
+def run_json(cmd: list[str]) -> dict[str, Any]:
+    proc = continuous_iteration.run(cmd)
+    payload: dict[str, Any] = json.loads(proc.stdout)
+    return payload
+
+
+def get_workflow_state(spec: str) -> dict[str, Any]:
+    return run_json(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
+
+
+def get_strategy_summary(spec: str) -> dict[str, Any]:
+    return run_json(["python3", "scripts/autoflow.py", "show-strategy", "--spec", spec])
+
+
+def taskmaster_export(spec: str, output: str) -> dict[str, Any]:
+    output_path = ROOT / output if not Path(output).is_absolute() else Path(output)
+    continuous_iteration.run(
+        [
+            "python3",
+            "scripts/autoflow.py",
+            "export-taskmaster",
+            "--spec",
+            spec,
+            "--output",
+            str(output_path),
+        ]
+    )
+    return {"output": str(output_path)}
+
+
+def taskmaster_import(spec: str, input_file: str) -> dict[str, Any]:
+    input_path = ROOT / input_file if not Path(input_file).is_absolute() else Path(input_file)
+    return run_json(
+        [
+            "python3",
+            "scripts/autoflow.py",
+            "import-taskmaster",
+            "--spec",
+            spec,
+            "--input",
+            str(input_path),
+        ]
+    )
 
 
 def health_report(required: list[str] | None = None) -> dict[str, Any]:

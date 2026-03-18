@@ -452,7 +452,7 @@ class Scheduler:
 
         logger.info("Starting scheduler...")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._stop_event = asyncio.Event()
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(NotImplementedError):
@@ -469,9 +469,11 @@ class Scheduler:
                 except (KeyboardInterrupt, asyncio.CancelledError):
                     logger.info("Scheduler stopping...")
                 finally:
+                    self._scheduled_jobs.clear()
                     self._running = False
                     self._scheduler = None
                     self._stop_event = None
+                    logger.info("Scheduler stopped.")
             return
 
         scheduler = AsyncScheduler(timezone=self.config.timezone)
@@ -485,11 +487,14 @@ class Scheduler:
         except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("Scheduler stopping...")
         finally:
-            with contextlib.suppress(Exception):
-                scheduler.shutdown(wait=False)
+            if self._scheduler is not None:
+                with contextlib.suppress(Exception):
+                    scheduler.shutdown(wait=False)
+            self._scheduled_jobs.clear()
             self._running = False
             self._scheduler = None
             self._stop_event = None
+            logger.info("Scheduler stopped.")
 
     async def stop(self) -> None:
         """Stop the scheduler."""
@@ -504,6 +509,7 @@ class Scheduler:
                 await self._scheduler.stop()
             else:
                 self._scheduler.shutdown(wait=False)
+                self._scheduler = None
         if self._stop_event:
             self._stop_event.set()
 

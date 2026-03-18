@@ -55,6 +55,19 @@ def load_prompt(prompt_file: str) -> str:
     return Path(prompt_file).read_text(encoding="utf-8")
 
 
+def normalize_agent_spec(agent_spec: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty optional fields before validation and execution."""
+    normalized = dict(agent_spec)
+    for key in ["model", "tool_profile", "model_profile"]:
+        if normalized.get(key, None) == "":
+            normalized.pop(key, None)
+    if normalized.get("tools") == []:
+        normalized.pop("tools", None)
+    if normalized.get("resume") == {}:
+        normalized.pop("resume", None)
+    return normalized
+
+
 def apply_runtime_config(command: list[str], agent_spec: dict[str, Any]) -> list[str]:
     configured = list(command)
     model = agent_spec.get("model")
@@ -69,6 +82,7 @@ def apply_runtime_config(command: list[str], agent_spec: dict[str, Any]) -> list
 
 
 def build_command(agent_spec: dict[str, Any], prompt_file: str, run_metadata: dict[str, Any] | None = None) -> list[str]:
+    agent_spec = normalize_agent_spec(agent_spec)
     # Security: Validate agent specification before building command
     try:
         validate_agent_spec(agent_spec, validate_all_fields=True)
@@ -181,6 +195,7 @@ def main() -> None:
     resolved_spec = dict(spec)
     if run_metadata and run_metadata.get("agent_config"):
         resolved_spec.update(run_metadata["agent_config"])
+    resolved_spec = normalize_agent_spec(resolved_spec)
 
     # Verify prompt.md integrity before loading
     verify_prompt_integrity(prompt_file, run_metadata)

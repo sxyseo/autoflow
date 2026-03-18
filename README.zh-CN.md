@@ -417,31 +417,47 @@ python3 scripts/autoflow.py workflow-state --spec my-first-project
 ### 开始自主开发
 
 ```bash
-# 启用持续迭代
+# 先做安全体检
+python3 scripts/doctor.py
+
+# 先跑一次单轮 smoke，不要一开始就 commit/push
 python3 scripts/continuous_iteration.py \
   --spec my-first-project \
   --config config/continuous-iteration.example.json \
-  --commit-if-dirty \
-  --dispatch \
-  --push
+  --dispatch
+
+# 如果单轮 smoke 没问题，再让调度器周期性驱动同一条链路
+python3 scripts/scheduler.py run-once \
+  --job-type continuous_iteration \
+  --config config/scheduler_config.json \
+  --verbose
 ```
 
-就是这样！Autoflow 现在将：
+推荐顺序是：
 1. 检查已完成的工作
-2. 使用描述性消息提交更改
-3. 运行验证测试
-4. 调度下一个就绪任务
-5. 在后台启动代理
-6. 每 2-5 分钟重复一次
+2. 调度下一个就绪任务
+3. 在后台启动代理
+4. 等 agent 写出 `agent_result.json` 后自动 finalize
+
+注意：
+- `continuous_iteration.py` 现在是单次 tick，不会自己常驻循环
+- 真正的周期性运行由 `scheduler.py` 驱动
+- 第一次验证不要加 `--commit-if-dirty` 和 `--push`
 
 ### 验证 README 流程
 
 ```bash
+# 先检查本地环境是否适合跑 smoke
+python3 scripts/doctor.py
+
 # 命令层 smoke test
 python3 scripts/validate_readme_flow.py --agent codex
 
 # 运行层 smoke test（使用一次性的 dummy ACP agent 和 tmux）
 python3 scripts/validate_runtime_loop.py
+
+# 长驻调度器 smoke test（启动、稳定运行、发 SIGTERM、确认干净退出）
+python3 scripts/validate_scheduler_start.py
 
 # 恢复与 QA 自愈 smoke test
 python3 scripts/validate_recovery_loop.py
@@ -453,6 +469,11 @@ python3 scripts/validate_recovery_loop.py
 - 状态层会推进到 reviewer handoff，而不是只留下悬空的 active run
 
 第三条命令会验证：
+- `scheduler.py start` 在空闲配置和带启用任务的配置下都能稳定进入运行态
+- 收到 `SIGTERM` 后能干净退出，而不是卡住
+- 连续 start/stop 不会留下悬空的调度器进程
+
+第四条命令会验证：
 - stale run 能被恢复为新的 retry run
 - reviewer `needs_changes` 会生成 fix request，并把下一步动作切回实现者
 - 修复后重新审查能把任务推进到后续阶段
@@ -882,6 +903,9 @@ python3 scripts/autoflow.py validate-config
 
 # 测试代理可用性
 python3 scripts/autoflow.py test-agent --agent <agent-name>
+
+# 做一次只读环境体检
+python3 scripts/doctor.py
 
 # 同步已发现的代理
 python3 scripts/autoflow.py sync-agents --overwrite

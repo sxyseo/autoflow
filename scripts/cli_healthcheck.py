@@ -5,32 +5,25 @@ import argparse
 import json
 import shutil
 import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# Ensure we import from the autoflow package, not scripts/autoflow.py
-# Project root must be in path BEFORE scripts directory
-_root = Path(__file__).resolve().parent.parent
-if str(_root) not in sys.path:
-    # Insert at position 0 to ensure it's found before scripts/autoflow.py
-    sys.path.insert(0, str(_root))
-    # If scripts is already in path, remove and re-add after root
-    scripts_path = str(_root / 'scripts')
-    if scripts_path in sys.path:
-        sys.path.remove(scripts_path)
-    sys.path.insert(1, scripts_path)
-
-# Import shared utilities from autoflow.utils
-from autoflow.utils import run_cmd
-
-# Import now_stamp from time_helpers for timestamp generation
-from autoflow.utils.time_helpers import now_stamp
-
-
 ROOT = Path(__file__).resolve().parent.parent
-run = run_cmd
+
+
+def run(args: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd or ROOT,
+        check=check,
+        capture_output=True,
+        text=True,
+    )
+
+
+def now_stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def probe_binary(name: str) -> dict[str, Any]:

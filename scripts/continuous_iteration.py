@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,12 +43,21 @@ def run_verify_commands(commands: list[str], spec: str) -> list[dict]:
     results = []
     for command in commands:
         rendered = command.replace("{spec}", spec)
+        if any(token in rendered for token in ["&&", "||", "|", ";", ">", "<"]):
+            results.append(
+                {
+                    "command": rendered,
+                    "returncode": 2,
+                    "stdout": "",
+                    "stderr": "unsupported shell metacharacters in verify command",
+                }
+            )
+            break
         proc = subprocess.run(
-            rendered,
+            shlex.split(rendered),
             cwd=ROOT,
             text=True,
             capture_output=True,
-            shell=True,
         )
         results.append(
             {
@@ -207,7 +217,7 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Autoflow phase 3 iteration loop")
+    parser = argparse.ArgumentParser(description="Autoflow single-pass iteration loop")
     parser.add_argument("--spec", required=True)
     parser.add_argument("--config", default="config/continuous-iteration.example.json")
     parser.add_argument("--dispatch", action="store_true")
