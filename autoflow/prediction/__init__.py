@@ -8,6 +8,7 @@ areas and suggest proactive fixes.
 Features:
 - FeatureExtractor: Extract features from specs, files, agents, and temporal data
 - TaskFeatureExtractor: Extract features from tasks for prioritization
+- TaskHistoryCollector: Collect historical task completion data
 - QualityModel: ML model for quality prediction
 - QualityPredictor: Service for running predictions
 - FeedbackCollector: Collect feedback and improve model over time
@@ -49,6 +50,11 @@ from autoflow.prediction.task_feature_extractor import (
     TaskStatus,
     TaskType,
 )
+from autoflow.prediction.task_history_collector import (
+    TaskHistoryCollector,
+    TaskOutcome,
+    TaskPrioritySample,
+)
 
 __all__ = [
     # Feature extraction
@@ -67,6 +73,10 @@ __all__ = [
     "TaskHistoricalFeatures",
     "TaskStatus",
     "TaskType",
+    # Task history collection
+    "TaskHistoryCollector",
+    "TaskOutcome",
+    "TaskPrioritySample",
     # Prediction
     "QualityPredictor",
     # Feedback
