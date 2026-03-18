@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "082-mobile-companion-app",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
-    "in_progress": 1,
+    "completed": 2,
+    "total": 25,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 3,
     "started_at": "2026-03-19T00:09:14.865935"
   },
-  "last_update": "2026-03-19T00:12:12.255373"
+  "last_update": "2026-03-19T00:20:00.000000"
 }
