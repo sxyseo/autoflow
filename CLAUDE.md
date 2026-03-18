@@ -128,6 +128,11 @@ python3 scripts/autoflow.py complete-run \
   --result <success|needs_changes|blocked|failed> \
   --summary "<summary>"
 
+# Cancel a run and revert task to previous status
+python3 scripts/autoflow.py cancel-run \
+  --run <run-id> \
+  --reason "<reason>"
+
 # Show fix request from reviewer
 python3 scripts/autoflow.py show-fix-request --spec <spec-slug>
 ```
