@@ -5,6 +5,9 @@ Provides background file watching for the .autoflow/ state directory and
 broadcasts changes via WebSocket for real-time dashboard updates. Monitors
 tasks, runs, and specs for changes and notifies connected clients.
 
+Includes mobile-specific WebSocket event types for mobile client integration,
+supporting connection status, sync operations, and push notifications.
+
 Usage:
     from autoflow.web.monitor import StateMonitor
 
@@ -13,6 +16,12 @@ Usage:
 
     # Start monitoring (runs in background)
     await monitor.start()
+
+    # Emit mobile events
+    await monitor.notify_mobile_connected("device-123", "iOS")
+    await monitor.send_mobile_push_notification(
+        "device-123", "Update", "Task completed"
+    )
 
     # Stop monitoring
     await monitor.stop()
@@ -115,7 +124,7 @@ class FileEvent:
     Attributes:
         event_type: Type of event (created, modified, deleted)
         path: Path to the file that changed
-        category: Category of state (task, run, spec)
+        category: Category of state (task, run, spec, mobile)
         timestamp: When the event occurred
 
     Example:
@@ -129,6 +138,15 @@ class FileEvent:
     CREATED = "created"
     MODIFIED = "modified"
     DELETED = "deleted"
+
+    # Mobile-specific event types
+    MOBILE_CONNECTED = "mobile_connected"
+    MOBILE_DISCONNECTED = "mobile_disconnected"
+    MOBILE_SYNC_START = "mobile_sync_start"
+    MOBILE_SYNC_COMPLETE = "mobile_sync_complete"
+    MOBILE_SYNC_ERROR = "mobile_sync_error"
+    MOBILE_PUSH_NOTIFICATION = "mobile_push_notification"
+    MOBILE_BACKGROUND_SYNC = "mobile_background_sync"
 
     def __init__(
         self,
@@ -509,3 +527,168 @@ class StateMonitor:
             ... })
         """
         await self.connection_manager.broadcast(message)
+
+    async def emit_mobile_event(
+        self,
+        event_type: str,
+        data: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        Emit a mobile-specific WebSocket event.
+
+        Broadcasts mobile-specific events like connection status, sync state,
+        and push notifications to all connected WebSocket clients.
+
+        Args:
+            event_type: Type of mobile event (e.g., mobile_connected, sync_start)
+            data: Optional additional data to include with the event
+
+        Example:
+            >>> await monitor.emit_mobile_event(
+            ...     FileEvent.MOBILE_CONNECTED,
+            ...     {"device_id": "iphone-123", "platform": "iOS"}
+            ... )
+        """
+        message = {
+            "type": "mobile",
+            "action": event_type,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        if data:
+            message["data"] = data
+
+        await self.broadcast(message)
+
+    async def notify_mobile_connected(self, device_id: str, platform: str) -> None:
+        """
+        Notify clients that a mobile device has connected.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+            platform: Platform name (e.g., "iOS", "Android")
+
+        Example:
+            >>> await monitor.notify_mobile_connected("iphone-123", "iOS")
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_CONNECTED,
+            {"device_id": device_id, "platform": platform},
+        )
+
+    async def notify_mobile_disconnected(self, device_id: str) -> None:
+        """
+        Notify clients that a mobile device has disconnected.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+
+        Example:
+            >>> await monitor.notify_mobile_disconnected("iphone-123")
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_DISCONNECTED,
+            {"device_id": device_id},
+        )
+
+    async def notify_mobile_sync_start(self, device_id: str) -> None:
+        """
+        Notify clients that a mobile sync operation has started.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+
+        Example:
+            >>> await monitor.notify_mobile_sync_start("iphone-123")
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_SYNC_START,
+            {"device_id": device_id},
+        )
+
+    async def notify_mobile_sync_complete(self, device_id: str, items_synced: int) -> None:
+        """
+        Notify clients that a mobile sync operation has completed.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+            items_synced: Number of items synchronized
+
+        Example:
+            >>> await monitor.notify_mobile_sync_complete("iphone-123", 42)
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_SYNC_COMPLETE,
+            {"device_id": device_id, "items_synced": items_synced},
+        )
+
+    async def notify_mobile_sync_error(self, device_id: str, error: str) -> None:
+        """
+        Notify clients that a mobile sync operation has encountered an error.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+            error: Error message describing the failure
+
+        Example:
+            >>> await monitor.notify_mobile_sync_error("iphone-123", "Network timeout")
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_SYNC_ERROR,
+            {"device_id": device_id, "error": error},
+        )
+
+    async def send_mobile_push_notification(
+        self,
+        device_id: str,
+        title: str,
+        body: str,
+        data: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        Send a push notification to a mobile device via WebSocket.
+
+        Broadcasts a push notification event that can be picked up by mobile clients.
+
+        Args:
+            device_id: Unique identifier for the target mobile device
+            title: Notification title
+            body: Notification body text
+            data: Optional additional data to include with the notification
+
+        Example:
+            >>> await monitor.send_mobile_push_notification(
+            ...     "iphone-123",
+            ...     "Task Updated",
+            ...     "Task #42 has been completed"
+            ... )
+        """
+        notification_data = {
+            "device_id": device_id,
+            "title": title,
+            "body": body,
+        }
+
+        if data:
+            notification_data["data"] = data
+
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_PUSH_NOTIFICATION,
+            notification_data,
+        )
+
+    async def notify_mobile_background_sync(self, device_id: str, status: str) -> None:
+        """
+        Notify clients about mobile background sync status.
+
+        Args:
+            device_id: Unique identifier for the mobile device
+            status: Status of background sync (e.g., "started", "completed", "failed")
+
+        Example:
+            >>> await monitor.notify_mobile_background_sync("iphone-123", "completed")
+        """
+        await self.emit_mobile_event(
+            FileEvent.MOBILE_BACKGROUND_SYNC,
+            {"device_id": device_id, "status": status},
+        )
