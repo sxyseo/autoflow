@@ -279,6 +279,40 @@ class NotificationPreferencesResponse(BaseModel):
     updated_at: str
 
 
+class SendNotificationRequest(BaseModel):
+    """
+    Send notification request model.
+
+    Attributes:
+        user_id: User ID to send the notification to
+        message: Notification message content
+        title: Optional notification title
+        data: Optional additional data payload
+    """
+
+    user_id: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1)
+    title: Optional[str] = None
+    data: dict[str, Any] = {}
+
+
+class SendNotificationResponse(BaseModel):
+    """
+    Send notification response model.
+
+    Attributes:
+        notification_id: Unique notification identifier
+        user_id: User ID the notification was sent to
+        status: Delivery status
+        sent_at: Sending timestamp
+    """
+
+    notification_id: str
+    user_id: str
+    status: str
+    sent_at: str
+
+
 class MobileOutputDetail(BaseModel):
     """
     Mobile-optimized output detail model.
@@ -909,6 +943,69 @@ async def update_notification_preferences(
     return NotificationPreferencesResponse(
         preferences=preferences,
         updated_at=datetime.utcnow().isoformat(),
+    )
+
+
+@router.post(
+    "/notifications/send",
+    response_model=SendNotificationResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        400: {"model": ErrorResponse, "description": "Invalid input"},
+    },
+)
+async def send_notification(
+    request: SendNotificationRequest,
+    current_user_id: str = Depends(get_current_user_id),
+) -> SendNotificationResponse:
+    """
+    Send a push notification for testing and manual sending.
+
+    Allows manual sending of push notifications to specific users for testing
+    purposes or urgent notifications. Requires authentication.
+
+    Args:
+        request: Send notification request with user_id and message
+        current_user_id: ID of the authenticated user
+
+    Returns:
+        SendNotificationResponse with notification details
+
+    Raises:
+        HTTPException: If not authenticated or invalid input
+
+    Example:
+        >>> POST /api/v1/mobile/notifications/send
+        >>> {
+        ...     "user_id": "test-user",
+        ...     "message": "Test notification",
+        ...     "title": "Test"
+        ... }
+    """
+    # TODO: Implement actual notification sending
+    # For now, return placeholder response
+    # In production, you would:
+    # 1. Validate that target user exists
+    # 2. Query user's registered device tokens from database
+    # 3. Send push notification via APNS (iOS) or FCM (Android)
+    # 4. Handle delivery failures and retry logic
+    # 5. Log notification event for audit trail
+
+    logger.info(
+        f"User {current_user_id} sending notification to {request.user_id}: "
+        f"{request.title or 'No title'} - {request.message[:50]}..."
+    )
+
+    # Generate a unique notification ID
+    import uuid
+    notification_id = f"notif-{uuid.uuid4().hex[:8]}"
+
+    return SendNotificationResponse(
+        notification_id=notification_id,
+        user_id=request.user_id,
+        status="sent",
+        sent_at=datetime.utcnow().isoformat(),
     )
 
 
