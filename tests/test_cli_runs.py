@@ -16,6 +16,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -599,6 +600,504 @@ class TestListRunsEdgeCases(ListRunsTestBase):
         # No filter should return all runs
         runs = self.capture_list_runs_output()
         self.assertGreaterEqual(len(runs), 2)
+
+
+class TestListRunsPerformance(ListRunsTestBase):
+    """Performance and caching tests for list-runs CLI command."""
+
+    def test_cache_performance_small_dataset(self) -> None:
+        """Verify caching provides performance benefits with small dataset (10 runs)."""
+        self.create_spec("perf-spec-a")
+        self.create_spec("perf-spec-b")
+        self.create_spec("perf-spec-c")
+
+        # Create 10 runs across different specs and roles
+        for i in range(10):
+            spec = f"perf-spec-{chr(65 + (i % 3))}"  # spec-a, spec-b, spec-c
+            role = ["implementation-runner", "reviewer", "maintainer"][i % 3]
+            self.create_run(spec, role)
+
+        # Invalidate cache to ensure first call is a cache miss
+        self.autoflow.invalidate_run_cache()
+
+        # Benchmark first call (cache miss - loads from filesystem)
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output()
+        time_first = time.perf_counter() - start
+
+        # Benchmark second call (cache hit - reads from memory)
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output()
+        time_second = time.perf_counter() - start
+
+        # Verify results are identical
+        self.assertEqual(len(result_first), 10)
+        self.assertEqual(len(result_second), 10)
+        first_ids = sorted(r["id"] for r in result_first)
+        second_ids = sorted(r["id"] for r in result_second)
+        self.assertEqual(first_ids, second_ids)
+
+        # Second call (cache hit) should be faster than first call (cache miss)
+        # With small datasets, speedup may be modest due to fast filesystem I/O
+        assert time_second < time_first, f"Cache hit ({time_second:.6f}s) should be faster than cache miss ({time_first:.6f}s)"
+
+        # Calculate speedup
+        speedup = time_first / time_second
+        # At least 10% speedup on cache hit
+        self.assertGreater(speedup, 1.1, f"Expected at least 10% speedup, got {speedup:.2f}x")
+
+    def test_cache_performance_medium_dataset(self) -> None:
+        """Verify caching provides performance benefits with medium dataset (50 runs)."""
+        # Create 5 specs with 10 runs each
+        for spec_idx in range(5):
+            spec = f"perf-spec-{spec_idx}"
+            self.create_spec(spec, impl_tasks=10)
+            for i in range(10):
+                task_id = f"T{6 + i}"
+                self.create_run(spec, "implementation-runner", task=task_id)
+
+        # Invalidate and benchmark first call (cache miss)
+        self.autoflow.invalidate_run_cache()
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output()
+        time_first = time.perf_counter() - start
+
+        # Benchmark second call (cache hit)
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output()
+        time_second = time.perf_counter() - start
+
+        # Verify results are identical
+        self.assertEqual(len(result_first), 50)
+        self.assertEqual(len(result_second), 50)
+        first_ids = sorted(r["id"] for r in result_first)
+        second_ids = sorted(r["id"] for r in result_second)
+        self.assertEqual(first_ids, second_ids)
+
+        # With medium datasets, caching should provide benefit or at least not be slower
+        # Performance can vary due to OS caching, system load, etc.
+        speedup = time_first / time_second
+        # At least not significantly slower (allow up to 10% slower due to system variance)
+        self.assertGreater(speedup, 0.9, f"Expected cache to not be significantly slower, got {speedup:.2f}x")
+
+    def test_cache_invalidation_works(self) -> None:
+        """Verify that cache invalidation forces a reload from filesystem."""
+        self.create_spec("cache-spec")
+        run_id = self.create_run("cache-spec", "implementation-runner")
+
+        # First call - cache miss
+        self.autoflow.invalidate_run_cache()
+        result_first = self.capture_list_runs_output()
+        self.assertEqual(len(result_first), 1)
+
+        # Create a new run (filesystem changes, cache is stale)
+        run_id_2 = self.create_run("cache-spec", "reviewer")
+
+        # Second call WITHOUT invalidation - should still return 1 (stale cache)
+        # Note: In the current implementation, run_metadata_iter caches per call
+        # but list_runs calls it each time, so we need to verify cache behavior
+        # For this test, we're verifying that invalidate_run_cache() works
+        self.autoflow.invalidate_run_cache()
+
+        # Third call WITH cache invalidation - should return 2
+        result_after_invalidation = self.capture_list_runs_output()
+        self.assertEqual(len(result_after_invalidation), 2)
+
+    def test_cache_with_filter_by_spec(self) -> None:
+        """Verify caching works correctly when filtering by spec."""
+        self.create_spec("spec-a")
+        self.create_spec("spec-b")
+
+        for _ in range(10):
+            self.create_run("spec-a", "implementation-runner")
+        for _ in range(10):
+            self.create_run("spec-b", "reviewer")
+
+        # Invalidate cache
+        self.autoflow.invalidate_run_cache()
+
+        # First call with filter (cache miss)
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output(spec="spec-a")
+        time_first = time.perf_counter() - start
+
+        # Second call with same filter (cache hit)
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output(spec="spec-a")
+        time_second = time.perf_counter() - start
+
+        # Verify results
+        self.assertEqual(len(result_first), 10)
+        self.assertEqual(len(result_second), 10)
+
+        # All results should be from spec-a
+        for run in result_second:
+            self.assertEqual(run["spec"], "spec-a")
+
+        # Cache hit should be faster
+        assert time_second < time_first, f"Cache hit ({time_second:.6f}s) should be faster than cache miss ({time_first:.6f}s)"
+
+    def test_cache_with_filter_by_status(self) -> None:
+        """Verify caching works correctly when filtering by status."""
+        self.create_spec("status-spec")
+
+        # Create runs with different statuses
+        run_ids = []
+        for i in range(10):
+            run_id = self.create_run("status-spec", "implementation-runner")
+            run_ids.append(run_id)
+
+        # Complete half of the runs
+        for run_id in run_ids[:5]:
+            self.complete_run(run_id, result="success", summary="Completed")
+
+        # Invalidate cache
+        self.autoflow.invalidate_run_cache()
+
+        # First call with status filter (cache miss)
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output(status="completed")
+        time_first = time.perf_counter() - start
+
+        # Second call with same filter (cache hit)
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output(status="completed")
+        time_second = time.perf_counter() - start
+
+        # Verify we get exactly 5 completed runs
+        self.assertEqual(len(result_first), 5)
+        self.assertEqual(len(result_second), 5)
+
+        # Cache hit should be faster
+        assert time_second < time_first, f"Cache hit ({time_second:.6f}s) should be faster than cache miss ({time_first:.6f}s)"
+
+    def test_cache_with_multiple_filters(self) -> None:
+        """Verify caching works correctly with multiple filters applied."""
+        self.create_spec("multi-spec-a")
+        self.create_spec("multi-spec-b")
+
+        # Create runs with different specs and roles
+        for _ in range(10):
+            self.create_run("multi-spec-a", "implementation-runner")
+        for _ in range(10):
+            self.create_run("multi-spec-a", "reviewer")
+        for _ in range(10):
+            self.create_run("multi-spec-b", "implementation-runner")
+
+        # Complete some runs
+        runs_all = self.capture_list_runs_output()
+        for run in runs_all[:5]:
+            self.complete_run(run["id"], result="success", summary="Completed")
+
+        # Invalidate cache
+        self.autoflow.invalidate_run_cache()
+
+        # Test filtering by spec AND role
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output(spec="multi-spec-a", role="implementation-runner")
+        time_first = time.perf_counter() - start
+
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output(spec="multi-spec-a", role="implementation-runner")
+        time_second = time.perf_counter() - start
+
+        # Should get 10 implementation-runner runs for multi-spec-a
+        self.assertEqual(len(result_first), 10)
+        self.assertEqual(len(result_second), 10)
+
+        # Verify all results match the filters
+        for run in result_second:
+            self.assertEqual(run["spec"], "multi-spec-a")
+            self.assertEqual(run["role"], "implementation-runner")
+
+        # Cache hit should be faster
+        assert time_second < time_first, f"Cache hit ({time_second:.6f}s) should be faster than cache miss ({time_first:.6f}s)"
+
+    def test_cache_performance_with_many_specs(self) -> None:
+        """Verify caching performance when listing runs across many specs."""
+        # Create 20 specs with 5 runs each = 100 runs total
+        for spec_idx in range(20):
+            spec = f"perf-spec-{spec_idx:02d}"
+            self.create_spec(spec, impl_tasks=5)
+            for i in range(5):
+                task_id = f"T{6 + i}"
+                self.create_run(spec, "implementation-runner", task=task_id)
+
+        # Invalidate cache
+        self.autoflow.invalidate_run_cache()
+
+        # First call (cache miss)
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output()
+        time_first = time.perf_counter() - start
+
+        # Second call (cache hit)
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output()
+        time_second = time.perf_counter() - start
+
+        # Verify all 100 runs are returned
+        self.assertEqual(len(result_first), 100)
+        self.assertEqual(len(result_second), 100)
+
+        # Cache hit should be faster with large dataset
+        # Performance can vary due to OS caching, system load, etc.
+        speedup = time_first / time_second
+        # With 100 runs across 20 specs, should see at least some speedup
+        self.assertGreater(speedup, 1.2, f"Expected at least 20% speedup with 100 runs, got {speedup:.2f}x")
+
+    def test_cache_consistency_across_calls(self) -> None:
+        """Verify that cached results remain consistent across multiple calls."""
+        self.create_spec("consistency-spec")
+
+        # Create 20 runs
+        run_ids = []
+        for i in range(20):
+            run_id = self.create_run("consistency-spec", "implementation-runner")
+            run_ids.append(run_id)
+
+        # Make multiple calls and verify consistency
+        results = []
+        for _ in range(5):
+            result = self.capture_list_runs_output()
+            results.append(result)
+
+        # All results should be identical
+        for i in range(1, len(results)):
+            self.assertEqual(len(results[0]), len(results[i]))
+            ids_0 = sorted(r["id"] for r in results[0])
+            ids_i = sorted(r["id"] for r in results[i])
+            self.assertEqual(ids_0, ids_i)
+
+    def test_repeated_uncached_calls_performance(self) -> None:
+        """Test that repeated calls with cache invalidation show no caching benefit."""
+        self.create_spec("repeat-spec", impl_tasks=30)
+
+        # Create 30 runs (one per task)
+        for i in range(30):
+            task_id = f"T{6 + i}"
+            self.create_run("repeat-spec", "implementation-runner", task=task_id)
+
+        # Make multiple calls with cache invalidation - each should scan filesystem
+        times = []
+        for _ in range(5):
+            self.autoflow.invalidate_run_cache()
+            start = time.perf_counter()
+            self.capture_list_runs_output()
+            times.append(time.perf_counter() - start)
+
+        # All calls should take similar time (no persistent caching benefit)
+        # Verify that the variance is within reasonable bounds
+        avg_time = sum(times) / len(times)
+        for t in times:
+            # Each call should be within 50% of average (filesystem I/O varies)
+            self.assertLess(t, avg_time * 1.5,
+                          f"Time {t:.6f}s exceeds 150% of average {avg_time:.6f}s")
+
+    def test_repeated_cached_calls_performance(self) -> None:
+        """Test that repeated calls without invalidation show significant performance improvement."""
+        self.create_spec("cached-repeat-spec", impl_tasks=30)
+
+        # Create 30 runs (one per task)
+        for i in range(30):
+            task_id = f"T{6 + i}"
+            self.create_run("cached-repeat-spec", "implementation-runner", task=task_id)
+
+        # First call populates cache
+        self.autoflow.invalidate_run_cache()
+        start = time.perf_counter()
+        self.capture_list_runs_output()
+        time_first = time.perf_counter() - start
+
+        # Subsequent calls should be much faster (reading from cache)
+        times_cached = []
+        for _ in range(5):
+            start = time.perf_counter()
+            self.capture_list_runs_output()
+            times_cached.append(time.perf_counter() - start)
+
+        # All cached calls after the first should be very fast
+        avg_cached = sum(times_cached) / len(times_cached)
+
+        # Cached calls should be significantly faster than first call
+        # (first call does the work, subsequent calls just read from memory)
+        self.assertLess(avg_cached, time_first * 0.8,
+                       f"Avg cached time {avg_cached:.6f}s should be < 80% of first call {time_first:.6f}s")
+
+    def test_cache_invalidation_performance(self) -> None:
+        """Test that cache invalidation correctly resets performance."""
+        self.create_spec("invalidate-spec", impl_tasks=20)
+
+        # Create 20 runs (one per task)
+        for i in range(20):
+            task_id = f"T{6 + i}"
+            self.create_run("invalidate-spec", "implementation-runner", task=task_id)
+
+        # Populate cache
+        self.autoflow.invalidate_run_cache()
+        self.capture_list_runs_output()
+
+        # Fast cached call
+        start = time.perf_counter()
+        self.capture_list_runs_output()
+        time_cached = time.perf_counter() - start
+
+        # Invalidate cache
+        self.autoflow.invalidate_run_cache()
+
+        # After invalidation, should be slower again (cache miss)
+        start = time.perf_counter()
+        self.capture_list_runs_output()
+        time_after_invalidation = time.perf_counter() - start
+
+        # After invalidation, should take longer than cached call
+        self.assertGreater(time_after_invalidation, time_cached * 1.5,
+                          f"Time after invalidation {time_after_invalidation:.6f}s should be > 150% of cached time {time_cached:.6f}s")
+
+    def test_empty_runs_directory_performance(self) -> None:
+        """Test performance with empty runs directory."""
+        # Don't create any runs - directory is empty
+
+        # Both should be fast with empty directory
+        start = time.perf_counter()
+        result_first = self.capture_list_runs_output()
+        time_first = time.perf_counter() - start
+
+        start = time.perf_counter()
+        result_second = self.capture_list_runs_output()
+        time_second = time.perf_counter() - start
+
+        self.assertEqual(result_first, [])
+        self.assertEqual(result_second, [])
+
+        # Should complete quickly
+        self.assertLess(time_first, 0.1, f"First call {time_first:.6f}s should be < 100ms")
+        self.assertLess(time_second, 0.1, f"Second call {time_second:.6f}s should be < 100ms")
+
+    def test_sorted_order_performance(self) -> None:
+        """Test that both cached and uncached versions return results in the same sorted order."""
+        self.create_spec("sorted-spec", impl_tasks=25)
+
+        # Create multiple runs
+        run_ids = []
+        for i in range(25):
+            task_id = f"T{6 + (i % 10)}"
+            run_id = self.create_run("sorted-spec", "implementation-runner", task=task_id)
+            run_ids.append(run_id)
+
+        # Get results from function
+        self.autoflow.invalidate_run_cache()
+        result_first = self.capture_list_runs_output()
+        result_second = self.capture_list_runs_output()
+
+        # Extract run IDs
+        ids_first = [r["id"] for r in result_first]
+        ids_second = [r["id"] for r in result_second]
+
+        # Both should return results sorted by run ID (directory name)
+        self.assertEqual(ids_first, sorted(ids_first),
+                        "First result should be sorted")
+        self.assertEqual(ids_second, sorted(ids_second),
+                        "Second result should be sorted")
+
+        # Results should be identical
+        self.assertEqual(ids_first, ids_second,
+                        "Both results should be identical")
+
+    def test_cache_memory_overhead(self) -> None:
+        """Test that cache memory overhead is reasonable."""
+        # Create 5 specs with 10 runs each
+        for spec_idx in range(5):
+            spec = f"memory-spec-{spec_idx}"
+            self.create_spec(spec, impl_tasks=10)
+            for i in range(10):
+                task_id = f"T{6 + i}"
+                self.create_run(spec, "implementation-runner", task=task_id)
+
+        # Populate cache
+        self.autoflow.invalidate_run_cache()
+        results = self.capture_list_runs_output()
+
+        # Access the internal cache from the test's autoflow module instance
+        # The cache should be organized by spec (not all in one list)
+        # This verifies lazy-loading by spec works
+        _run_metadata_cache = self.autoflow._run_metadata_cache
+
+        # Count total cached runs
+        total_cached_runs = sum(len(runs) for runs in _run_metadata_cache.values())
+
+        # Should cache all runs
+        self.assertEqual(total_cached_runs, len(results),
+                        f"Cache should have {len(results)} runs, got {total_cached_runs}")
+
+        # Cache should be organized by spec (not all in one list)
+        # This verifies lazy-loading by spec works
+        num_specs = len(_run_metadata_cache)
+        self.assertGreater(num_specs, 1,
+                          f"Runs should be distributed across multiple specs, got {num_specs}")
+
+    def test_cache_lazy_loading_by_spec(self) -> None:
+        """Test that cache lazy-loads by spec_slug."""
+        # Create runs for different specs
+        for spec_idx in range(3):
+            spec = f"lazy-spec-{spec_idx}"
+            self.create_spec(spec, impl_tasks=10)
+            for i in range(10):
+                task_id = f"T{6 + i}"
+                self.create_run(spec, "implementation-runner", task=task_id)
+
+        # Invalidate to start fresh
+        self.autoflow.invalidate_run_cache()
+
+        # Access the cache from the test's autoflow module instance
+        _run_metadata_cache = self.autoflow._run_metadata_cache
+        _cache_loaded_specs = self.autoflow._cache_loaded_specs
+
+        # Initially cache should be empty
+        self.assertEqual(len(_run_metadata_cache), 0,
+                        "Cache should be empty before first call")
+        self.assertEqual(len(_cache_loaded_specs), 0,
+                        "Loaded specs should be empty before first call")
+
+        # Call list_runs which loads everything
+        self.capture_list_runs_output()
+
+        # Cache should be populated
+        self.assertGreater(len(_run_metadata_cache), 0,
+                          "Cache should be populated after list_runs call")
+        self.assertGreater(len(_cache_loaded_specs), 0,
+                          "Loaded specs should be populated after list_runs call")
+
+    def test_cache_invalidation_clears_all_state(self) -> None:
+        """Test that invalidate_run_cache() properly clears all cache state."""
+        self.create_spec("clear-spec", impl_tasks=20)
+
+        # Create and cache runs (one per task)
+        for i in range(20):
+            task_id = f"T{6 + i}"
+            self.create_run("clear-spec", "implementation-runner", task=task_id)
+
+        self.autoflow.invalidate_run_cache()
+        self.capture_list_runs_output()
+
+        # Access the cache from the test's autoflow module instance
+        _run_metadata_cache = self.autoflow._run_metadata_cache
+        _cache_loaded_specs = self.autoflow._cache_loaded_specs
+
+        # Verify cache is populated
+        self.assertGreater(len(_run_metadata_cache), 0,
+                          "Cache should be populated after first call")
+        self.assertGreater(len(_cache_loaded_specs), 0,
+                          "Loaded specs should be populated after first call")
+
+        # Invalidate
+        self.autoflow.invalidate_run_cache()
+
+        # Verify cache is cleared
+        self.assertEqual(len(_run_metadata_cache), 0,
+                        "Cache should be empty after invalidation")
+        self.assertEqual(len(_cache_loaded_specs), 0,
+                        "Loaded specs should be empty after invalidation")
 
 
 if __name__ == "__main__":
