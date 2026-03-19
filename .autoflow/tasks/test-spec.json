@@ -1,0 +1,79 @@
+{
+  "spec_slug": "test-spec",
+  "updated_at": "20260318T161512Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Define workflow contract and repository structure",
+      "status": "in_progress",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "Spec and control-plane directories exist.",
+        "Workflow roles and artifacts are defined."
+      ],
+      "notes": [
+        {
+          "at": "20260318T161512Z",
+          "note": "run pending for role spec-writer"
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Build task graph and lifecycle management",
+      "status": "todo",
+      "depends_on": [
+        "T1"
+      ],
+      "owner_role": "task-graph-manager",
+      "acceptance_criteria": [
+        "Tasks have explicit lifecycle states.",
+        "The system can identify the next ready task."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T3",
+      "title": "Implement bounded coding execution harness",
+      "status": "todo",
+      "depends_on": [
+        "T2"
+      ],
+      "owner_role": "implementation-runner",
+      "acceptance_criteria": [
+        "A run can target one task and one backend agent.",
+        "Runs store prompts, metadata, and summaries."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T4",
+      "title": "Add review gate and handoff artifacts",
+      "status": "todo",
+      "depends_on": [
+        "T3"
+      ],
+      "owner_role": "reviewer",
+      "acceptance_criteria": [
+        "Review is distinct from implementation.",
+        "Review outcome can move tasks to done or needs_changes."
+      ],
+      "notes": []
+    },
+    {
+      "id": "T5",
+      "title": "Add maintenance and git workflow hooks",
+      "status": "todo",
+      "depends_on": [
+        "T4"
+      ],
+      "owner_role": "maintainer",
+      "acceptance_criteria": [
+        "The system can prepare isolated worktrees.",
+        "Low-risk maintenance can be scheduled and audited."
+      ],
+      "notes": []
+    }
+  ]
+}

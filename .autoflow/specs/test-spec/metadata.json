@@ -1,0 +1,13 @@
+{
+  "slug": "test-spec",
+  "title": "Test Spec",
+  "summary": "Test spec for list-runs",
+  "created_at": "20260318T161508Z",
+  "updated_at": "20260318T161508Z",
+  "status": "draft",
+  "worktree": {
+    "path": "",
+    "branch": "codex/test-spec",
+    "base_branch": "main"
+  }
+}

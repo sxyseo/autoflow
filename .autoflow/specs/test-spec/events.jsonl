@@ -1,0 +1,2 @@
+{"at": "20260318T161508Z", "type": "spec.created", "payload": {"title": "Test Spec"}}
+{"at": "20260318T161512Z", "type": "run.created", "payload": {"run": "20260318T161512Z-spec-writer-test-spec-t1", "task": "T1", "role": "spec-writer"}}
