@@ -55,6 +55,10 @@ from autoflow.prediction.task_history_collector import (
     TaskOutcome,
     TaskPrioritySample,
 )
+from autoflow.prediction.task_priority_model import (
+    PriorityPredictionResult,
+    TaskPriorityModel,
+)
 
 __all__ = [
     # Feature extraction
@@ -77,6 +81,9 @@ __all__ = [
     "TaskHistoryCollector",
     "TaskOutcome",
     "TaskPrioritySample",
+    # Task priority prediction
+    "TaskPriorityModel",
+    "PriorityPredictionResult",
     # Prediction
     "QualityPredictor",
     # Feedback
