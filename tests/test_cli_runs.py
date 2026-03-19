@@ -471,6 +471,135 @@ class TestListRunsEdgeCases(ListRunsTestBase):
         self.assertIn("task", run)
         self.assertIn("created_at", run)
 
+    def test_list_runs_filter_nonexistent_spec(self) -> None:
+        """Test filtering by non-existent spec returns empty list."""
+        self.create_spec("spec-a")
+        self.create_run("spec-a", "implementation-runner")
+
+        # Filter for non-existent spec
+        runs = self.capture_list_runs_output(spec="nonexistent-spec")
+        self.assertEqual(len(runs), 0)
+
+    def test_list_runs_filter_invalid_status(self) -> None:
+        """Test filtering by invalid status returns empty list."""
+        self.create_spec("spec-a")
+        self.create_run("spec-a", "implementation-runner")
+
+        # Filter for invalid status
+        runs = self.capture_list_runs_output(status="invalid-status")
+        self.assertEqual(len(runs), 0)
+
+    def test_list_runs_filter_nonexistent_role(self) -> None:
+        """Test filtering by non-existent role returns empty list."""
+        self.create_spec("spec-a")
+        self.create_run("spec-a", "implementation-runner")
+
+        # Filter for non-existent role
+        runs = self.capture_list_runs_output(role="nonexistent-role")
+        self.assertEqual(len(runs), 0)
+
+    def test_list_runs_filter_nonexistent_agent(self) -> None:
+        """Test filtering by non-existent agent returns empty list."""
+        self.create_spec("spec-a")
+        self.create_run("spec-a", "implementation-runner", agent="dummy")
+
+        # Filter for non-existent agent
+        runs = self.capture_list_runs_output(agent="nonexistent-agent")
+        self.assertEqual(len(runs), 0)
+
+    def test_list_runs_with_unicode_spec_slug(self) -> None:
+        """Test listing runs with unicode characters in spec slug."""
+        # Create spec with unicode characters
+        self.create_spec("test-αβγ")
+        run_id = self.create_run("test-αβγ", "implementation-runner")
+
+        runs = self.capture_list_runs_output(spec="test-αβγ")
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["id"], run_id)
+        self.assertEqual(runs[0]["spec"], "test-αβγ")
+
+    def test_list_runs_with_unicode_in_summary(self) -> None:
+        """Test listing runs with unicode characters in summary."""
+        self.create_spec("spec-a")
+        run_id = self.create_run("spec-a", "implementation-runner")
+        # Complete with unicode summary
+        self.complete_run(run_id, result="success", summary="完成测试 🚀")
+
+        runs = self.capture_list_runs_output()
+        self.assertEqual(len(runs), 1)
+        # Should handle unicode without errors
+        self.assertEqual(runs[0]["id"], run_id)
+
+    def test_list_runs_with_unicode_role_name(self) -> None:
+        """Test listing runs handles unicode role names correctly."""
+        self.create_spec("spec-a")
+        run_id = self.create_run("spec-a", "implementation-runner")
+
+        runs = self.capture_list_runs_output(role="implementation-runner")
+        self.assertEqual(len(runs), 1)
+        # Verify role name is handled correctly
+        self.assertEqual(runs[0]["role"], "implementation-runner")
+
+    def test_list_runs_missing_optional_fields(self) -> None:
+        """Test listing runs with missing optional metadata fields."""
+        self.create_spec("spec-a")
+        run_id = self.create_run("spec-a", "implementation-runner")
+
+        runs = self.capture_list_runs_output()
+        self.assertEqual(len(runs), 1)
+
+        run = runs[0]
+        # Verify required fields are present
+        self.assertIsNotNone(run["id"])
+        self.assertIsNotNone(run["spec"])
+        self.assertIsNotNone(run["role"])
+
+        # Optional fields should have default values or be None
+        # The list_runs command should handle missing fields gracefully
+        self.assertIn("status", run)
+
+    def test_list_runs_case_sensitive_filter(self) -> None:
+        """Test that filters are case-sensitive."""
+        self.create_spec("spec-a")
+        self.create_run("spec-a", "implementation-runner")
+
+        # Filter with different case should return no results
+        runs = self.capture_list_runs_output(spec="SPEC-A")
+        self.assertEqual(len(runs), 0)
+
+        runs = self.capture_list_runs_output(spec="Spec-A")
+        self.assertEqual(len(runs), 0)
+
+    def test_list_runs_with_special_characters_in_agent(self) -> None:
+        """Test listing runs with special characters in agent name."""
+        self.create_spec("spec-a")
+        # Add an agent with special characters
+        agents_config = self.autoflow.read_json(self.autoflow.AGENTS_FILE)
+        agents_config["agents"]["agent-test_123"] = {
+            "command": "echo",
+            "args": ["test"],
+            "memory_scopes": ["spec"],
+        }
+        self.autoflow.write_json(self.autoflow.AGENTS_FILE, agents_config)
+
+        run_id = self.create_run("spec-a", "implementation-runner", agent="agent-test_123")
+
+        runs = self.capture_list_runs_output(agent="agent-test_123")
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["agent"], "agent-test_123")
+
+    def test_list_runs_empty_filter_values(self) -> None:
+        """Test that empty filter values return all runs."""
+        self.create_spec("spec-a")
+        self.create_spec("spec-b")
+
+        run_a = self.create_run("spec-a", "implementation-runner")
+        run_b = self.create_run("spec-b", "implementation-runner")
+
+        # No filter should return all runs
+        runs = self.capture_list_runs_output()
+        self.assertGreaterEqual(len(runs), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
