@@ -49,7 +49,9 @@ def configure_autoflow_module(module: ModuleType, root: Path) -> None:
     module.BMAD_DIR = root / "templates" / "bmad"
 
 
-class ListRunsTests(unittest.TestCase):
+class ListRunsTestBase(unittest.TestCase):
+    """Base class with common setup and helper methods for list-runs tests."""
+
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parents[1]
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -238,6 +240,10 @@ class ListRunsTests(unittest.TestCase):
             self.autoflow.list_runs(args)
         return json.loads(buf.getvalue())
 
+
+class TestListRunsBasic(ListRunsTestBase):
+    """Basic functionality tests for list-runs CLI command."""
+
     def test_list_runs_empty(self) -> None:
         """Test listing runs when no runs exist."""
         runs = self.capture_list_runs_output()
@@ -270,6 +276,10 @@ class ListRunsTests(unittest.TestCase):
         # Verify all runs are present
         run_ids = {r["id"] for r in runs}
         self.assertEqual(run_ids, {run_a1, run_a2, run_b1})
+
+
+class TestListRunsFilters(ListRunsTestBase):
+    """Filter tests for list-runs CLI command."""
 
     def test_list_runs_filter_by_spec(self) -> None:
         """Test filtering runs by spec."""
@@ -391,6 +401,10 @@ class ListRunsTests(unittest.TestCase):
         # Filter for non-existent role
         runs = self.capture_list_runs_output(role="nonexistent-role")
         self.assertEqual(len(runs), 0)
+
+
+class TestListRunsEdgeCases(ListRunsTestBase):
+    """Edge case tests for list-runs CLI command."""
 
     def test_list_runs_all_statuses(self) -> None:
         """Test listing runs with various statuses."""
