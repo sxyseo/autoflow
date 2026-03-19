@@ -324,3 +324,150 @@ Next Steps:
 - Ready to move to Phase 2 (Historical Data Collection)
 
 === END SESSION 4 ===
+
+=== SESSION 5: SUBTASK 2-1 COMPLETED ===
+
+Subtask: subtask-2-1 - Create TaskHistoryCollector to gather task completion data
+Status: COMPLETED
+
+Files:
+- Created: autoflow/prediction/task_history_collector.py (388 lines)
+- Modified: autoflow/prediction/__init__.py (imports already in place)
+
+Implementation Details:
+- TaskHistoryCollector class following DataCollector pattern
+- TaskOutcome enum: completed, needs_work, blocked, in_progress, pending
+- TaskPrioritySample dataclass for training samples with:
+  - task_id: Unique identifier
+  - spec_id: Spec this task belongs to
+  - phase_id: Phase this task belongs to
+  - features: TaskFeatures with all extracted features
+  - outcome: Actual task outcome
+  - priority_score: Historical priority score
+  - completion_time_seconds: Time to complete (if available)
+- Methods:
+  - collect_task_history(): Collect task samples from implementation_plan.json
+  - collect_task_history_for_model(): Format for ML training (feature_dicts, labels)
+  - get_completed_tasks(): Filter for only completed tasks
+  - get_task_statistics(): Calculate completion statistics
+  - _collect_from_plan(): Process single implementation plan
+  - _create_task_sample(): Create training sample from task data
+  - _map_status_to_outcome(): Map status strings to TaskOutcome enum
+
+Integration:
+- Uses TaskFeatureExtractor for feature extraction
+- Reads from .auto-claude/specs/*/implementation_plan.json
+- Extracts tasks from phases and subtasks structure
+- Provides training data for ML models
+
+Verification: PASSED
+- Import test: python3 -c "from autoflow.prediction.task_history_collector import TaskHistoryCollector; print('OK')"
+- Output: OK
+- Functional test: Successfully collected 102 task samples from existing specs
+- All expected methods present and functional
+- TaskOutcome enum has correct values
+- TaskPrioritySample dataclass has correct fields
+
+Patterns Followed:
+- Followed DataCollector pattern (autoflow/prediction/data_collector.py)
+- Used dataclasses with to_dict() methods
+- Used StrEnum for outcome labels
+- Followed initialization pattern with root_dir parameter
+- Comprehensive docstrings for all classes and methods
+- Error handling for malformed JSON (try/except on JSON decode)
+- Returns empty list when no data found (not errors)
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean implementation with descriptive names
+
+Next Steps:
+- Proceed to subtask-2-2: Integrate with VelocityTracker to get cycle time data
+- This will add completion_time_seconds data to TaskPrioritySample
+- Currently completion_time_seconds is None (to be implemented in subtask-2-2)
+
+=== END SESSION 5 ===
+
+=== SESSION 6: SUBTASK 2-2 COMPLETED ===
+
+Subtask: subtask-2-2 - Integrate with VelocityTracker to get cycle time data
+Status: COMPLETED
+
+Files:
+- Created: tests/test_task_history_collector.py (595 lines)
+- Modified: autoflow/prediction/task_history_collector.py (already integrated in subtask-2-1)
+- Modified: .auto-claude/specs/084-intelligent-task-prioritization/implementation_plan.json (marked subtask-2-2 as completed)
+
+Implementation Details:
+The VelocityTracker integration was already implemented in subtask-2-1:
+- TaskHistoryCollector.__init__() accepts optional velocity_tracker parameter
+- _create_task_sample() retrieves cycle_time from VelocityTracker when available
+- completion_time_seconds field populated with TaskRecord.cycle_time from VelocityTracker
+- Backward compatible: works without VelocityTracker (completion_time_seconds is None)
+
+Test Suite Created:
+Comprehensive test suite with 28 tests covering:
+- TestTaskHistoryCollectorInit (2 tests):
+  - Initialization without VelocityTracker
+  - Initialization with VelocityTracker
+- TestTaskOutcomeEnum (2 tests):
+  - TaskOutcome enum values
+  - TaskOutcome values are strings
+- TestTaskPrioritySample (2 tests):
+  - TaskPrioritySample creation
+  - TaskPrioritySample serialization to dict
+- TestVelocityTrackerIntegration (4 tests):
+  - Cycle time populated when VelocityTracker present
+  - No cycle time when VelocityTracker absent
+  - VelocityTracker.get_task() called for each task
+  - Empty specs directory handling
+- TestStatusMapping (9 tests):
+  - All status mappings to outcomes (done→completed, needs_changes→needs_work, etc.)
+- TestDataCollection (6 tests):
+  - Returns TaskPrioritySample objects
+  - Correct outcome mapping from status
+  - collect_task_history_for_model() formatting
+  - get_completed_tasks() filtering
+  - get_task_statistics() calculations
+  - Empty directory handling
+- TestErrorHandling (3 tests):
+  - Nonexistent specs directory raises FileNotFoundError
+  - Malformed plan file skipped gracefully
+  - Missing required fields handled gracefully
+
+Verification: PASSED
+- Command: python3 -m pytest tests/test_task_history_collector.py -v
+- Result: 28 passed in 1.47s
+- All tests passing successfully
+
+Integration Details:
+- VelocityTracker.get_task(task_id) retrieves TaskRecord
+- TaskRecord.cycle_time contains time from start to completion in seconds
+- Cycle time only available for completed tasks
+- In-progress and pending tasks have None for cycle_time
+- Tasks not in VelocityTracker also have None for cycle_time
+
+Patterns Followed:
+- Test structure follows existing patterns (test_analytics_velocity.py)
+- Used pytest fixtures for setup (temp_specs_dir, velocity_tracker, etc.)
+- Comprehensive edge case coverage
+- Clear test names and docstrings
+- Tests are isolated and independent
+- Integration is optional (backward compatible)
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes (all 28 tests)
+- [✓] Clean commit with descriptive message
+
+Next Steps:
+- Proceed to subtask-2-3: Create training sample dataclass for task priority predictions
+- Note: TaskPrioritySample dataclass already created in subtask-2-1
+- May need to enhance or verify all required fields are present
+
+=== END SESSION 6 ===

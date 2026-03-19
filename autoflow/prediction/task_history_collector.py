@@ -18,12 +18,15 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from autoflow.prediction.task_feature_extractor import (
     TaskFeatureExtractor,
     TaskFeatures,
 )
+
+if TYPE_CHECKING:
+    from autoflow.analytics.velocity import VelocityTracker
 
 
 class TaskOutcome(StrEnum):
@@ -92,15 +95,21 @@ class TaskHistoryCollector:
     4. Returning training data as feature-label pairs
     """
 
-    def __init__(self, root_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        root_dir: Path | None = None,
+        velocity_tracker: VelocityTracker | None = None,
+    ) -> None:
         """
         Initialize the task history collector.
 
         Args:
             root_dir: Root directory of the project. Defaults to current directory.
+            velocity_tracker: Optional VelocityTracker instance for cycle time data.
         """
         self.root_dir = root_dir or Path.cwd()
         self.extractor = TaskFeatureExtractor(root_dir=self.root_dir)
+        self.velocity_tracker = velocity_tracker
 
     def collect_task_history(
         self,
@@ -247,9 +256,12 @@ class TaskHistoryCollector:
         # Get priority score from features (if calculated)
         priority_score = features.priority_score if features else None
 
-        # Completion time is not currently available in implementation_plan.json
-        # This will be added in a future subtask when integrating with VelocityTracker
+        # Get cycle time from VelocityTracker if available
         completion_time = None
+        if self.velocity_tracker:
+            task_record = self.velocity_tracker.get_task(task_id)
+            if task_record and task_record.cycle_time is not None:
+                completion_time = task_record.cycle_time
 
         return TaskPrioritySample(
             task_id=task_id,
