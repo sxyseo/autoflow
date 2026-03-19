@@ -471,3 +471,54 @@ Next Steps:
 - May need to enhance or verify all required fields are present
 
 === END SESSION 6 ===
+
+=== SESSION 7: SUBTASK 2-3 COMPLETED ===
+
+Subtask: subtask-2-3 - Create training sample dataclass for task priority predictions
+Status: COMPLETED
+
+Files:
+- Modified: autoflow/prediction/task_history_collector.py (TaskPrioritySample already exists)
+- Modified: .auto-claude/specs/084-intelligent-task-prioritization/implementation_plan.json (marked subtask-2-3 as completed)
+
+Implementation Details:
+The TaskPrioritySample dataclass was already fully implemented in subtask-2-1 (lines 51-84):
+- @dataclass decorator with comprehensive docstring
+- Fields:
+  - task_id: Unique identifier for the task
+  - spec_id: Spec this task belongs to
+  - phase_id: Phase this task belongs to
+  - features: TaskFeatures with all extracted task features
+  - outcome: Actual task completion outcome
+  - priority_score: Historical priority score (if available)
+  - completion_time_seconds: Time taken to complete task (if available)
+- to_dict() method for ML model consumption
+- Follows the TrainingSample pattern from data_collector.py
+
+Verification: PASSED
+- Command: python3 -c "from autoflow.prediction.task_history_collector import TaskPrioritySample; print('OK')"
+- Output: OK
+- Dataclass has all required fields with proper types
+- to_dict() method correctly serializes data for ML consumption
+
+Patterns Followed:
+- Dataclass pattern with to_dict() method (like TrainingSample)
+- Comprehensive docstring with all attributes documented
+- Optional fields use None as default (priority_score, completion_time_seconds)
+- Proper type hints (str, TaskFeatures, TaskOutcome, float | None)
+- Uses .value for enum serialization in to_dict()
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean commit with descriptive message
+
+Next Steps:
+- Proceed to subtask-3-1: Create TaskPriorityModel class with train/predict methods
+- Phase 2 (Historical Data Collection) is now complete\!
+- Ready to move to Phase 3 (Priority Prediction Model)
+- All training data infrastructure is in place (TaskFeatureExtractor, TaskHistoryCollector, TaskPrioritySample)
+
+=== END SESSION 7 ===

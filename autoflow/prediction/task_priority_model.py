@@ -28,6 +28,45 @@ from autoflow.prediction.task_history_collector import TaskOutcome
 
 
 @dataclass
+class ScoredTask:
+    """
+    A task with its priority score and ranking information.
+
+    Attributes:
+        task_id: Unique identifier for the task
+        priority_score: Predicted priority score (higher = more urgent)
+        rank: Position in ranked list (1 = highest priority)
+        outcome: Predicted task outcome
+        confidence: Confidence score for the prediction
+        rationale: Human-readable explanation
+    """
+
+    task_id: str
+    priority_score: float
+    rank: int
+    outcome: TaskOutcome | str = ""
+    confidence: float = 0.0
+    rationale: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        # Handle both TaskOutcome enum and string values
+        outcome_value = (
+            self.outcome.value
+            if isinstance(self.outcome, TaskOutcome)
+            else self.outcome
+        )
+        return {
+            "task_id": self.task_id,
+            "priority_score": self.priority_score,
+            "rank": self.rank,
+            "outcome": outcome_value,
+            "confidence": self.confidence,
+            "rationale": self.rationale,
+        }
+
+
+@dataclass
 class PriorityPredictionResult:
     """
     Result of a task priority prediction.
@@ -237,6 +276,90 @@ class TaskPriorityModel:
             results.append(result)
 
         return results
+
+    def score_tasks(
+        self,
+        tasks: list[dict[str, Any]],
+        task_id_key: str = "task_id",
+    ) -> list[ScoredTask]:
+        """
+        Score and rank multiple tasks by priority.
+
+        This method predicts priority scores for each task and ranks them
+        from highest to lowest priority. Higher scores indicate more urgent tasks.
+
+        Args:
+            tasks: List of task dictionaries containing features and task IDs.
+                   Each dictionary should have a task_id field (or specified key)
+                   and feature keys used during model training.
+            task_id_key: Key name in task dictionary that contains the task ID.
+                        Defaults to "task_id".
+
+        Returns:
+            List of ScoredTask objects sorted by priority (rank 1 = highest priority).
+
+        Raises:
+            ValueError: If model is not trained or if tasks are missing task IDs
+
+        Example:
+            >>> model = TaskPriorityModel()
+            >>> model.train(features, outcomes, priority_scores)
+            >>> tasks = [
+            ...     {"task_id": "T1", "description_length": 100, "num_dependencies": 0},
+            ...     {"task_id": "T2", "description_length": 500, "num_dependencies": 3},
+            ... ]
+            >>> scored_tasks = model.score_tasks(tasks)
+            >>> for task in scored_tasks:
+            ...     print(f"{task.task_id}: rank={task.rank}, score={task.priority_score:.2f}")
+        """
+        if not self.is_trained:
+            raise ValueError("Model must be trained before scoring tasks")
+
+        if not tasks:
+            return []
+
+        # Validate tasks have task IDs
+        scored_results = []
+        for task in tasks:
+            if task_id_key not in task:
+                raise ValueError(
+                    f"Task missing task ID key '{task_id_key}': {task}"
+                )
+
+            # Extract features (exclude task_id from features)
+            features = {k: v for k, v in task.items() if k != task_id_key}
+
+            # Get prediction for this task
+            prediction = self.predict(features)
+
+            scored_results.append(
+                {
+                    "task_id": task[task_id_key],
+                    "priority_score": prediction.priority_score,
+                    "outcome": prediction.outcome,
+                    "confidence": prediction.confidence,
+                    "rationale": prediction.rationale,
+                }
+            )
+
+        # Sort by priority score (descending - higher score = higher priority)
+        scored_results.sort(key=lambda x: x["priority_score"], reverse=True)
+
+        # Assign ranks and create ScoredTask objects
+        ranked_tasks = []
+        for rank, result in enumerate(scored_results, start=1):
+            ranked_tasks.append(
+                ScoredTask(
+                    task_id=result["task_id"],
+                    priority_score=result["priority_score"],
+                    rank=rank,
+                    outcome=result["outcome"],
+                    confidence=result["confidence"],
+                    rationale=result["rationale"],
+                )
+            )
+
+        return ranked_tasks
 
     def _build_feature_matrix(self, features: list[dict[str, Any]]) -> np.ndarray:
         """

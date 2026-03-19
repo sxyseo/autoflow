@@ -2,7 +2,7 @@
   "feature": "Intelligent Task Prioritization",
   "description": "# Intelligent Task Prioritization\n\nUse ML to analyze task patterns and suggest optimal task ordering based on dependencies, estimated complexity, and historical completion data. Help users focus on high-impact tasks first.\n\n## Rationale\nEnhances the planning phase by providing data-driven task prioritization. Addresses the complexity of managing multi-task workflows. Creates a smarter orchestration layer that learns from usage patterns.\n\n## User Stories\n- As a developer with a complex backlog of tasks, I want intelligent suggestions on which tasks to tackle first so that I can maximize productivity\n\n## Acceptance Criteria\n- [ ] System suggests optimal task ordering based on dependencies and complexity\n- [ ] Priority suggestions improve based on historical completion data\n- [ ] Users can accept, reject, or modify suggested priorities\n- [ ] Explanation provided for why certain tasks are prioritized\n",
   "created_at": "2026-03-16T00:03:08.299Z",
-  "updated_at": "2026-03-19T00:05:21.689Z",
+  "updated_at": "2026-03-19T00:09:00.897Z",
   "status": "in_progress",
   "workflow_type": "feature",
   "workflow_rationale": "This is a new feature that adds ML-based task prioritization capabilities to the existing Autoflow system. It builds on the existing prediction infrastructure and task management system without requiring major refactoring.",
@@ -167,7 +167,7 @@
             "command": "python -c \"from autoflow.prediction.task_priority_model import TaskPriorityModel; print('OK')\"",
             "expected": "OK"
           },
-          "status": "pending"
+          "status": "completed"
         },
         {
           "id": "subtask-3-2",
