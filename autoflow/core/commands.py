@@ -12,6 +12,7 @@ Functions:
 - sync_agents: Sync discovered agents to agents.json
 - taskmaster_import: Import tasks from Taskmaster format
 - taskmaster_export: Export tasks to Taskmaster format
+- validate_slug_safe: Validate that a slug does not contain path traversal patterns
 """
 
 from __future__ import annotations
@@ -59,6 +60,8 @@ VALID_TASK_STATUSES = {
 
 def _spec_files(slug: str) -> dict[str, Path]:
     """Get file paths for a spec."""
+    if not validate_slug_safe(slug):
+        raise SystemExit("invalid spec slug")
     directory = SPECS_DIR / slug
     return {
         "dir": directory,
@@ -83,6 +86,8 @@ def _read_json_or_default(path: Path, default: Any) -> Any:
 
 def _task_file(spec_slug: str) -> Path:
     """Get path to task file for a spec."""
+    if not validate_slug_safe(spec_slug):
+        raise SystemExit("invalid spec slug")
     return TASKS_DIR / f"{spec_slug}.json"
 
 
@@ -740,6 +745,54 @@ def taskmaster_import(spec_slug: str, input: str) -> dict[str, Any]:
     return {"spec": spec_slug, "task_count": len(normalized)}
 
 
+def validate_slug_safe(slug: str) -> bool:
+    """
+    Validate that a slug does not contain path traversal patterns.
+
+    Returns True if the slug is safe, False if it contains dangerous patterns
+    that could lead to path traversal attacks.
+
+    Checks for:
+    - '..' sequences (parent directory)
+    - './' sequences (current directory)
+    - Absolute paths starting with '/'
+    - Backslash separators (Windows paths)
+    - Null bytes
+    - Drive letters (Windows absolute paths like C:)
+
+    Args:
+        slug: The slug string to validate
+
+    Returns:
+        bool: True if safe, False if dangerous
+    """
+    # Check for null bytes
+    if "\0" in slug:
+        return False
+
+    # Check for parent directory patterns
+    if ".." in slug:
+        return False
+
+    # Check for current directory patterns
+    if "./" in slug:
+        return False
+
+    # Check for absolute paths
+    if slug.startswith("/"):
+        return False
+
+    # Check for Windows path separators
+    if "\\" in slug:
+        return False
+
+    # Check for drive letters (Windows absolute paths like C:)
+    if len(slug) >= 2 and slug[1] == ":":
+        return False
+
+    return True
+
+
 __all__ = [
     "get_workflow_state",
     "get_task_history",
@@ -747,4 +800,5 @@ __all__ = [
     "get_strategy_summary",
     "taskmaster_import",
     "taskmaster_export",
+    "validate_slug_safe",
 ]
