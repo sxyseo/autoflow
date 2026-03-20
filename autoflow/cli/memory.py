@@ -10,6 +10,7 @@ Usage:
     autoflow memory set <key> <value>
     autoflow memory add <key> <value>
     autoflow memory delete <key>
+    autoflow memory search <query>
 """
 
 from __future__ import annotations
@@ -214,3 +215,52 @@ def memory_delete(ctx: click.Context, key: str) -> None:
     else:
         click.echo(f"Error: Memory '{key}' not found.", err=True)
         ctx.exit(1)
+
+
+@memory.command("search")
+@click.argument("query", type=str)
+@click.option(
+    "--category",
+    "-c",
+    type=str,
+    default=None,
+    help="Filter by category.",
+)
+@click.pass_context
+def memory_search(ctx: click.Context, query: str, category: str | None) -> None:
+    """
+    Search memory entries.
+
+    Searches through memory keys and values for entries matching the query,
+    optionally filtered by category.
+
+    \b
+    Examples:
+        autoflow memory search project
+        autoflow memory search "feature" --category git
+        autoflow memory search status -c workflow
+    """
+    config: Config | None = ctx.obj.get("config")
+
+    if config is None:
+        click.echo("Error: Configuration not loaded.", err=True)
+        ctx.exit(1)
+
+    state_manager = _get_state_manager(config)
+    memories = state_manager.search_memory(query, category=category)
+
+    if ctx.obj.get("output_json"):
+        _print_json({"memories": memories, "count": len(memories), "query": query})
+        return
+
+    click.echo(f"Search Results: '{query}'")
+    click.echo("=" * 60)
+
+    if not memories:
+        click.echo("No matching memory entries found.")
+        return
+
+    for mem in memories:
+        click.echo(f"\n[{mem.get('key', 'unknown')}]")
+        click.echo(f"  Category: {mem.get('category', 'N/A')}")
+        click.echo(f"  Created: {mem.get('created_at', 'N/A')}")
