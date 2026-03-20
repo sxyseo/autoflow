@@ -50,6 +50,7 @@ from typing_extensions import TypedDict
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
+ARCHIVE_DIR = STATE_DIR / "specs" / "archive"
 TASKS_DIR = STATE_DIR / "tasks"
 RUNS_DIR = STATE_DIR / "runs"
 LOGS_DIR = STATE_DIR / "logs"
@@ -455,6 +456,7 @@ def ensure_state() -> None:
     Creates the following directories if they don't exist:
     - State directory (.autoflow)
     - Specs directory
+    - Archive directory
     - Tasks directory
     - Runs directory
     - Logs directory
@@ -462,7 +464,7 @@ def ensure_state() -> None:
     - Memory directory
     - Strategy memory directory
     """
-    for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
+    for path in [STATE_DIR, SPECS_DIR, ARCHIVE_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 
@@ -4700,9 +4702,90 @@ def remove_worktree(args: argparse.Namespace) -> None:
     print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
 
 
+def archive_spec(args: argparse.Namespace) -> None:
+    """
+    Archive a completed spec by moving it to the archive directory.
+
+    Validates that all tasks in the spec are completed (status: "done"),
+    removes any associated worktree, moves the spec directory to the archive,
+    and creates an archive metadata file.
+
+    Args:
+        args: Namespace with attributes:
+            - spec: Spec slug identifier to archive
+
+    Side Effects:
+        - Validates all tasks are done
+        - Removes worktree if present
+        - Moves spec directory to ARCHIVE_DIR
+        - Creates archive.json metadata file
+        - Records spec.archived event
+
+    Raises:
+        SystemExit: If spec does not exist
+        SystemExit: If any task is not in "done" status
+
+    Example:
+        >>> args = argparse.Namespace(spec="feature-auth")
+        >>> archive_spec(args)
+        {"archived_at": "2026-03-18T15:30:00Z", "original_path": ".autoflow/specs/feature-auth"}
+    """
+    ensure_state()
+    files = spec_files(args.spec)
+    if not files["dir"].exists():
+        raise SystemExit(f"spec not found: {args.spec}")
+
+    # Validate all tasks are done
+    tasks_data = load_tasks(args.spec)
+    incomplete_tasks = [t for t in tasks_data.get("tasks", []) if t.get("status") != "done"]
+    if incomplete_tasks:
+        task_list = ", ".join(t["id"] for t in incomplete_tasks)
+        raise SystemExit(f"cannot archive spec: tasks not complete: {task_list}")
+
+    # Remove worktree if present
+    worktree_path_obj = worktree_path(args.spec)
+    if worktree_path_obj.exists():
+        branch = worktree_branch(args.spec)
+        run_cmd(["git", "worktree", "remove", "--force", str(worktree_path_obj)])
+        run_cmd(["git", "branch", "-D", branch], check=False)
+
+    # Create archive metadata
+    metadata = read_json(files["metadata"])
+    archive_metadata = {
+        "slug": args.spec,
+        "title": metadata.get("title", ""),
+        "archived_at": now_stamp(),
+        "original_path": str(files["dir"]),
+        "task_count": len(tasks_data.get("tasks", [])),
+    }
+
+    # Move spec directory to archive
+    archive_path = ARCHIVE_DIR / args.spec
+    if archive_path.exists():
+        raise SystemExit(f"archive already exists for spec: {args.spec}")
+    files["dir"].rename(archive_path)
+
+    # Write archive metadata
+    write_json(archive_path / "archive.json", archive_metadata)
+
+    # Record event (use spec slug before move, archive path after)
+    record_event(args.spec, "spec.archived", {"archive_path": str(archive_path)})
+
+    print(json.dumps(archive_metadata, indent=2, ensure_ascii=True))
+
+
 def list_specs(_: argparse.Namespace) -> None:
     items = []
     for metadata_path in SPECS_DIR.glob("*/metadata.json"):
+        # Skip archived specs (those in the archive directory)
+        # Check if the spec directory is inside the archive directory
+        try:
+            metadata_path.parent.relative_to(ARCHIVE_DIR)
+            # If relative_to succeeds, this spec is inside the archive directory
+            continue
+        except ValueError:
+            # relative_to raises ValueError if the path is not a subdirectory
+            pass
         metadata = read_json(metadata_path)
         slug = metadata.get("slug", metadata_path.parent.name)
         review_state = load_review_state(slug)
@@ -4914,6 +4997,8 @@ def build_parser() -> argparse.ArgumentParser:
         invalidate-review: Manually invalidate approval state
         create-worktree: Create or reuse an isolated git worktree for a spec
         remove-worktree: Remove a spec worktree
+        list-specs: List all specs with metadata including status, worktree, and review state
+        archive-spec: Archive a completed spec by moving it to the archive directory
         list-worktrees: Show known spec worktrees
         init-system-config: Write the local system config scaffold
         show-system-config: Show system memory/model/tool config
@@ -5048,6 +5133,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_specs_cmd = sub.add_parser("list-specs", help="list all specs with metadata including status, worktree, and review state")
     list_specs_cmd.set_defaults(func=list_specs)
+
+    archive_spec_cmd = sub.add_parser("archive-spec", help="archive a completed spec by moving it to the archive directory")
+    archive_spec_cmd.add_argument("--spec", required=True)
+    archive_spec_cmd.set_defaults(func=archive_spec)
 
     worktree_list_cmd = sub.add_parser("list-worktrees", help="show known spec worktrees")
     worktree_list_cmd.set_defaults(func=list_worktrees)
