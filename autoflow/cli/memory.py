@@ -8,6 +8,7 @@ Usage:
     autoflow memory list
     autoflow memory get <key>
     autoflow memory set <key> <value>
+    autoflow memory add <key> <value>
     autoflow memory delete <key>
 """
 
@@ -142,6 +143,45 @@ def memory_set(ctx: click.Context, key: str, value: str, category: str) -> None:
         _print_json({"key": key, "value": value, "category": category, "status": "saved"})
     else:
         click.echo(f"Saved: {key} = {value}")
+
+
+@memory.command("add")
+@click.argument("key", type=str)
+@click.argument("value", type=str)
+@click.option(
+    "--category",
+    "-c",
+    type=str,
+    default="general",
+    help="Category for the memory.",
+)
+@click.pass_context
+def memory_add(ctx: click.Context, key: str, value: str, category: str) -> None:
+    """
+    Add a memory entry.
+
+    Adds a new key-value pair to persistent memory, optionally with a category.
+
+    \b
+    Examples:
+        autoflow memory add project_name myproject
+        autoflow memory add last_commit abc123 --category git
+        autoflow memory add status "in progress" -c workflow
+    """
+    config: Config | None = ctx.obj.get("config")
+
+    if config is None:
+        click.echo("Error: Configuration not loaded.", err=True)
+        ctx.exit(1)
+
+    state_manager = _get_state_manager(config)
+    state_manager.initialize()
+    state_manager.save_memory(key, value, category=category)
+
+    if ctx.obj.get("output_json"):
+        _print_json({"key": key, "value": value, "category": category, "status": "added"})
+    else:
+        click.echo(f"Added: {key} = {value}")
 
 
 @memory.command("delete")
