@@ -23,9 +23,30 @@ from typing import Any
 
 from autoflow.core.config import Config
 
+# Import validation functions if available
+try:
+    from scripts.agent_validation import (
+        ValidationError as AgentSpecValidationError,
+        validate_agent_spec,
+        validate_path,
+    )
+    HAS_VALIDATION = True
+except ImportError:
+    # Validation module not available - skip validation for backward compatibility
+    HAS_VALIDATION = False
+    AgentSpecValidationError = None
+    validate_agent_spec = None
+    validate_path = None
+
 
 class AgentRunnerError(Exception):
     """Base exception for agent runner errors."""
+
+    pass
+
+
+class AgentValidationError(AgentRunnerError):
+    """Exception raised for agent specification validation failures."""
 
     pass
 
@@ -167,6 +188,7 @@ class AgentRunner:
 
         Raises:
             AgentRunnerError: If an unsupported configuration is encountered
+            AgentValidationError: If agent specification or path validation fails
             FileNotFoundError: If the prompt file doesn't exist
 
         Example:
@@ -180,6 +202,34 @@ class AgentRunner:
             >>> print(cmd[0])
             'claude'
         """
+        # Validate agent specification to prevent command injection
+        if HAS_VALIDATION:
+            try:
+                validate_agent_spec(agent_spec, validate_all_fields=True)
+            except AgentSpecValidationError as e:
+                raise AgentValidationError(
+                    f"Agent specification validation failed: {e}"
+                ) from e
+            except ValueError as e:
+                raise AgentValidationError(
+                    f"Agent specification format error: {e}"
+                ) from e
+
+        # Validate prompt file path to prevent directory traversal
+        if HAS_VALIDATION:
+            try:
+                # Resolve the path and ensure it's within the current working directory
+                validated_path = validate_path(
+                    str(prompt_file),
+                    base_dir=os.getcwd(),
+                    allow_absolute=True,
+                )
+                prompt_file = validated_path
+            except AgentSpecValidationError as e:
+                raise AgentValidationError(
+                    f"Prompt file path validation failed: {e}"
+                ) from e
+
         prompt_text = self.load_prompt(prompt_file)
         protocol = agent_spec.get("protocol", "cli")
 

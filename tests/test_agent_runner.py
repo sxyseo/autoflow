@@ -1152,6 +1152,485 @@ class AgentRunnerTests(unittest.TestCase):
             # Clean up temp directory
             shutil.rmtree(temp_base, ignore_errors=True)
 
+    def test_malicious_configs_rejected(self) -> None:
+        """Integration test: malicious agent configs should be rejected at execution time."""
+        import uuid
+
+        def main_with_argv(argv: list[str]) -> None:
+            old_argv = sys.argv
+            sys.argv = argv
+            try:
+                self.module.main()
+            except SystemExit:
+                raise
+            except OSError:
+                # Expected when execvp reaches a non-existent command in tests.
+                pass
+            finally:
+                sys.argv = old_argv
+
+        unique_id = str(uuid.uuid4())[:8]
+        prompt_file = Path(self.temp_dir.name) / f"malicious_prompt_{unique_id}.md"
+        prompt_file.write_text("Execute malicious task", encoding="utf-8")
+
+        scenarios = [
+            (
+                "malicious-agent",
+                {"command": "rm", "args": ["-rf", "/"]},
+                "Invalid agent specification",
+                str(prompt_file),
+            ),
+            (
+                "shell-agent",
+                {"command": "claude", "args": ["|", "rm", "-rf", "/"]},
+                "Invalid agent specification",
+                str(prompt_file),
+            ),
+            (
+                "exec-agent",
+                {"command": "python", "args": ["-c", "import os; os.system('rm -rf /')"]},
+                "Invalid agent specification",
+                str(prompt_file),
+            ),
+            (
+                "chain-agent",
+                {"command": "claude", "args": [], "model": "claude; rm -rf /"},
+                "Invalid agent specification",
+                str(prompt_file),
+            ),
+            (
+                "valid-agent",
+                {"command": "claude", "args": []},
+                "Invalid",
+                "../../../etc/passwd",
+            ),
+            (
+                "acp-malicious",
+                {
+                    "command": "placeholder",
+                    "protocol": "acp",
+                    "transport": {
+                        "type": "stdio",
+                        "command": "rm -rf /",
+                        "args": [],
+                        "prompt_mode": "argv",
+                    },
+                },
+                "Invalid agent specification",
+                str(prompt_file),
+            ),
+        ]
+
+        for index, (agent_name, spec, expected_error, prompt_arg) in enumerate(scenarios):
+            agents_file = Path(self.temp_dir.name) / f"malicious_agents_{unique_id}_{index}.json"
+            agents_file.write_text(
+                json.dumps({"agents": {agent_name: spec}}) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.subTest(agent=agent_name):
+                with self.assertRaises(SystemExit) as context:
+                    main_with_argv(
+                        [
+                            "agent_runner.py",
+                            str(agents_file),
+                            agent_name,
+                            prompt_arg,
+                        ]
+                    )
+                self.assertIn(expected_error, str(context.exception))
+
+
+class AutoflowAgentRunnerValidationTests(unittest.TestCase):
+    """Tests validation and sanitization in autoflow.agents.runner."""
+
+    def setUp(self) -> None:
+        self.repo_root = Path(__file__).resolve().parents[1]
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prompt_file = Path(self.temp_dir.name) / "prompt.md"
+        self.prompt_file.write_text("Implement the selected task.", encoding="utf-8")
+
+        scripts_dir = str(self.repo_root / "scripts")
+        while scripts_dir in sys.path:
+            sys.path.remove(scripts_dir)
+        if str(self.repo_root) not in sys.path:
+            sys.path.insert(0, str(self.repo_root))
+
+        existing_autoflow = sys.modules.get("autoflow")
+        if existing_autoflow is not None and getattr(existing_autoflow, "__file__", "").endswith(
+            "/scripts/autoflow.py"
+        ):
+            del sys.modules["autoflow"]
+
+        from autoflow.agents.runner import AgentRunner, AgentValidationError
+        from autoflow.core.config import load_config
+
+        self.AgentValidationError = AgentValidationError
+        self.runner = AgentRunner(load_config())
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_malicious_command_rejected(self) -> None:
+        with self.assertRaises(self.AgentValidationError):
+            self.runner.build_command(
+                {"command": "rm", "args": ["-rf", "/"]},
+                str(self.prompt_file),
+                run_metadata=None,
+            )
+
+    def test_shell_metacharacters_rejected(self) -> None:
+        for args in [
+            ["evil", "|", "rm", "-rf", "/"],
+            ["evil", "&&", "malware"],
+            ["evil", ";", "cat", "/etc/passwd"],
+            ["evil", "$HOME"],
+            ["evil", "`whoami`"],
+        ]:
+            with self.subTest(args=args):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(
+                        {"command": "claude", "args": args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+
+    def test_dangerous_flags_rejected(self) -> None:
+        for args in [
+            ["--exec", "evil()"],
+            ["--execute", "malware"],
+            ["--eval", "malicious()"],
+            ["-e", "evil()"],
+            ["-c", "malware"],
+        ]:
+            with self.subTest(args=args):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(
+                        {"command": "claude", "args": args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+
+    def test_invalid_command_format_rejected(self) -> None:
+        for spec in [
+            {"command": "claude; rm -rf /", "args": []},
+            {"command": "claude && malware", "args": []},
+            {"command": "claude|evil", "args": []},
+            {"command": "", "args": []},
+            {"command": "   ", "args": []},
+            {"command": "claude evil", "args": []},
+        ]:
+            with self.subTest(command=spec["command"]):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(spec, str(self.prompt_file), run_metadata=None)
+
+    def test_invalid_model_identifier_rejected(self) -> None:
+        for spec in [
+            {"command": "claude", "args": [], "model": "claude; rm -rf /"},
+            {"command": "claude", "args": [], "model": "claude && malware"},
+            {"command": "claude", "args": [], "model": "claude|evil"},
+            {"command": "claude", "args": [], "model": "claude model"},
+        ]:
+            with self.subTest(model=spec["model"]):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(spec, str(self.prompt_file), run_metadata=None)
+
+    def test_invalid_tool_names_rejected(self) -> None:
+        for spec in [
+            {"command": "claude", "args": [], "tools": ["Read; rm -rf /"]},
+            {"command": "claude", "args": [], "tools": ["Read&&malware"]},
+            {"command": "claude", "args": [], "tools": ["Read|evil"]},
+            {"command": "claude", "args": [], "tools": ["Read Write"]},
+            {"command": "claude", "args": [], "tools": ["Read,Bash(evil)"]},
+        ]:
+            with self.subTest(tools=spec["tools"]):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(spec, str(self.prompt_file), run_metadata=None)
+
+    def test_malicious_runtime_args_rejected(self) -> None:
+        for runtime_args in [
+            ["--exec", "evil()"],
+            ["|", "rm", "-rf"],
+            ["&&", "malware"],
+            [";evil"],
+        ]:
+            with self.subTest(runtime_args=runtime_args):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(
+                        {"command": "claude", "args": [], "runtime_args": runtime_args},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+
+    def test_malicious_resume_args_rejected(self) -> None:
+        for resume in [
+            {"mode": "args", "args": ["--exec", "evil()"]},
+            {"mode": "args", "args": ["|", "rm", "-rf"]},
+            {"mode": "args", "args": ["&&malware"]},
+        ]:
+            with self.subTest(resume=resume):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(
+                        {"command": "claude", "args": [], "resume": resume},
+                        str(self.prompt_file),
+                        run_metadata=None,
+                    )
+
+    def test_malicious_acp_transport_command_rejected(self) -> None:
+        for spec in [
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "rm -rf /",
+                    "args": [],
+                    "prompt_mode": "argv",
+                },
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "malware",
+                    "args": [],
+                    "prompt_mode": "argv",
+                },
+            },
+            {
+                "command": "placeholder",
+                "protocol": "acp",
+                "transport": {
+                    "type": "stdio",
+                    "command": "evil && pwn",
+                    "args": [],
+                    "prompt_mode": "argv",
+                },
+            },
+        ]:
+            with self.subTest(transport_command=spec["transport"]["command"]):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(spec, str(self.prompt_file), run_metadata=None)
+
+    def test_malicious_acp_transport_args_rejected(self) -> None:
+        malicious_transport = {
+            "command": "placeholder",
+            "protocol": "acp",
+            "transport": {
+                "type": "stdio",
+                "command": "acp-agent",
+                "args": ["--exec", "evil()"],
+                "prompt_mode": "argv",
+            },
+        }
+        with self.assertRaises(self.AgentValidationError):
+            self.runner.build_command(
+                malicious_transport,
+                str(self.prompt_file),
+                run_metadata=None,
+            )
+
+    def test_path_traversal_prevented(self) -> None:
+        for path in [
+            "../../../etc/passwd",
+            "../../sensitive_file.txt",
+            "../../../../../../../../etc/passwd",
+            "./../../etc/passwd",
+            "../sibling_dir/file.txt",
+        ]:
+            with self.subTest(path=path):
+                with self.assertRaises(self.AgentValidationError):
+                    self.runner.build_command(
+                        {"command": "claude", "args": []},
+                        path,
+                        run_metadata=None,
+                    )
+
+    def test_valid_agent_spec_accepted(self) -> None:
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        test_prompt = Path(f"test_valid_spec_prompt_{unique_id}.md")
+        test_prompt.write_text("Valid prompt content", encoding="utf-8")
+
+        try:
+            valid_specs = [
+                {"command": "claude", "args": ["--print"]},
+                {"command": "codex", "args": ["--full-auto"]},
+                {
+                    "command": "claude",
+                    "args": [],
+                    "model": "claude-sonnet-4-6",
+                    "tools": ["Read", "Bash", "Write"],
+                },
+                {
+                    "command": "claude",
+                    "protocol": "acp",
+                    "transport": {
+                        "type": "stdio",
+                        "command": "acp-agent",
+                        "args": ["--serve"],
+                        "prompt_mode": "argv",
+                    },
+                },
+            ]
+            for spec in valid_specs:
+                with self.subTest(spec=spec):
+                    command = self.runner.build_command(
+                        spec,
+                        str(test_prompt),
+                        run_metadata=None,
+                    )
+                    self.assertIsInstance(command, list)
+                    self.assertGreater(len(command), 0)
+        finally:
+            if test_prompt.exists():
+                test_prompt.unlink()
+
+    def test_valid_path_accepted(self) -> None:
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        valid_prompt = Path(f"test_valid_prompt_{unique_id}.md")
+        valid_prompt.write_text("Valid prompt content", encoding="utf-8")
+
+        try:
+            command = self.runner.build_command(
+                {"command": "claude", "args": []},
+                str(valid_prompt),
+                run_metadata=None,
+            )
+            self.assertIsInstance(command, list)
+            self.assertGreater(len(command), 0)
+        finally:
+            if valid_prompt.exists():
+                valid_prompt.unlink()
+
+    def test_read_json_valid_file(self) -> None:
+        test_file = Path(self.temp_dir.name) / "test.json"
+        test_data = {"key": "value", "number": 42}
+        test_file.write_text(json.dumps(test_data), encoding="utf-8")
+
+        result = self.runner.read_json(test_file)
+        self.assertEqual(result, test_data)
+
+    def test_read_json_invalid_json_raises_error(self) -> None:
+        test_file = Path(self.temp_dir.name) / "invalid.json"
+        test_file.write_text("{ invalid json }", encoding="utf-8")
+
+        with self.assertRaises(json.JSONDecodeError):
+            self.runner.read_json(test_file)
+
+    def test_read_json_missing_file_raises_error(self) -> None:
+        missing_file = Path(self.temp_dir.name) / "missing.json"
+        with self.assertRaises(FileNotFoundError):
+            self.runner.read_json(missing_file)
+
+    def test_load_prompt_valid_file(self) -> None:
+        test_prompt = Path(self.temp_dir.name) / "test_prompt.md"
+        test_content = "Test prompt content\nLine 2\nLine 3"
+        test_prompt.write_text(test_content, encoding="utf-8")
+
+        result = self.runner.load_prompt(test_prompt)
+        self.assertEqual(result, test_content)
+
+    def test_load_prompt_missing_file_raises_error(self) -> None:
+        missing_prompt = Path(self.temp_dir.name) / "missing.md"
+        with self.assertRaises(FileNotFoundError):
+            self.runner.load_prompt(missing_prompt)
+
+    def test_apply_runtime_config_model_and_tools(self) -> None:
+        base_command = ["claude", "--print"]
+        agent_spec = {
+            "command": "claude",
+            "model": "claude-sonnet-4-6",
+            "tools": ["Read", "Bash", "Write"],
+        }
+
+        result = self.runner.apply_runtime_config(base_command, agent_spec)
+        self.assertEqual(
+            result,
+            [
+                "claude",
+                "--print",
+                "--model",
+                "claude-sonnet-4-6",
+                "--allowedTools",
+                "Read,Bash,Write",
+            ],
+        )
+
+    def test_apply_runtime_config_runtime_args(self) -> None:
+        base_command = ["claude"]
+        agent_spec = {
+            "command": "claude",
+            "runtime_args": ["--verbose", "--timeout", "60"],
+        }
+
+        result = self.runner.apply_runtime_config(base_command, agent_spec)
+        self.assertEqual(result, ["claude", "--verbose", "--timeout", "60"])
+
+    def test_apply_runtime_config_no_runtime_config(self) -> None:
+        base_command = ["claude", "--print"]
+        result = self.runner.apply_runtime_config(base_command, {"command": "claude"})
+        self.assertEqual(result, base_command)
+
+    def test_build_command_with_resume_subcommand(self) -> None:
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        test_prompt = Path(f"test_resume_prompt_{unique_id}.md")
+        test_prompt.write_text("Implement the selected task.", encoding="utf-8")
+
+        try:
+            spec = {
+                "command": "codex",
+                "args": ["--full-auto"],
+                "resume": {"mode": "subcommand", "subcommand": "resume", "args": ["--last"]},
+            }
+            command = self.runner.build_command(
+                spec,
+                str(test_prompt),
+                run_metadata={"resume_from": "run-1"},
+            )
+            self.assertEqual(
+                command,
+                [
+                    "codex",
+                    "--full-auto",
+                    "resume",
+                    "--last",
+                    "Implement the selected task.",
+                ],
+            )
+        finally:
+            if test_prompt.exists():
+                test_prompt.unlink()
+
+    def test_build_command_with_resume_args(self) -> None:
+        import uuid
+
+        unique_id = str(uuid.uuid4())[:8]
+        test_prompt = Path(f"test_resume_args_prompt_{unique_id}.md")
+        test_prompt.write_text("Implement the selected task.", encoding="utf-8")
+
+        try:
+            spec = {
+                "command": "claude",
+                "args": [],
+                "resume": {"mode": "args", "args": ["--resume"]},
+            }
+            command = self.runner.build_command(
+                spec,
+                str(test_prompt),
+                run_metadata={"resume_from": "run-2"},
+            )
+            self.assertEqual(command, ["claude", "--resume", "Implement the selected task."])
+        finally:
+            if test_prompt.exists():
+                test_prompt.unlink()
+
     def test_complete_integrity_workflow(self) -> None:
         """Test the complete integrity verification workflow for run artifacts."""
         import shutil
