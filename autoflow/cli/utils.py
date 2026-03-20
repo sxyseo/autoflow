@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import click
@@ -68,3 +70,110 @@ def _format_datetime(dt: datetime | None) -> str:
     if dt is None:
         return "N/A"
     return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _slugify(value: str) -> str:
+    """Convert a value into a branch-safe slug."""
+    output = []
+    for ch in value.lower():
+        if ch.isalnum():
+            output.append(ch)
+        elif ch in {" ", "_", "-", "/", "."}:
+            output.append("-")
+    slug = "".join(output).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "spec"
+
+
+def _read_json_or_default(path: Path, default: Any) -> Any:
+    """Read JSON from path, returning default on missing or invalid files."""
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return default
+
+
+def _spec_dir(slug: str, state_dir: Path) -> Path:
+    """Return the on-disk directory for a control-plane spec."""
+    return state_dir / "specs" / slug
+
+
+def _worktree_path(spec_slug: str, state_dir: Path) -> Path:
+    """Return the expected worktree path for a spec."""
+    return state_dir / "worktrees" / "tasks" / spec_slug
+
+
+def _worktree_branch(spec_slug: str) -> str:
+    """Return the expected git branch name for a spec worktree."""
+    return f"codex/{_slugify(spec_slug)}"
+
+
+def _detect_base_branch() -> str:
+    """Best-effort detection of the repo's default branch."""
+    for branch in ("main", "master"):
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return branch
+    try:
+        current = subprocess.run(
+            ["git", "branch", "--show-current"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        branch = current.stdout.strip()
+        if branch:
+            return branch
+    except OSError:
+        pass
+    return "main"
+
+
+def _get_worktree_metadata(spec_slug: str, config: Config | None = None) -> dict[str, Any]:
+    """Load normalized worktree metadata for a spec."""
+    state_dir = get_state_dir(config)
+    metadata_path = _spec_dir(spec_slug, state_dir) / "metadata.json"
+    metadata = _read_json_or_default(metadata_path, {})
+    worktree = dict(metadata.get("worktree", {}))
+    expected_path = _worktree_path(spec_slug, state_dir)
+    current_path = worktree.get("path", "")
+    branch = worktree.get("branch", _worktree_branch(spec_slug))
+    base_branch = worktree.get("base_branch", _detect_base_branch())
+
+    resolved_path = ""
+    if expected_path.exists():
+        resolved_path = str(expected_path)
+    elif current_path:
+        current = Path(current_path)
+        if current.exists():
+            resolved_path = str(current)
+
+    return {
+        "path": resolved_path,
+        "branch": branch,
+        "base_branch": base_branch,
+    }
+
+
+def _get_review_state_metadata(spec_slug: str, config: Config | None = None) -> dict[str, Any]:
+    """Load review metadata for a spec, falling back to defaults."""
+    state_dir = get_state_dir(config)
+    review_state_path = _spec_dir(spec_slug, state_dir) / "review_state.json"
+    default_state = {
+        "approved": False,
+        "approved_by": "",
+        "approved_at": "",
+        "spec_hash": "",
+        "review_count": 0,
+        "invalidated_at": "",
+        "invalidated_reason": "",
+    }
+    return _read_json_or_default(review_state_path, default_state)
