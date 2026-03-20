@@ -84,9 +84,141 @@ ACTIVE_RUN_STATUSES = {"created", "running"}
 INACTIVE_RUN_STATUSES = {"completed", "cancelled", "abandoned", "cleaned", "stale", "recovered"}
 
 
+<<<<<<< HEAD
 # === TypedDict Definitions for Scripts State Structures ===
 # These provide type hints for dictionary representations used throughout
 # the scripts module, particularly for JSON serialization/deserialization.
+=======
+@dataclass
+class AutoflowPathsConfig:
+    """
+    Configuration object for Autoflow paths.
+
+    Encapsulates all Autoflow directory and file paths, allowing runtime
+    configuration with custom root directories. This enables testing and
+    isolated worktree scenarios where the project root differs from the
+    default location.
+
+    Attributes:
+        ROOT: Project root directory
+        STATE_DIR: Autoflow state directory (.autoflow)
+        SPECS_DIR: Specifications directory
+        TASKS_DIR: Tasks directory
+        RUNS_DIR: Runs directory
+        LOGS_DIR: Logs directory
+        WORKTREES_DIR: Worktrees directory
+        MEMORY_DIR: Memory directory
+        STRATEGY_MEMORY_DIR: Strategy memory directory
+        REPOSITORIES_DIR: Repositories directory
+        DEPENDENCIES_DIR: Dependencies directory
+        DISCOVERY_FILE: Discovered agents file
+        SYSTEM_CONFIG_FILE: System configuration file
+        SYSTEM_CONFIG_TEMPLATE: System configuration template
+        AGENTS_FILE: Agents configuration file
+        BMAD_DIR: BMAD templates directory
+        REVIEW_STATE_FILE: Review state filename
+        EVENTS_FILE: Events filename
+        QA_FIX_REQUEST_FILE: QA fix request filename
+        QA_FIX_REQUEST_JSON_FILE: QA fix request JSON filename
+        AGENT_RESULT_FILE: Agent result filename
+    """
+
+    ROOT: Path
+    STATE_DIR: Path
+    SPECS_DIR: Path
+    TASKS_DIR: Path
+    RUNS_DIR: Path
+    LOGS_DIR: Path
+    WORKTREES_DIR: Path
+    MEMORY_DIR: Path
+    STRATEGY_MEMORY_DIR: Path
+    REPOSITORIES_DIR: Path
+    DEPENDENCIES_DIR: Path
+    DISCOVERY_FILE: Path
+    SYSTEM_CONFIG_FILE: Path
+    SYSTEM_CONFIG_TEMPLATE: Path
+    AGENTS_FILE: Path
+    BMAD_DIR: Path
+    REVIEW_STATE_FILE: str
+    EVENTS_FILE: str
+    QA_FIX_REQUEST_FILE: str
+    QA_FIX_REQUEST_JSON_FILE: str
+    AGENT_RESULT_FILE: str
+
+    @classmethod
+    def from_root(cls, root: Path) -> AutoflowPathsConfig:
+        """
+        Create configuration from a root directory.
+
+        Args:
+            root: Project root directory
+
+        Returns:
+            AutoflowPathsConfig with all paths derived from root
+        """
+        state_dir = root / ".autoflow"
+        return cls(
+            ROOT=root,
+            STATE_DIR=state_dir,
+            SPECS_DIR=state_dir / "specs",
+            TASKS_DIR=state_dir / "tasks",
+            RUNS_DIR=state_dir / "runs",
+            LOGS_DIR=state_dir / "logs",
+            WORKTREES_DIR=state_dir / "worktrees" / "tasks",
+            MEMORY_DIR=state_dir / "memory",
+            STRATEGY_MEMORY_DIR=state_dir / "memory" / "strategy",
+            REPOSITORIES_DIR=state_dir / "repositories",
+            DEPENDENCIES_DIR=state_dir / "dependencies",
+            DISCOVERY_FILE=state_dir / "discovered_agents.json",
+            SYSTEM_CONFIG_FILE=state_dir / "system.json",
+            SYSTEM_CONFIG_TEMPLATE=root / "config" / "system.example.json",
+            AGENTS_FILE=state_dir / "agents.json",
+            BMAD_DIR=root / "templates" / "bmad",
+            REVIEW_STATE_FILE="review_state.json",
+            EVENTS_FILE="events.jsonl",
+            QA_FIX_REQUEST_FILE="QA_FIX_REQUEST.md",
+            QA_FIX_REQUEST_JSON_FILE="QA_FIX_REQUEST.json",
+            AGENT_RESULT_FILE="agent_result.json",
+        )
+
+
+def get_config(root: Path | None = None) -> AutoflowPathsConfig:
+    """
+    Get Autoflow path configuration.
+
+    Returns a configuration object with all Autoflow paths. If a root
+    directory is provided, all paths are computed relative to that root.
+    Otherwise, uses the default project ROOT.
+
+    This enables testing scenarios and isolated worktree environments where
+    the project root differs from the default location.
+
+    Args:
+        root: Optional root directory path. If None, uses default ROOT.
+
+    Returns:
+        AutoflowPathsConfig with all path configuration
+
+    Example:
+        >>> # Get default configuration
+        >>> cfg = get_config()
+        >>> print(cfg.ROOT)
+        /path/to/project
+
+        >>> # Get configuration for custom root
+        >>> cfg = get_config(Path('/tmp/test'))
+        >>> print(cfg.ROOT)
+        /tmp/test
+    """
+    if root is None:
+        root = ROOT
+    return AutoflowPathsConfig.from_root(root)
+
+
+def repository_manager():
+    """Load RepositoryManager only when repository features are used."""
+    from autoflow.core.repository import RepositoryManager
+>>>>>>> auto-claude/109-replace-dynamic-module-loading-in-tests-with-prope
 
 
 class ReviewState(TypedDict, total=False):

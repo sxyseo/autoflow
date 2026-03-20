@@ -1,0 +1,17 @@
+{
+  "spec_slug": "note-spec",
+  "updated_at": "20260316T003309Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Define workflow for Phase 4D",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "Initial task created"
+      ],
+      "notes": []
+    }
+  ]
+}

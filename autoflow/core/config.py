@@ -5,10 +5,29 @@ Provides configuration loading with JSON5 support, allowing comments,
 trailing commas, and unquoted keys in configuration files.
 
 Usage:
+<<<<<<< HEAD
     from autoflow.core.config import load_config, load_system_config
+=======
+    from autoflow.core.config import (
+        load_config,
+        load_system_config,
+        RepositoryConfig,
+        AutoflowConfig,
+    )
+>>>>>>> auto-claude/109-replace-dynamic-module-loading-in-tests-with-prope
 
+    # Simple loading
     config = load_config("config/settings.json5")
     system_config = load_system_config()
+<<<<<<< HEAD
+=======
+    repo_config = RepositoryConfig(id="main", name="Main Repo", path=".")
+
+    # Using AutoflowConfig manager
+    autoflow_config = AutoflowConfig()
+    autoflow_config.load()
+    print(autoflow_config.config.openclaw.gateway_url)
+>>>>>>> auto-claude/109-replace-dynamic-module-loading-in-tests-with-prope
 """
 
 from __future__ import annotations
@@ -362,3 +381,367 @@ def config_to_json5(config: Union[Config, SystemConfig], indent: int = 2) -> str
         JSON5-formatted string
     """
     return json.dumps(config.model_dump(), indent=indent)
+
+
+class AutoflowConfig:
+    """
+    Manages Autoflow configuration with loading and merging capabilities.
+
+    Provides a unified interface for accessing both main configuration and
+    system configuration. Handles loading from files with fallbacks and
+    environment variable expansion.
+
+    This class follows the pattern of StateManager, providing a centralized
+    configuration management interface with atomic operations and validation.
+
+    Attributes:
+        config_dir: Directory containing configuration files
+        config: Main application configuration
+        system_config: System-level configuration
+
+    Example:
+        >>> autoflow_config = AutoflowConfig()
+        >>> autoflow_config.load()
+        >>> print(autoflow_config.config.openclaw.gateway_url)
+        'http://localhost:3000'
+        >>> print(autoflow_config.system_config.log_level)
+        'INFO'
+    """
+
+    def __init__(
+        self,
+        config_dir: Union[str, Path] = "config",
+        state_dir: Union[str, Path] = ".autoflow",
+    ):
+        """
+        Initialize the AutoflowConfig manager.
+
+        Args:
+            config_dir: Directory containing configuration files
+            state_dir: State directory for Autoflow
+        """
+        self.config_dir = Path(config_dir).resolve()
+        self.state_dir = Path(state_dir).resolve()
+        self.config: Optional[Config] = None
+        self.system_config: Optional[SystemConfig] = None
+
+    @property
+    def main_config_path(self) -> Path:
+        """Path to main configuration file."""
+        return self.config_dir / "settings.json5"
+
+    @property
+    def system_config_path(self) -> Path:
+        """Path to system configuration file."""
+        return self.config_dir / "system.json5"
+
+    def load(
+        self,
+        config_path: Optional[str] = None,
+        system_config_path: Optional[str] = None,
+        defaults: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        Load both main and system configuration.
+
+        Configuration is loaded from the following sources in priority order:
+        1. Explicitly provided path
+        2. AUTOFLOW_CONFIG / AUTOFLOW_SYSTEM_CONFIG environment variables
+        3. config/settings.json5 or config/system.json5 (default)
+
+        If configuration files don't exist, default configurations are used.
+
+        Args:
+            config_path: Optional explicit path to main configuration file
+            system_config_path: Optional explicit path to system configuration file
+            defaults: Optional dictionary of default values to merge into main config
+
+        Example:
+            >>> autoflow_config = AutoflowConfig()
+            >>> autoflow_config.load()
+            >>> assert autoflow_config.config is not None
+        """
+        self.config = load_config(
+            path=config_path,
+            defaults=defaults,
+        )
+        self.system_config = load_system_config(
+            path=system_config_path,
+        )
+
+    def reload(self) -> None:
+        """
+        Reload configuration from files.
+
+        Useful when configuration files have been modified externally
+        and you want to refresh the in-memory configuration.
+
+        Example:
+            >>> autoflow_config.reload()
+        """
+        self.load()
+
+    def save(
+        self,
+        save_main: bool = True,
+        save_system: bool = True,
+        indent: int = 2,
+    ) -> None:
+        """
+        Save current configuration to files.
+
+        Performs atomic writes using the StateManager for crash safety.
+
+        Args:
+            save_main: Whether to save main configuration
+            save_system: Whether to save system configuration
+            indent: JSON indentation level
+
+        Raises:
+            ValueError: If configuration hasn't been loaded
+
+        Example:
+            >>> autoflow_config.config.openclaw.gateway_url = "http://localhost:4000"
+            >>> autoflow_config.save()
+        """
+        if self.config is None and self.system_config is None:
+            raise ValueError("No configuration loaded. Call load() first.")
+
+        from autoflow.core.state import StateManager
+
+        state_manager = StateManager(self.state_dir)
+
+        if save_main and self.config is not None:
+            config_path = self.main_config_path
+            config_dict = self.config.model_dump()
+            state_manager.write_json(config_path, config_dict, indent=indent)
+
+        if save_system and self.system_config is not None:
+            sys_config_path = self.system_config_path
+            sys_config_dict = self.system_config.model_dump()
+            state_manager.write_json(sys_config_path, sys_config_dict, indent=indent)
+
+    def get_state_dir(self) -> Path:
+        """
+        Get the state directory path.
+
+        Priority:
+        1. AUTOFLOW_STATE_DIR environment variable
+        2. Config's state_dir setting (if loaded)
+        3. Default '.autoflow'
+
+        Returns:
+            Path to the state directory
+
+        Example:
+            >>> state_dir = autoflow_config.get_state_dir()
+        """
+        return get_state_dir(self.config)
+
+    def get_agent_config(self, agent_name: str) -> Optional[AgentSettings]:
+        """
+        Get configuration for a specific agent.
+
+        Args:
+            agent_name: Name of the agent (e.g., 'claude_code', 'codex')
+
+        Returns:
+            AgentSettings if found, None otherwise
+
+        Example:
+            >>> claude_config = autoflow_config.get_agent_config('claude_code')
+            >>> if claude_config:
+            ...     print(claude_config.command)
+        """
+        if self.config is None:
+            return None
+
+        return getattr(self.config.agents, agent_name, None)
+
+    def get_repository_config(
+        self, repository_id: str
+    ) -> Optional[RepositoryConfig]:
+        """
+        Get configuration for a specific repository.
+
+        Args:
+            repository_id: ID of the repository
+
+        Returns:
+            RepositoryConfig if found, None otherwise
+
+        Example:
+            >>> repo_config = autoflow_config.get_repository_config('main')
+            >>> if repo_config:
+            ...     print(repo_config.path)
+        """
+        if self.config is None:
+            return None
+
+        for repo in self.config.repositories.repositories:
+            if repo.id == repository_id:
+                return repo
+
+        return None
+
+    def list_repositories(self) -> list[RepositoryConfig]:
+        """
+        List all configured repositories.
+
+        Returns:
+            List of RepositoryConfig objects, sorted by priority descending
+
+        Example:
+            >>> repos = autoflow_config.list_repositories()
+            >>> for repo in repos:
+            ...     print(f"{repo.name}: {repo.path}")
+        """
+        if self.config is None:
+            return []
+
+        repos = self.config.repositories.repositories.copy()
+        repos.sort(key=lambda r: r.priority, reverse=True)
+        return repos
+
+    def get_scheduler_job_config(self, job_id: str) -> Optional[SchedulerJobConfig]:
+        """
+        Get configuration for a specific scheduled job.
+
+        Args:
+            job_id: ID of the job
+
+        Returns:
+            SchedulerJobConfig if found, None otherwise
+
+        Example:
+            >>> job_config = autoflow_config.get_scheduler_job_config('daily-backup')
+            >>> if job_config:
+            ...     print(job_config.cron)
+        """
+        if self.config is None:
+            return None
+
+        for job in self.config.scheduler.jobs:
+            if job.id == job_id:
+                return job
+
+        return None
+
+    def list_scheduler_jobs(self, enabled_only: bool = False) -> list[SchedulerJobConfig]:
+        """
+        List scheduled job configurations.
+
+        Args:
+            enabled_only: If True, only return enabled jobs
+
+        Returns:
+            List of SchedulerJobConfig objects
+
+        Example:
+            >>> jobs = autoflow_config.list_scheduler_jobs(enabled_only=True)
+            >>> for job in jobs:
+            ...     print(f"{job.id}: {job.cron}")
+        """
+        if self.config is None:
+            return []
+
+        jobs = self.config.scheduler.jobs.copy()
+
+        if enabled_only:
+            jobs = [job for job in jobs if job.enabled]
+
+        return jobs
+
+    def get_ci_gates(self) -> list[CIGateConfig]:
+        """
+        Get all configured CI gates.
+
+        Returns:
+            List of CIGateConfig objects
+
+        Example:
+            >>> gates = autoflow_config.get_ci_gates()
+            >>> for gate in gates:
+            ...     print(f"{gate.type}: {gate.command}")
+        """
+        if self.config is None:
+            return []
+
+        return self.config.ci.gates.copy()
+
+    def validate(self) -> dict[str, list[str]]:
+        """
+        Validate the current configuration.
+
+        Checks for common configuration issues like:
+        - Invalid paths
+        - Missing required fields
+        - Invalid cron expressions
+        - Conflicting settings
+
+        Returns:
+            Dictionary with 'errors' and 'warnings' lists
+
+        Example:
+            >>> validation = autoflow_config.validate()
+            >>> if validation['errors']:
+            ...     print("Configuration errors:", validation['errors'])
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        if self.config is None:
+            errors.append("Configuration not loaded")
+            return {"errors": errors, "warnings": warnings}
+
+        # Validate repository paths exist
+        for repo in self.config.repositories.repositories:
+            repo_path = Path(repo.path)
+            if not repo_path.exists():
+                warnings.append(
+                    f"Repository path does not exist: {repo.id} at {repo_path}"
+                )
+
+        # Validate state directory
+        state_dir = self.get_state_dir()
+        if not state_dir.exists():
+            warnings.append(f"State directory does not exist: {state_dir}")
+
+        # Validate log directory if system config loaded
+        if self.system_config is not None:
+            log_dir = Path(self.system_config.log_dir)
+            if not log_dir.exists():
+                warnings.append(f"Log directory does not exist: {log_dir}")
+
+        return {"errors": errors, "warnings": warnings}
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Export configuration to dictionary.
+
+        Returns:
+            Dictionary containing both main and system configuration
+
+        Example:
+            >>> config_dict = autoflow_config.to_dict()
+            >>> import json
+            >>> print(json.dumps(config_dict, indent=2))
+        """
+        result: dict[str, Any] = {}
+
+        if self.config is not None:
+            result["config"] = self.config.model_dump()
+
+        if self.system_config is not None:
+            result["system_config"] = self.system_config.model_dump()
+
+        return result
+
+    def __repr__(self) -> str:
+        """String representation of AutoflowConfig."""
+        return (
+            f"AutoflowConfig("
+            f"config_dir={self.config_dir!r}, "
+            f"state_dir={self.state_dir!r}, "
+            f"loaded={self.config is not None})"
+        )

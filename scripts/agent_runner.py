@@ -20,6 +20,29 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def get_config(config_path: str | Path) -> dict[str, Any]:
+    """Load configuration from a JSON file.
+
+    Args:
+        config_path: Path to the configuration file
+
+    Returns:
+        Parsed configuration dictionary
+
+    Raises:
+        SystemExit: If the config file doesn't exist or contains invalid JSON
+    """
+    config_file = Path(config_path)
+    if not config_file.exists():
+        raise SystemExit(f"configuration file not found: {config_file}")
+    try:
+        return read_json(config_file)
+    except json.JSONDecodeError as e:
+        raise SystemExit(f"invalid JSON in configuration file {config_file}: {e}") from e
+    except OSError as e:
+        raise SystemExit(f"error reading configuration file {config_file}: {e}") from e
+
+
 def verify_prompt_integrity(prompt_file: str, run_metadata: dict[str, Any] | None) -> None:
     """Verify prompt.md file integrity before loading.
 

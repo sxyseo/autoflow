@@ -1,0 +1,9 @@
+{
+  "valid": false,
+  "invalidated_at": "20260316T004429Z",
+  "invalidated_reason": "task_status_updated",
+  "spec_hash": "443f0e5344ba05878662d4f334d9e8f2889a24888a9362171b25fd5c070ade15",
+  "feedback": [],
+  "feedback_count": 0,
+  "spec_changed": true
+}

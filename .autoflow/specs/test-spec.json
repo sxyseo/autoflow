@@ -1,0 +1,11 @@
+{
+  "id": "test-spec",
+  "title": "Test Spec",
+  "status": "pending",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z",
+  "content": "Test specification for unit testing",
+  "version": "1.0",
+  "tags": [],
+  "metadata": {}
+}

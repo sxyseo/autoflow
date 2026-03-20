@@ -52,6 +52,7 @@ def load_config(path: str) -> dict[str, Any]:
     return result
 
 
+<<<<<<< HEAD
 def run_json(cmd: list[str]) -> dict[str, Any]:
     proc = continuous_iteration.run(cmd)
     payload: dict[str, Any] = json.loads(proc.stdout)
@@ -99,6 +100,13 @@ def taskmaster_import(spec: str, input_file: str) -> dict[str, Any]:
 
 =======
 >>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
+=======
+def get_config() -> dict[str, Any]:
+    result: dict[str, Any] = load_config("config/autonomy.example.json")
+    return result
+
+
+>>>>>>> auto-claude/109-replace-dynamic-module-loading-in-tests-with-prope
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
     report = cli_healthcheck.build_report()
     payload: dict[str, Any] = dict(report)

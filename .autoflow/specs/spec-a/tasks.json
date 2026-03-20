@@ -1,0 +1,17 @@
+{
+  "spec_slug": "spec-a",
+  "updated_at": "20260316T003611Z",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Define workflow for Performance Spec",
+      "status": "todo",
+      "depends_on": [],
+      "owner_role": "spec-writer",
+      "acceptance_criteria": [
+        "Initial task created"
+      ],
+      "notes": []
+    }
+  ]
+}
