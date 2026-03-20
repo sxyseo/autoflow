@@ -25,6 +25,7 @@ from autoflow.cli.memory import memory
 from autoflow.cli.review import review
 from autoflow.cli.run import run
 from autoflow.cli.scheduler import scheduler
+from autoflow.cli.search_tasks import search_tasks
 from autoflow.cli.skill import skill
 from autoflow.cli.status import status
 from autoflow.cli.task import task
@@ -142,6 +143,7 @@ main.add_command(status)
 main.add_command(agent)
 main.add_command(skill)
 main.add_command(task)
+main.add_command(search_tasks, name="search-tasks")
 main.add_command(scheduler)
 main.add_command(ci)
 main.add_command(review)
