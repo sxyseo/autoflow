@@ -31,6 +31,52 @@ from typing import Any
 from autoflow.core.config import Config, get_state_dir
 
 
+class MemoryManagerLazy:
+    """
+    Lazy initialization wrapper for MemoryManager.
+
+    Delays importing MemoryManager until it's actually needed to avoid
+    import errors when the memory system is not available.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the lazy wrapper."""
+        self._manager: Any | None = None
+        self._available: bool | None = None
+
+    @property
+    def available(self) -> bool:
+        """Check if MemoryManager is available."""
+        if self._available is not None:
+            return self._available
+
+        try:
+            from autoflow.memory import MemoryManager
+
+            self._available = True
+            return True
+        except ImportError:
+            self._available = False
+            return False
+
+    @property
+    def manager(self) -> Any:
+        """Get the MemoryManager instance."""
+        if not self.available:
+            return None
+
+        if self._manager is None:
+            from autoflow.memory import MemoryManager
+
+            self._manager = MemoryManager()
+
+        return self._manager
+
+
+# Global lazy instance
+_memory_manager_lazy = MemoryManagerLazy()
+
+
 class TaskStatus(StrEnum):
     """Valid task statuses in the workflow."""
 
@@ -1667,6 +1713,39 @@ class AutoflowCLI:
             if agent.memory_scopes
             else ""
         )
+
+        # Retrieve semantic context using MemoryManager
+        semantic_context_items = []
+        if _memory_manager_lazy.available and task_id:
+            try:
+                memory_manager = _memory_manager_lazy.manager
+                if memory_manager:
+                    semantic_context_items = memory_manager.get_context_for_run(
+                        task_id=task_id,
+                        spec_id=spec_slug,
+                        max_items=5,
+                        relevance_threshold=0.3,
+                        include_spec=True,
+                        include_global=True,
+                    )
+            except Exception:
+                # Silently fall back if context retrieval fails
+                pass
+
+        # Format semantic context as bullet points with relevance scores
+        semantic_context = ""
+        if semantic_context_items:
+            lines = []
+            for item in semantic_context_items:
+                score_pct = item.get("score", 0.0) * 100
+                scope_label = item.get("scope", "global")
+                type_label = item.get("type", "context")
+                content = item.get("content", "")
+                lines.append(
+                    f"- [{score_pct:.0f}% relevance] [{scope_label}/{type_label}] {content}"
+                )
+            semantic_context = "\n".join(lines)
+
         strategy_context = ""  # Simplified
         worktree_context_val = (
             f"Worktree: {files['worktree']}"
@@ -1713,7 +1792,10 @@ class AutoflowCLI:
                 worktree_context_val,
                 "",
                 "## Memory context",
-                memory_context,
+                memory_context or "No memory context available.",
+                "",
+                "## Semantic context",
+                semantic_context or "No semantic context available.",
                 "",
                 strategy_context,
                 "",
