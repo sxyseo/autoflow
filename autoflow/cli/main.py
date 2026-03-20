@@ -27,6 +27,7 @@ from autoflow.cli.run import run
 from autoflow.cli.scheduler import scheduler
 from autoflow.cli.search_tasks import search_tasks
 from autoflow.cli.skill import skill
+from autoflow.cli.spec import spec
 from autoflow.cli.status import status
 from autoflow.cli.task import task
 from autoflow.core.config import Config, load_config
@@ -149,3 +150,4 @@ main.add_command(ci)
 main.add_command(review)
 main.add_command(config)
 main.add_command(memory)
+main.add_command(spec)
