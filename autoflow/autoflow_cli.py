@@ -1259,13 +1259,16 @@ class AutoflowCLI:
             try:
                 memory_manager = _memory_manager_lazy.manager
                 if memory_manager:
+                    # Respect agent's memory_scopes configuration
+                    include_spec = not memory_scopes or "spec" in memory_scopes
+                    include_global = not memory_scopes or "global" in memory_scopes
                     semantic_items = memory_manager.get_context_for_run(
                         task_id=args.task,
                         spec_id=args.spec,
                         max_items=5,
                         relevance_threshold=0.3,
-                        include_spec=True,
-                        include_global=True,
+                        include_spec=include_spec,
+                        include_global=include_global,
                     )
                     # Store summary of injected context
                     context_injected["semantic_context_items"] = [
@@ -1806,13 +1809,16 @@ class AutoflowCLI:
             try:
                 memory_manager = _memory_manager_lazy.manager
                 if memory_manager:
+                    # Respect agent's memory_scopes configuration
+                    include_spec = not agent.memory_scopes or "spec" in agent.memory_scopes
+                    include_global = not agent.memory_scopes or "global" in agent.memory_scopes
                     semantic_context_items = memory_manager.get_context_for_run(
                         task_id=task_id,
                         spec_id=spec_slug,
                         max_items=5,
                         relevance_threshold=0.3,
-                        include_spec=True,
-                        include_global=True,
+                        include_spec=include_spec,
+                        include_global=include_global,
                     )
             except Exception:
                 # Silently fall back if context retrieval fails
