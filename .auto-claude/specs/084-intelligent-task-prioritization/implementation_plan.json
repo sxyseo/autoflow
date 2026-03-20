@@ -1,0 +1,546 @@
+{
+  "feature": "Intelligent Task Prioritization",
+  "description": "# Intelligent Task Prioritization\n\nUse ML to analyze task patterns and suggest optimal task ordering based on dependencies, estimated complexity, and historical completion data. Help users focus on high-impact tasks first.\n\n## Rationale\nEnhances the planning phase by providing data-driven task prioritization. Addresses the complexity of managing multi-task workflows. Creates a smarter orchestration layer that learns from usage patterns.\n\n## User Stories\n- As a developer with a complex backlog of tasks, I want intelligent suggestions on which tasks to tackle first so that I can maximize productivity\n\n## Acceptance Criteria\n- [ ] System suggests optimal task ordering based on dependencies and complexity\n- [ ] Priority suggestions improve based on historical completion data\n- [ ] Users can accept, reject, or modify suggested priorities\n- [ ] Explanation provided for why certain tasks are prioritized\n",
+  "created_at": "2026-03-16T00:03:08.299Z",
+  "updated_at": "2026-03-19T00:09:00.897Z",
+  "status": "in_progress",
+  "workflow_type": "feature",
+  "workflow_rationale": "This is a new feature that adds ML-based task prioritization capabilities to the existing Autoflow system. It builds on the existing prediction infrastructure and task management system without requiring major refactoring.",
+  "phases": [
+    {
+      "id": "phase-1-feature-extraction",
+      "name": "Task Feature Extraction",
+      "type": "implementation",
+      "description": "Build the feature extraction layer that analyzes tasks to extract prioritization signals including complexity, dependencies, historical completion data, and temporal patterns.",
+      "depends_on": [],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Create TaskFeatureExtractor class with dataclass feature models",
+          "service": "backend",
+          "files_to_create": [
+            "autoflow/prediction/task_feature_extractor.py"
+          ],
+          "files_to_modify": [
+            "autoflow/prediction/__init__.py"
+          ],
+          "patterns_from": [
+            "autoflow/prediction/feature_extractor.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_feature_extractor import TaskFeatureExtractor; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-2",
+          "description": "Implement dependency graph analysis for task ordering",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_feature_extractor.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_feature_extractor import TaskFeatureExtractor; ext = TaskFeatureExtractor(); print('dependency_analysis' in dir(ext))\"",
+            "expected": "True"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-1-3",
+          "description": "Extract complexity features from task metadata (description length, labels, etc.)",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_feature_extractor.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/prediction/feature_extractor.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python tests/test_task_feature_extractor.py",
+            "expected": "tests passed"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-2-historical-data",
+      "name": "Historical Data Collection",
+      "type": "implementation",
+      "description": "Build the data collection layer that aggregates historical task completion data for ML training, including completion times, success rates, and patterns.",
+      "depends_on": [
+        "phase-1-feature-extraction"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Create TaskHistoryCollector to gather task completion data",
+          "service": "backend",
+          "files_to_create": [
+            "autoflow/prediction/task_history_collector.py"
+          ],
+          "files_to_modify": [
+            "autoflow/prediction/__init__.py"
+          ],
+          "patterns_from": [
+            "autoflow/prediction/data_collector.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_history_collector import TaskHistoryCollector; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Integrate with VelocityTracker to get cycle time data",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_history_collector.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/analytics/velocity.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python tests/test_task_history_collector.py",
+            "expected": "tests passed"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-2-3",
+          "description": "Create training sample dataclass for task priority predictions",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_history_collector.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/prediction/data_collector.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_history_collector import TaskPrioritySample; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-ml-model",
+      "name": "Priority Prediction Model",
+      "type": "implementation",
+      "description": "Build the ML model that predicts optimal task priorities based on features and historical data. Uses sklearn's RandomForest for ranking tasks.",
+      "depends_on": [
+        "phase-2-historical-data"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Create TaskPriorityModel class with train/predict methods",
+          "service": "backend",
+          "files_to_create": [
+            "autoflow/prediction/task_priority_model.py"
+          ],
+          "files_to_modify": [
+            "autoflow/prediction/__init__.py"
+          ],
+          "patterns_from": [
+            "autoflow/prediction/model.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_priority_model import TaskPriorityModel; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Implement priority scoring and ranking algorithm",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_priority_model.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/prediction/model.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_priority_model import TaskPriorityModel; model = TaskPriorityModel(); print(hasattr(model, 'score_tasks'))\"",
+            "expected": "True"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-3-3",
+          "description": "Create model training script with CLI interface",
+          "service": "backend",
+          "files_to_create": [
+            "scripts/train_task_priority_model.py"
+          ],
+          "files_to_modify": [],
+          "patterns_from": [
+            "scripts/train_model.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python scripts/train_task_priority_model.py --help",
+            "expected": "usage: train_task_priority_model.py"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-4-prioritization-service",
+      "name": "Prioritization Service Layer",
+      "type": "implementation",
+      "description": "Build the service layer that orchestrates feature extraction, model prediction, and provides task prioritization recommendations with explanations.",
+      "depends_on": [
+        "phase-3-ml-model"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-4-1",
+          "description": "Create TaskPrioritizer service class",
+          "service": "backend",
+          "files_to_create": [
+            "autoflow/prediction/task_prioritizer.py"
+          ],
+          "files_to_modify": [
+            "autoflow/prediction/__init__.py"
+          ],
+          "patterns_from": [
+            "autoflow/prediction/predictor.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_prioritizer import TaskPrioritizer; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-2",
+          "description": "Implement prioritization result with explanations and confidence scores",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_prioritizer.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/prediction/model.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.prediction.task_prioritizer import PrioritizationResult; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-4-3",
+          "description": "Add support for user acceptance/rejection feedback",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/prediction/task_prioritizer.py",
+            "autoflow/prediction/feedback.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/prediction/feedback.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python tests/test_task_prioritization.py",
+            "expected": "tests passed"
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-5-api-endpoints",
+      "name": "API Endpoints",
+      "type": "implementation",
+      "description": "Create FastAPI endpoints for task prioritization, including suggestions, feedback, and model status endpoints.",
+      "depends_on": [
+        "phase-4-prioritization-service"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-5-1",
+          "description": "Create prioritization API router with Pydantic models",
+          "service": "backend",
+          "files_to_create": [
+            "autoflow/api/routes/prioritization.py"
+          ],
+          "files_to_modify": [
+            "autoflow/web/models.py"
+          ],
+          "patterns_from": [
+            "autoflow/api/routes/tasks.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python -c \"from autoflow.api.routes.prioritization import router; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-5-2",
+          "description": "Implement GET /api/v1/prioritization/suggestions endpoint",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/api/routes/prioritization.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/api/routes/tasks.py"
+          ],
+          "verification": {
+            "type": "api",
+            "method": "GET",
+            "url": "http://localhost:8000/api/v1/prioritization/suggestions",
+            "expected_status": 200
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-5-3",
+          "description": "Implement POST /api/v1/prioritization/feedback endpoint",
+          "service": "backend",
+          "files_to_modify": [
+            "autoflow/api/routes/prioritization.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "autoflow/api/routes/tasks.py"
+          ],
+          "verification": {
+            "type": "api",
+            "method": "POST",
+            "url": "http://localhost:8000/api/v1/prioritization/feedback",
+            "body": {
+              "task_id": "test",
+              "accepted": true
+            },
+            "expected_status": 201
+          },
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-6-integration",
+      "name": "Integration and Testing",
+      "type": "integration",
+      "description": "Integrate all components, run end-to-end tests, and verify the complete task prioritization workflow.",
+      "depends_on": [
+        "phase-5-api-endpoints"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-6-1",
+          "description": "Write comprehensive unit tests for all components",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_task_prioritization.py",
+            "tests/test_task_feature_extractor.py",
+            "tests/test_task_history_collector.py"
+          ],
+          "patterns_from": [
+            "tests/test_analytics_velocity.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_task_prioritization.py tests/test_task_feature_extractor.py tests/test_task_history_collector.py -v",
+            "expected": "passed"
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-6-2",
+          "description": "End-to-end test of task prioritization workflow",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/e2e/test_prioritization_workflow.py"
+          ],
+          "patterns_from": [
+            "tests/e2e"
+          ],
+          "verification": {
+            "type": "e2e",
+            "steps": [
+              "Create sample tasks with dependencies",
+              "Extract features from tasks",
+              "Train model on historical data",
+              "Get prioritization suggestions",
+              "Submit feedback on suggestions",
+              "Verify model improves with feedback"
+            ]
+          },
+          "status": "pending"
+        },
+        {
+          "id": "subtask-6-3",
+          "description": "Performance testing and optimization",
+          "service": "backend",
+          "files_to_modify": [],
+          "files_to_create": [
+            "tests/test_prioritization_performance.py"
+          ],
+          "patterns_from": [
+            "tests/test_caching_performance.py"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "pytest tests/test_prioritization_performance.py -v",
+            "expected": "passed"
+          },
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 6,
+    "total_subtasks": 18,
+    "services_involved": [
+      "backend"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 1,
+      "parallel_groups": [],
+      "recommended_workers": 1,
+      "speedup_estimate": "Sequential execution required due to dependencies"
+    },
+    "startup_command": "python scripts/train_task_priority_model.py --data .autoflow/runs --output .autoflow/models/task_priority.pkl"
+  },
+  "verification_strategy": {
+    "risk_level": "medium",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit",
+      "integration",
+      "e2e"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "System suggests optimal task ordering based on dependencies and complexity",
+      "Priority suggestions improve based on historical completion data",
+      "Users can accept, reject, or modify suggested priorities",
+      "Explanation provided for why certain tasks are prioritized"
+    ],
+    "verification_steps": [
+      {
+        "name": "Unit Tests",
+        "command": "pytest tests/test_task_prioritization.py tests/test_task_feature_extractor.py tests/test_task_history_collector.py -v",
+        "expected_outcome": "All tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Integration Tests",
+        "command": "pytest tests/integration/test_prioritization_integration.py -v",
+        "expected_outcome": "All integration tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "E2E Workflow Test",
+        "command": "pytest tests/e2e/test_prioritization_workflow.py -v",
+        "expected_outcome": "End-to-end workflow test passes",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "API Endpoint Verification",
+        "command": "python -c \"import requests; resp = requests.get('http://localhost:8000/api/v1/prioritization/suggestions'); assert resp.status_code == 200\"",
+        "expected_outcome": "API returns 200 status",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Medium risk feature with new ML components. Requires comprehensive testing to ensure model accuracy and API reliability. No security scanning required as this is an internal feature without external input handling."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/test_task_prioritization.py -v",
+        "pytest tests/test_task_feature_extractor.py -v",
+        "pytest tests/test_task_history_collector.py -v"
+      ],
+      "minimum_coverage": 80
+    },
+    "integration_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/integration/test_prioritization_integration.py -v"
+      ],
+      "services_to_test": [
+        "backend"
+      ]
+    },
+    "e2e_tests": {
+      "required": true,
+      "commands": [
+        "pytest tests/e2e/test_prioritization_workflow.py -v"
+      ],
+      "flows": [
+        "task-prioritization",
+        "feedback-loop",
+        "model-training"
+      ]
+    },
+    "api_verification": {
+      "required": true,
+      "endpoints": [
+        {
+          "url": "http://localhost:8000/api/v1/prioritization/suggestions",
+          "method": "GET",
+          "expected_status": 200
+        },
+        {
+          "url": "http://localhost:8000/api/v1/prioritization/feedback",
+          "method": "POST",
+          "expected_status": 201
+        }
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "planStatus": "in_progress",
+  "xstateState": "ready",
+  "executionPhase": "coding",
+  "recoveryNote": "Task recovered from stuck state at 2026-03-18T23:47:12.750Z"
+}

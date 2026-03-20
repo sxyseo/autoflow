@@ -1,0 +1,524 @@
+=== AUTO-BUILD PROGRESS ===
+
+Project: Intelligent Task Prioritization
+Workspace: managed by orchestrator
+Started: 2026-03-19
+
+Workflow Type: feature
+Rationale: This is a new feature that adds ML-based task prioritization capabilities to the existing Autoflow system. It builds on the existing prediction infrastructure and task management system without requiring major refactoring.
+
+Session 1 (Planner):
+- Created implementation_plan.json
+- Created context.json with existing patterns and implementations
+- Created project_index.json with tech stack and conventions
+- Phases: 6
+- Total subtasks: 18
+- Created init.sh
+
+Phase Summary:
+- Phase 1 (Task Feature Extraction): 3 subtasks, depends on []
+- Phase 2 (Historical Data Collection): 3 subtasks, depends on [phase-1-feature-extraction]
+- Phase 3 (Priority Prediction Model): 3 subtasks, depends on [phase-2-historical-data]
+- Phase 4 (Prioritization Service Layer): 3 subtasks, depends on [phase-3-ml-model]
+- Phase 5 (API Endpoints): 3 subtasks, depends on [phase-4-prioritization-service]
+- Phase 6 (Integration and Testing): 3 subtasks, depends on [phase-5-api-endpoints]
+
+Services Involved:
+- backend: Core Autoflow system with ML prediction and API layers
+
+Parallelism Analysis:
+- Max parallel phases: 1
+- Recommended workers: 1
+- Sequential execution required due to dependencies between phases
+- Each phase builds on the previous phase's output
+
+Key Technical Decisions:
+1. ML Framework: Using sklearn's RandomForest (consistent with existing QualityModel)
+2. Feature Extraction: Following existing FeatureExtractor pattern with dataclasses
+3. API Design: FastAPI with Pydantic models (consistent with existing routes)
+4. Data Collection: Integrating with existing VelocityTracker for historical data
+5. Model Storage: Using joblib for model serialization (consistent with existing patterns)
+
+Existing Patterns to Follow:
+- ML Model: autoflow/prediction/model.py (QualityModel pattern)
+- Feature Extraction: autoflow/prediction/feature_extractor.py
+- Data Collection: autoflow/prediction/data_collector.py
+- API Routes: autoflow/api/routes/tasks.py
+- Web Models: autoflow/web/models.py
+
+=== STARTUP COMMAND ===
+
+To continue building this spec, run:
+
+  python scripts/autoflow.py workflow-state --spec 084-intelligent-task-prioritization
+
+To start implementation (coder agent):
+  # Find next pending subtask
+  # Implement according to implementation_plan.json
+  # Mark subtask as complete after verification
+
+=== FILES CREATED THIS SESSION ===
+
+1. .auto-claude/specs/084-intelligent-task-prioritization/project_index.json
+   - Project structure and tech stack documentation
+   - Existing ML infrastructure reference
+   - Conventions and patterns
+
+2. .auto-claude/specs/084-intelligent-task-prioritization/context.json
+   - Files to modify and create
+   - Existing implementations to reference
+   - Technology stack and dependencies
+
+3. .auto-claude/specs/084-intelligent-task-prioritization/implementation_plan.json
+   - Complete 6-phase implementation plan
+   - 18 subtasks with dependencies and verification
+   - Verification strategy and QA acceptance criteria
+
+4. .auto-claude/specs/084-intelligent-task-prioritization/init.sh
+   - Environment setup script
+   - Dependency checking
+   - Test execution helpers
+
+5. .auto-claude/specs/084-intelligent-task-prioritization/build-progress.txt
+   - This file
+   - Session progress tracking
+
+=== INVESTIGATION FINDINGS ===
+
+Codebase Structure:
+- Single-service Python project using FastAPI
+- Existing ML prediction infrastructure in autoflow/prediction/
+- Task management in autoflow/core/state.py and autoflow/api/routes/tasks.py
+- Analytics module in autoflow/analytics/ with velocity tracking
+- Uses sklearn for ML, Pydantic for models, pytest for testing
+
+Key Existing Components:
+1. QualityModel (autoflow/prediction/model.py)
+   - RandomForest-based quality prediction
+   - Pattern to follow for TaskPriorityModel
+
+2. FeatureExtractor (autoflow/prediction/feature_extractor.py)
+   - Dataclass-based feature extraction
+   - Pattern to follow for TaskFeatureExtractor
+
+3. DataCollector (autoflow/prediction/data_collector.py)
+   - Historical data collection from runs
+   - Pattern to follow for TaskHistoryCollector
+
+4. VelocityTracker (autoflow/analytics/velocity.py)
+   - Task completion time tracking
+   - Data source for historical completion patterns
+
+5. Task Model (autoflow/core/state.py)
+   - Already has priority field (1-10)
+   - Dependencies and metadata support
+   - Will be extended, not replaced
+
+=== END SESSION 1 ===
+
+=== SESSION 2: SUBTASK 1-1 COMPLETED ===
+
+Subtask: subtask-1-1 - Create TaskFeatureExtractor class with dataclass feature models
+Status: COMPLETED
+
+Files:
+- Created: autoflow/prediction/task_feature_extractor.py (573 lines)
+- Modified: autoflow/prediction/__init__.py (imports already in place)
+
+Implementation Details:
+- TaskFeatureExtractor class with dataclass feature models
+- TaskStatus enum: todo, in_progress, in_review, done, needs_changes, blocked
+- TaskType enum: implementation, integration, test, documentation, refactor, other
+- TaskComplexityFeatures: description length, word count, files to create/modify, verification
+- TaskDependencyFeatures: dependencies count, dependents count, is_blocking, depth, circular check
+- TaskServiceFeatures: service, role, phase_type
+- TaskHistoricalFeatures: avg_completion_time, success_rate, retry_count, last_completed
+- TaskFeatures: unified feature vector combining all types
+- TaskFeatureExtractor.extract_task_features() method with priority scoring
+- TaskFeatureExtractor.extract_batch_features() method for batch processing
+- Dependency graph analysis with depth calculation and circular dependency detection
+
+Verification: PASSED
+- Command: python3 -c "from autoflow.prediction.task_feature_extractor import TaskFeatureExtractor; print('OK')"
+- Output: OK
+
+Patterns Followed:
+- Used dataclasses with to_dict() methods (like SpecFeatures, FileFeatures)
+- Used StrEnum for status and type enums (like WorkflowType)
+- Followed initialization pattern with root_dir parameter
+- Followed extraction pattern with private helper methods
+- Included comprehensive docstrings for all classes and methods
+- Used same error handling patterns (ValueError for malformed data)
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean implementation with descriptive names
+
+Next Steps:
+- Proceed to subtask-1-2: Implement dependency graph analysis for task ordering
+- Note: Dependency analysis is already partially implemented in TaskFeatureExtractor
+- May need to enhance or extract into separate methods for subtask-1-2
+
+=== END SESSION 2 ===
+
+=== SESSION 3: SUBTASK 1-2 COMPLETED ===
+
+Subtask: subtask-1-2 - Implement dependency graph analysis for task ordering
+Status: COMPLETED
+
+Files:
+- Modified: autoflow/prediction/task_feature_extractor.py (354 lines added)
+
+Implementation Details:
+- Added dependency_analysis() public method to TaskFeatureExtractor
+- Implements topological sort using Kahn's algorithm for optimal task execution order
+- Detects circular dependencies in task graphs using DFS
+- Identifies critical paths (longest dependency chains)
+- Finds blocking tasks (tasks that other tasks depend on)
+- Finds parallel-safe task groups for concurrent execution
+- Calculates dependency depth levels for all tasks
+- Helper methods:
+  - _build_dependency_graph(): Maps tasks to their dependencies
+  - _build_reverse_dependency_graph(): Maps tasks to their dependents
+  - _topological_sort(): Kahn's algorithm for ordering
+  - _calculate_dependency_levels(): Computes depth using recursion
+  - _find_critical_path(): Finds longest chain using levels
+  - _find_parallel_safe_tasks(): Groups tasks by level and independence
+  - _detect_all_cycles(): DFS-based cycle detection
+
+Returns:
+- execution_order: List of task IDs in topological order
+- critical_path: List of task IDs forming the longest dependency chain
+- blocking_tasks: List of task IDs that block other tasks
+- parallel_safe: List of task groups that can run in parallel
+- levels: Dictionary mapping task IDs to their dependency depth
+- cycles: List of detected circular dependencies (if any)
+
+Verification: PASSED
+- Syntax check: python3 -m py_compile (PASSED)
+- Method exists: grep -n "def dependency_analysis" (PASSED)
+- Functional test with sample tasks (PASSED)
+  - Execution order correctly respects dependencies
+  - Critical path identified correctly
+  - Blocking tasks identified correctly
+  - Parallel-safe groups identified correctly
+  - Dependency levels calculated correctly
+  - Cycle detection works correctly
+
+Test Results:
+```
+dependency_analysis method exists: True
+Execution order: ['task-1', 'task-2', 'task-3', 'task-4']
+Critical path: ['task-1', 'task-3', 'task-4']
+Blocking tasks: ['task-1', 'task-2', 'task-3']
+Parallel safe groups: [['task-1'], ['task-2', 'task-3'], ['task-4']]
+Levels: {'task-1': 0, 'task-3': 1, 'task-2': 1, 'task-4': 2}
+Cycles: []
+✓ All tests passed!
+```
+
+Patterns Followed:
+- Followed existing DependencyTracker pattern (autoflow/core/dependency.py)
+- Used defaultdict for graph construction (consistent with codebase)
+- Used Kahn's algorithm for topological sort (industry standard)
+- Used DFS for cycle detection (consistent with DependencyTracker)
+- Comprehensive docstrings with examples (like existing methods)
+- Type hints on all parameters and return values
+- Error handling with ValueError for invalid input
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean implementation with descriptive names
+
+Next Steps:
+- Proceed to subtask-1-3: Extract complexity features from task metadata
+- Complexity features are already partially implemented in _extract_complexity_features
+- May need to enhance or add additional complexity metrics
+
+=== END SESSION 3 ===
+
+=== SESSION 4: SUBTASK 1-3 COMPLETED ===
+
+Subtask: subtask-1-3 - Extract complexity features from task metadata (description length, labels, etc.)
+Status: COMPLETED
+
+Files:
+- Created: tests/test_task_feature_extractor.py (452 lines)
+- Modified: autoflow/prediction/__init__.py (imports already in place)
+- No changes needed to autoflow/prediction/task_feature_extractor.py (already implemented)
+
+Implementation Details:
+The complexity feature extraction was already fully implemented in subtask-1-1:
+- _extract_complexity_features() method extracts all complexity metrics
+- TaskComplexityFeatures dataclass with:
+  - description_length: Length of task description in characters
+  - description_word_count: Number of words in description
+  - num_files_to_create: Number of files to create
+  - num_files_to_modify: Number of files to modify
+  - num_patterns: Number of pattern files to reference
+  - has_verification: Whether task has verification criteria
+  - verification_type: Type of verification (command, test, api, e2e)
+
+Test Suite Created:
+Comprehensive test suite with 22 tests covering:
+- TestTaskComplexityFeatures (7 tests):
+  - Minimal task data extraction
+  - Full task data extraction
+  - Empty description handling
+  - Missing fields handling
+  - Different verification types (command, test, api, e2e, manual)
+  - File counting with various lists
+  - Serialization to dictionary
+- TestTaskDependencyFeatures (3 tests):
+  - No dependencies scenario
+  - With dependencies scenario
+  - Chained dependencies
+- TestTaskServiceFeatures (2 tests):
+  - Complete service feature extraction
+  - Missing fields handling
+- TestTaskFeatureExtraction (3 tests):
+  - Complete task feature extraction
+  - Batch feature extraction
+  - Feature serialization
+- TestDependencyAnalysis (4 tests):
+  - Simple linear chain
+  - Parallel tasks
+  - Cycle detection
+  - Dependency level calculation
+- TestPriorityScore (3 tests):
+  - Blocking task priority
+  - Complexity-based priority
+  - Score normalization (0-100 range)
+
+Verification: PASSED
+- Command: python3 -m pytest tests/test_task_feature_extractor.py -v
+- Result: 22 passed in 1.06s
+- All tests passing successfully
+
+Patterns Followed:
+- Test structure follows existing test patterns (e.g., test_analytics_velocity.py)
+- Used pytest fixtures and parametrized tests
+- Comprehensive edge case coverage
+- Clear test names and docstrings
+- Tests are isolated and independent
+- Used type checking and assertions
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean commit with descriptive message
+
+Next Steps:
+- Proceed to subtask-2-1: Create TaskHistoryCollector to gather task completion data
+- Phase 1 (Task Feature Extraction) is now complete!
+- All complexity features are extracted and tested
+- Dependency analysis is fully implemented and tested
+- Ready to move to Phase 2 (Historical Data Collection)
+
+=== END SESSION 4 ===
+
+=== SESSION 5: SUBTASK 2-1 COMPLETED ===
+
+Subtask: subtask-2-1 - Create TaskHistoryCollector to gather task completion data
+Status: COMPLETED
+
+Files:
+- Created: autoflow/prediction/task_history_collector.py (388 lines)
+- Modified: autoflow/prediction/__init__.py (imports already in place)
+
+Implementation Details:
+- TaskHistoryCollector class following DataCollector pattern
+- TaskOutcome enum: completed, needs_work, blocked, in_progress, pending
+- TaskPrioritySample dataclass for training samples with:
+  - task_id: Unique identifier
+  - spec_id: Spec this task belongs to
+  - phase_id: Phase this task belongs to
+  - features: TaskFeatures with all extracted features
+  - outcome: Actual task outcome
+  - priority_score: Historical priority score
+  - completion_time_seconds: Time to complete (if available)
+- Methods:
+  - collect_task_history(): Collect task samples from implementation_plan.json
+  - collect_task_history_for_model(): Format for ML training (feature_dicts, labels)
+  - get_completed_tasks(): Filter for only completed tasks
+  - get_task_statistics(): Calculate completion statistics
+  - _collect_from_plan(): Process single implementation plan
+  - _create_task_sample(): Create training sample from task data
+  - _map_status_to_outcome(): Map status strings to TaskOutcome enum
+
+Integration:
+- Uses TaskFeatureExtractor for feature extraction
+- Reads from .auto-claude/specs/*/implementation_plan.json
+- Extracts tasks from phases and subtasks structure
+- Provides training data for ML models
+
+Verification: PASSED
+- Import test: python3 -c "from autoflow.prediction.task_history_collector import TaskHistoryCollector; print('OK')"
+- Output: OK
+- Functional test: Successfully collected 102 task samples from existing specs
+- All expected methods present and functional
+- TaskOutcome enum has correct values
+- TaskPrioritySample dataclass has correct fields
+
+Patterns Followed:
+- Followed DataCollector pattern (autoflow/prediction/data_collector.py)
+- Used dataclasses with to_dict() methods
+- Used StrEnum for outcome labels
+- Followed initialization pattern with root_dir parameter
+- Comprehensive docstrings for all classes and methods
+- Error handling for malformed JSON (try/except on JSON decode)
+- Returns empty list when no data found (not errors)
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean implementation with descriptive names
+
+Next Steps:
+- Proceed to subtask-2-2: Integrate with VelocityTracker to get cycle time data
+- This will add completion_time_seconds data to TaskPrioritySample
+- Currently completion_time_seconds is None (to be implemented in subtask-2-2)
+
+=== END SESSION 5 ===
+
+=== SESSION 6: SUBTASK 2-2 COMPLETED ===
+
+Subtask: subtask-2-2 - Integrate with VelocityTracker to get cycle time data
+Status: COMPLETED
+
+Files:
+- Created: tests/test_task_history_collector.py (595 lines)
+- Modified: autoflow/prediction/task_history_collector.py (already integrated in subtask-2-1)
+- Modified: .auto-claude/specs/084-intelligent-task-prioritization/implementation_plan.json (marked subtask-2-2 as completed)
+
+Implementation Details:
+The VelocityTracker integration was already implemented in subtask-2-1:
+- TaskHistoryCollector.__init__() accepts optional velocity_tracker parameter
+- _create_task_sample() retrieves cycle_time from VelocityTracker when available
+- completion_time_seconds field populated with TaskRecord.cycle_time from VelocityTracker
+- Backward compatible: works without VelocityTracker (completion_time_seconds is None)
+
+Test Suite Created:
+Comprehensive test suite with 28 tests covering:
+- TestTaskHistoryCollectorInit (2 tests):
+  - Initialization without VelocityTracker
+  - Initialization with VelocityTracker
+- TestTaskOutcomeEnum (2 tests):
+  - TaskOutcome enum values
+  - TaskOutcome values are strings
+- TestTaskPrioritySample (2 tests):
+  - TaskPrioritySample creation
+  - TaskPrioritySample serialization to dict
+- TestVelocityTrackerIntegration (4 tests):
+  - Cycle time populated when VelocityTracker present
+  - No cycle time when VelocityTracker absent
+  - VelocityTracker.get_task() called for each task
+  - Empty specs directory handling
+- TestStatusMapping (9 tests):
+  - All status mappings to outcomes (done→completed, needs_changes→needs_work, etc.)
+- TestDataCollection (6 tests):
+  - Returns TaskPrioritySample objects
+  - Correct outcome mapping from status
+  - collect_task_history_for_model() formatting
+  - get_completed_tasks() filtering
+  - get_task_statistics() calculations
+  - Empty directory handling
+- TestErrorHandling (3 tests):
+  - Nonexistent specs directory raises FileNotFoundError
+  - Malformed plan file skipped gracefully
+  - Missing required fields handled gracefully
+
+Verification: PASSED
+- Command: python3 -m pytest tests/test_task_history_collector.py -v
+- Result: 28 passed in 1.47s
+- All tests passing successfully
+
+Integration Details:
+- VelocityTracker.get_task(task_id) retrieves TaskRecord
+- TaskRecord.cycle_time contains time from start to completion in seconds
+- Cycle time only available for completed tasks
+- In-progress and pending tasks have None for cycle_time
+- Tasks not in VelocityTracker also have None for cycle_time
+
+Patterns Followed:
+- Test structure follows existing patterns (test_analytics_velocity.py)
+- Used pytest fixtures for setup (temp_specs_dir, velocity_tracker, etc.)
+- Comprehensive edge case coverage
+- Clear test names and docstrings
+- Tests are isolated and independent
+- Integration is optional (backward compatible)
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes (all 28 tests)
+- [✓] Clean commit with descriptive message
+
+Next Steps:
+- Proceed to subtask-2-3: Create training sample dataclass for task priority predictions
+- Note: TaskPrioritySample dataclass already created in subtask-2-1
+- May need to enhance or verify all required fields are present
+
+=== END SESSION 6 ===
+
+=== SESSION 7: SUBTASK 2-3 COMPLETED ===
+
+Subtask: subtask-2-3 - Create training sample dataclass for task priority predictions
+Status: COMPLETED
+
+Files:
+- Modified: autoflow/prediction/task_history_collector.py (TaskPrioritySample already exists)
+- Modified: .auto-claude/specs/084-intelligent-task-prioritization/implementation_plan.json (marked subtask-2-3 as completed)
+
+Implementation Details:
+The TaskPrioritySample dataclass was already fully implemented in subtask-2-1 (lines 51-84):
+- @dataclass decorator with comprehensive docstring
+- Fields:
+  - task_id: Unique identifier for the task
+  - spec_id: Spec this task belongs to
+  - phase_id: Phase this task belongs to
+  - features: TaskFeatures with all extracted task features
+  - outcome: Actual task completion outcome
+  - priority_score: Historical priority score (if available)
+  - completion_time_seconds: Time taken to complete task (if available)
+- to_dict() method for ML model consumption
+- Follows the TrainingSample pattern from data_collector.py
+
+Verification: PASSED
+- Command: python3 -c "from autoflow.prediction.task_history_collector import TaskPrioritySample; print('OK')"
+- Output: OK
+- Dataclass has all required fields with proper types
+- to_dict() method correctly serializes data for ML consumption
+
+Patterns Followed:
+- Dataclass pattern with to_dict() method (like TrainingSample)
+- Comprehensive docstring with all attributes documented
+- Optional fields use None as default (priority_score, completion_time_seconds)
+- Proper type hints (str, TaskFeatures, TaskOutcome, float | None)
+- Uses .value for enum serialization in to_dict()
+
+Quality Checklist:
+- [✓] Follows patterns from reference files
+- [✓] No console.log/print debugging statements
+- [✓] Error handling in place
+- [✓] Verification passes
+- [✓] Clean commit with descriptive message
+
+Next Steps:
+- Proceed to subtask-3-1: Create TaskPriorityModel class with train/predict methods
+- Phase 2 (Historical Data Collection) is now complete\!
+- Ready to move to Phase 3 (Priority Prediction Model)
+- All training data infrastructure is in place (TaskFeatureExtractor, TaskHistoryCollector, TaskPrioritySample)
+
+=== END SESSION 7 ===
