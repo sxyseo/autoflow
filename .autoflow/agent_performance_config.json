@@ -1,0 +1,73 @@
+{
+  "performance_optimization": {
+    "token_efficiency": {
+      "context_window_tokens": 8000,
+      "max_response_tokens": 2000,
+      "compress_context": true,
+      "remove_duplicate_files": true,
+      "summarize_history": true,
+      "max_history_length": 50,
+      "cache_enabled": true,
+      "cache_ttl_hours": 24
+    },
+    "task_execution": {
+      "max_task_duration_minutes": 60,
+      "subtask_timeout_minutes": 15,
+      "max_retries": 2,
+      "retry_delay_seconds": 30,
+      "parallel_tasks": false,
+      "batch_size": 1
+    },
+    "resource_management": {
+      "max_memory_mb": 2048,
+      "max_concurrent_processes": 3,
+      "cleanup_interval_hours": 6,
+      "log_retention_days": 7,
+      "auto_cleanup": true
+    },
+    "development_strategy": {
+      "task_size": "small",
+      "slice_complexity": "simple",
+      "verification_frequency": "high",
+      "commit_frequency": "per-task",
+      "review_strategy": "automated"
+    }
+  },
+  "token_saving_rules": {
+    "file_selection": {
+      "max_files_per_task": 10,
+      "prefer_essential_only": true,
+      "exclude_test_files": false,
+      "exclude_docs": true
+    },
+    "context_management": {
+      "include_git_diff": true,
+      "include_error_logs": true,
+      "include_dependencies": true,
+      "summarize_large_files": true
+    },
+    "prompt_optimization": {
+      "use_system_prompts": true,
+      "remove_redundant_info": true,
+      "compress_file_contents": true,
+      "limit_code_snippets": true
+    }
+  },
+  "performance_monitoring": {
+    "track_token_usage": true,
+    "track_execution_time": true,
+    "track_memory_usage": true,
+    "alert_on_threshold": {
+      "tokens_per_task": 50000,
+      "time_per_task_minutes": 90,
+      "memory_mb": 4096
+    }
+  },
+  "quick_wins": {
+    "enable_cache": true,
+    "reduce_context": true,
+    "limit_file_reads": true,
+    "use_incremental_development": true,
+    "avoid_large_batch_tasks": true
+  }
+}

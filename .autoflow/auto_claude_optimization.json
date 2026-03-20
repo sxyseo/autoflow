@@ -1,0 +1,25 @@
+{
+  "performance_settings": {
+    "max_concurrent_requests": 3,
+    "cache_enabled": true,
+    "cache_ttl_hours": 24,
+    "log_retention_days": 7,
+    "auto_cleanup_enabled": true,
+    "memory_limit_mb": 2048,
+    "context_window_tokens": 8000,
+    "max_response_tokens": 2000
+  },
+  "token_optimization": {
+    "use_system_prompt": true,
+    "compress_context": true,
+    "remove_duplicates": true,
+    "summarize_old_messages": true,
+    "max_history_messages": 50
+  },
+  "task_optimization": {
+    "batch_similar_tasks": true,
+    "parallel_independent_tasks": false,
+    "priority_based_execution": true,
+    "timeout_minutes": 30
+  }
+}
