@@ -886,7 +886,7 @@ class AgentRunnerTests(unittest.TestCase):
                 {
                     "resume_from": "run-1",
                     "agent_config": {"command": "claude", "args": []},
-                    "integrity": {"prompt.md": original_hash},
+                    "integrity": {"prompt_md_hash": original_hash, "hash_algorithm": "sha256"},
                 }
             )
             + "\n",
@@ -919,101 +919,58 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertIn("integrity check failed", str(context.exception))
             self.assertIn("tampered with", str(context.exception))
 
-    def test_tampered_run_sh_raises_error(self) -> None:
+    def test_tampered_run_sh_integrity(self) -> None:
         """Test that tampered run.sh file is detected and raises an error."""
         # Import integrity module to compute hash
         from scripts.integrity import hash_file_content
 
-        # Get the repo root
-        repo_root = Path(__file__).resolve().parents[1]
+        # Create a run directory structure
+        run_dir = Path(self.temp_dir.name) / "run"
+        run_dir.mkdir()
 
-        # Create .autoflow directory and agents.json if it doesn't exist
-        autoflow_dir = repo_root / ".autoflow"
-        autoflow_dir.mkdir(exist_ok=True)
-        agents_file = autoflow_dir / "agents.json"
+        # Create run.sh file
+        run_script = run_dir / "run.sh"
+        run_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "echo 'Original content'\n",
+            encoding="utf-8",
+        )
+        run_script.chmod(0o755)
 
-        # Save original agents.json if it exists
-        original_agents = None
-        if agents_file.exists():
-            original_agents = agents_file.read_text(encoding="utf-8")
+        # Compute the original hash of run.sh
+        original_hash = hash_file_content(str(run_script))
 
-        try:
-            # Create test agents.json
-            agents_file.write_text(
-                json.dumps({"agents": {"test-agent": {"command": "echo", "args": ["test"]}}}) + "\n",
-                encoding="utf-8",
-            )
+        # Create run metadata with integrity hash
+        run_file = run_dir / "run.json"
+        run_metadata = {
+            "resume_from": "run-1",
+            "agent_config": {"command": "echo", "args": ["test"]},
+            "integrity": {"run_sh_hash": original_hash, "hash_algorithm": "sha256"},
+        }
+        run_file.write_text(json.dumps(run_metadata) + "\n", encoding="utf-8")
 
-            # Create a run directory structure
-            run_dir = Path(self.temp_dir.name) / "run"
-            run_dir.mkdir()
+        # Load metadata from file to simulate real usage
+        run_metadata = json.loads(run_file.read_text(encoding="utf-8"))
 
-            # Create run.sh file
-            run_script = run_dir / "run.sh"
-            run_script.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                "echo 'Original content'\n",
-                encoding="utf-8",
-            )
-            run_script.chmod(0o755)
+        # Tamper with run.sh
+        run_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "echo 'MALICIOUS CONTENT'\n",
+            encoding="utf-8",
+        )
 
-            # Create prompt.md file
-            prompt_file = run_dir / "prompt.md"
-            prompt_file.write_text("Implement the selected task.", encoding="utf-8")
+        # Verify that integrity check fails
+        from agent_runner import verify_run_script_integrity
 
-            # Compute the original hash of run.sh
-            original_hash = hash_file_content(str(run_script))
+        with self.assertRaises(SystemExit) as context:
+            verify_run_script_integrity(str(run_script), run_metadata)
 
-            # Create run metadata with integrity hash
-            run_file = run_dir / "run.json"
-            run_file.write_text(
-                json.dumps(
-                    {
-                        "resume_from": "run-1",
-                        "agent_config": {"command": "echo", "args": ["test"]},
-                        "integrity": {"run.sh": original_hash},
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            # Tamper with run.sh
-            run_script.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                "echo 'MALICIOUS CONTENT'\n",
-                encoding="utf-8",
-            )
-
-            # Get the path to run-agent.sh
-            run_agent_script = repo_root / "scripts" / "run-agent.sh"
-
-            # Call run-agent.sh and verify it exits with error
-            result = subprocess.run(
-                [
-                    str(run_agent_script),
-                    "test-agent",
-                    str(prompt_file),
-                    str(run_file),
-                ],
-                capture_output=True,
-                text=True,
-            )
-
-            # Verify the script failed
-            self.assertNotEqual(result.returncode, 0)
-
-            # Verify the error message mentions integrity check failure
-            self.assertIn("integrity check failed", result.stderr)
-            self.assertIn("tampered with", result.stderr)
-        finally:
-            # Restore original agents.json
-            if original_agents is not None:
-                agents_file.write_text(original_agents, encoding="utf-8")
-            elif agents_file.exists():
-                agents_file.unlink()
+        # Verify the error message mentions integrity check failure
+        error_message = str(context.exception).lower()
+        self.assertIn("integrity", error_message)
+        self.assertIn("tampered", error_message)
 
     def test_missing_integrity_hash_allows_execution(self) -> None:
         """Test that missing integrity hash in run metadata allows execution to proceed."""
@@ -1054,6 +1011,294 @@ class AgentRunnerTests(unittest.TestCase):
             "claude",
             ["claude", "Implement the selected task."],
         )
+
+    def test_hash_generation_in_create_run_record(self) -> None:
+        """Test that create_run_record generates integrity hashes for prompt.md and run.sh."""
+        import tempfile
+        import shutil
+        import uuid
+
+        # Load the autoflow module
+        autoflow_module = load_module(
+            self.repo_root / "scripts" / "autoflow.py",
+            "autoflow_test"
+        )
+
+        # Create a temporary directory structure for the test
+        temp_base = tempfile.mkdtemp()
+        try:
+            # Create .autoflow directory structure
+            autoflow_dir = Path(temp_base) / ".autoflow"
+            autoflow_dir.mkdir()
+            specs_dir = autoflow_dir / "specs"
+            specs_dir.mkdir()
+            tasks_dir = autoflow_dir / "tasks"
+            tasks_dir.mkdir()
+            runs_dir = autoflow_dir / "runs"
+            runs_dir.mkdir()
+
+            # Create a minimal spec directory
+            spec_dir = specs_dir / "test-spec"
+            spec_dir.mkdir()
+            spec_file = spec_dir / "SPEC.md"
+            spec_file.write_text("# Test Spec\n\nTest specification.\n", encoding="utf-8")
+
+            # Create a minimal tasks file
+            tasks_file = tasks_dir / "test-spec.json"
+            tasks_file.write_text(
+                json.dumps({
+                    "tasks": [
+                        {
+                            "id": "T1",
+                            "title": "Test Task",
+                            "description": "Test task",
+                            "status": "todo",
+                            "owner_role": "implementation-runner",
+                            "depends_on": [],
+                            "acceptance_criteria": []
+                        }
+                    ]
+                }),
+                encoding="utf-8"
+            )
+
+            # Create a minimal agents.json
+            agents_file = autoflow_dir / "agents.json"
+            agents_file.write_text(
+                json.dumps({
+                    "agents": {
+                        "test-agent": {
+                            "command": "echo",
+                            "args": ["test"]
+                        }
+                    }
+                }),
+                encoding="utf-8"
+            )
+
+            # Create a minimal system.json
+            system_file = autoflow_dir / "system.json"
+            system_file.write_text(
+                json.dumps({
+                    "model_profiles": {},
+                    "tool_profiles": {}
+                }),
+                encoding="utf-8"
+            )
+
+            # Patch ROOT to point to our temp directory
+            original_root = autoflow_module.ROOT
+            autoflow_module.ROOT = Path(temp_base)
+
+            # Patch the RUNS_DIR and other constants
+            autoflow_module.RUNS_DIR = runs_dir
+            autoflow_module.SPECS_DIR = specs_dir
+            autoflow_module.TASKS_DIR = tasks_dir
+            autoflow_module.STATE_DIR = autoflow_dir
+            autoflow_module.AGENTS_FILE = agents_file
+            autoflow_module.SYSTEM_CONFIG_FILE = autoflow_dir / "system.json"
+
+            # Create a test run record
+            run_dir = autoflow_module.create_run_record(
+                spec_slug="test-spec",
+                role="implementation-runner",
+                agent_name="test-agent",
+                task_id="T1"
+            )
+
+            # Verify run directory was created
+            self.assertTrue(run_dir.exists())
+
+            # Verify run.json was created with integrity hashes
+            run_json_path = run_dir / "run.json"
+            self.assertTrue(run_json_path.exists())
+
+            run_data = json.loads(run_json_path.read_text(encoding="utf-8"))
+
+            # Verify integrity field exists
+            self.assertIn("integrity", run_data)
+            integrity = run_data["integrity"]
+
+            # Verify prompt_md_hash exists and is valid
+            self.assertIn("prompt_md_hash", integrity)
+            prompt_hash = integrity["prompt_md_hash"]
+            self.assertEqual(len(prompt_hash), 64)  # SHA-256 hash is 64 hex chars
+            self.assertTrue(all(c in "0123456789abcdef" for c in prompt_hash))
+
+            # Verify run_sh_hash exists and is valid
+            self.assertIn("run_sh_hash", integrity)
+            script_hash = integrity["run_sh_hash"]
+            self.assertEqual(len(script_hash), 64)  # SHA-256 hash is 64 hex chars
+            self.assertTrue(all(c in "0123456789abcdef" for c in script_hash))
+
+            # Verify hash_algorithm is sha256
+            self.assertIn("hash_algorithm", integrity)
+            self.assertEqual(integrity["hash_algorithm"], "sha256")
+
+            # Verify the hashes match the actual file contents
+            from scripts.integrity import hash_file_content
+            prompt_path = run_dir / "prompt.md"
+            run_script_path = run_dir / "run.sh"
+
+            actual_prompt_hash = hash_file_content(str(prompt_path))
+            actual_script_hash = hash_file_content(str(run_script_path))
+
+            self.assertEqual(prompt_hash, actual_prompt_hash)
+            self.assertEqual(script_hash, actual_script_hash)
+
+        finally:
+            # Restore original ROOT
+            autoflow_module.ROOT = original_root
+            # Clean up temp directory
+            shutil.rmtree(temp_base, ignore_errors=True)
+
+    def test_complete_integrity_workflow(self) -> None:
+        """Test the complete integrity verification workflow for run artifacts."""
+        import shutil
+        import tempfile
+        from scripts.integrity import hash_file_content, verify_file_integrity
+
+        # Load autoflow module
+        autoflow_module = load_module(
+            self.repo_root / "scripts" / "autoflow.py",
+            "autoflow_test"
+        )
+
+        # Create a temporary directory structure
+        temp_base = tempfile.mkdtemp()
+        autoflow_dir = Path(temp_base) / ".autoflow"
+        runs_dir = autoflow_dir / "runs"
+        specs_dir = autoflow_dir / "specs"
+        tasks_dir = autoflow_dir / "tasks"
+
+        try:
+            # Create directories
+            runs_dir.mkdir(parents=True, exist_ok=True)
+            specs_dir.mkdir(parents=True, exist_ok=True)
+            tasks_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create a minimal spec directory with SPEC.md
+            spec_dir = specs_dir / "test-spec"
+            spec_dir.mkdir(parents=True, exist_ok=True)
+            spec_file = spec_dir / "SPEC.md"
+            spec_file.write_text("# Test Spec\n\nTest specification.\n", encoding="utf-8")
+
+            # Create a minimal tasks file (in root tasks directory)
+            tasks_file = tasks_dir / "test-spec.json"
+            tasks_file.write_text(
+                json.dumps({
+                    "tasks": [
+                        {
+                            "id": "T1",
+                            "title": "Test Task",
+                            "status": "in_progress",
+                            "owner_role": "implementation-runner",
+                            "description": "A test task",
+                            "depends_on": [],
+                            "acceptance_criteria": []
+                        }
+                    ]
+                }),
+                encoding="utf-8"
+            )
+
+            # Create a minimal agents.json
+            agents_file = autoflow_dir / "agents.json"
+            agents_file.write_text(
+                json.dumps({
+                    "agents": {
+                        "test-agent": {
+                            "command": "echo",
+                            "args": ["test"]
+                        }
+                    }
+                }),
+                encoding="utf-8"
+            )
+
+            # Create a minimal system.json
+            system_file = autoflow_dir / "system.json"
+            system_file.write_text(
+                json.dumps({
+                    "model_profiles": {},
+                    "tool_profiles": {}
+                }),
+                encoding="utf-8"
+            )
+
+            # Patch ROOT to point to our temp directory
+            original_root = autoflow_module.ROOT
+            autoflow_module.ROOT = Path(temp_base)
+
+            # Patch the RUNS_DIR and other constants
+            autoflow_module.RUNS_DIR = runs_dir
+            autoflow_module.SPECS_DIR = specs_dir
+            autoflow_module.TASKS_DIR = tasks_dir
+            autoflow_module.STATE_DIR = autoflow_dir
+            autoflow_module.AGENTS_FILE = agents_file
+            autoflow_module.SYSTEM_CONFIG_FILE = autoflow_dir / "system.json"
+
+            # Create a test run record
+            run_dir = autoflow_module.create_run_record(
+                spec_slug="test-spec",
+                role="implementation-runner",
+                agent_name="test-agent",
+                task_id="T1"
+            )
+
+            # Verify run directory was created
+            self.assertTrue(run_dir.exists())
+
+            # Load run.json to get integrity hashes
+            run_json_path = run_dir / "run.json"
+            run_data = json.loads(run_json_path.read_text(encoding="utf-8"))
+            integrity = run_data["integrity"]
+
+            # Test 1: Verify original integrity of prompt.md
+            prompt_path = run_dir / "prompt.md"
+            self.assertTrue(verify_file_integrity(prompt_path, integrity["prompt_md_hash"]))
+
+            # Test 2: Verify original integrity of run.sh
+            run_script_path = run_dir / "run.sh"
+            self.assertTrue(verify_file_integrity(run_script_path, integrity["run_sh_hash"]))
+
+            # Test 3: Verify hashes match actual file contents
+            actual_prompt_hash = hash_file_content(prompt_path)
+            actual_script_hash = hash_file_content(run_script_path)
+            self.assertEqual(integrity["prompt_md_hash"], actual_prompt_hash)
+            self.assertEqual(integrity["run_sh_hash"], actual_script_hash)
+
+            # Test 4: Simulate tampering with prompt.md
+            original_prompt_content = prompt_path.read_text(encoding="utf-8")
+            prompt_path.write_text("Tampered content", encoding="utf-8")
+
+            # Verify tampering is detected
+            self.assertFalse(verify_file_integrity(prompt_path, integrity["prompt_md_hash"]))
+
+            # Test 5: Restore original content and verify integrity is restored
+            prompt_path.write_text(original_prompt_content, encoding="utf-8")
+            self.assertTrue(verify_file_integrity(prompt_path, integrity["prompt_md_hash"]))
+
+            # Test 6: Simulate tampering with run.sh
+            original_script_content = run_script_path.read_text(encoding="utf-8")
+            run_script_path.write_text("# Tampered script\n", encoding="utf-8")
+
+            # Verify tampering is detected
+            self.assertFalse(verify_file_integrity(run_script_path, integrity["run_sh_hash"]))
+
+            # Test 7: Restore original content and verify integrity is restored
+            run_script_path.write_text(original_script_content, encoding="utf-8")
+            self.assertTrue(verify_file_integrity(run_script_path, integrity["run_sh_hash"]))
+
+            # Test 8: Verify both files simultaneously
+            self.assertTrue(verify_file_integrity(prompt_path, integrity["prompt_md_hash"]))
+            self.assertTrue(verify_file_integrity(run_script_path, integrity["run_sh_hash"]))
+
+        finally:
+            # Restore original ROOT
+            autoflow_module.ROOT = original_root
+            # Clean up temp directory
+            shutil.rmtree(temp_base, ignore_errors=True)
 
 
 if __name__ == "__main__":

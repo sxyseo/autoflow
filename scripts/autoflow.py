@@ -46,8 +46,14 @@ from typing import Any, cast
 
 from typing_extensions import TypedDict
 
-
 ROOT = Path(__file__).resolve().parent.parent
+
+# Import integrity module for hash generation and verification
+# Add scripts directory to path for integrity module import
+import sys
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
+from integrity import hash_file_content, hash_string_content
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 ARCHIVE_DIR = STATE_DIR / "specs" / "archive"
@@ -2013,6 +2019,33 @@ def compute_file_hash(path: Path) -> str:
     return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
+def generate_integrity_hash(file_path: Path | str, algorithm: str = "sha256") -> str:
+    """
+    Generate cryptographic hash of a file for integrity verification.
+
+    Uses the integrity module to generate SHA-256 hashes (or other algorithms)
+    for run artifacts like prompt.md and run.sh files. These hashes are stored
+    in run.json and verified before execution to prevent tampering.
+
+    Args:
+        file_path: Path to the file to hash
+        algorithm: Hash algorithm to use (default: "sha256")
+
+    Returns:
+        Hexadecimal hash string
+
+    Raises:
+        FileNotFoundError: If file does not exist
+        IOError: If file cannot be read
+        ValueError: If algorithm is not supported
+
+    Example:
+        >>> prompt_hash = generate_integrity_hash(run_dir / "prompt.md")
+        >>> script_hash = generate_integrity_hash(run_dir / "run.sh")
+    """
+    return hash_file_content(file_path, algorithm=algorithm)
+
+
 def planning_contract(spec_slug: str) -> dict[str, Any]:
     """
     Generate a planning contract from task data.
@@ -3653,6 +3686,11 @@ def create_run_record(
     summary_path = run_dir / "summary.md"
     summary_path.write_text("# Run Summary\n\nFill after execution.\n", encoding="utf-8")
     os.chmod(run_script, 0o755)
+
+    # Generate integrity hashes for prompt.md and run.sh
+    prompt_hash = hash_file_content(prompt_path)
+    script_hash = hash_file_content(run_script)
+
     metadata = {
         "id": run_id,
         "spec": spec_slug,
@@ -3674,6 +3712,11 @@ def create_run_record(
         "retry_policy": {
             "max_automatic_attempts": 3,
             "requires_fix_request_after_review_failure": True,
+        },
+        "integrity": {
+            "prompt_md_hash": prompt_hash,
+            "run_sh_hash": script_hash,
+            "hash_algorithm": "sha256",
         },
     }
     write_json(run_json_path, metadata)
