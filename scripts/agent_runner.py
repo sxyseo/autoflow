@@ -39,7 +39,7 @@ def verify_prompt_integrity(prompt_file: str, run_metadata: dict[str, Any] | Non
         # No integrity hashes in metadata, skip verification
         return
 
-    expected_hash = integrity.get("prompt.md")
+    expected_hash = integrity.get("prompt_md_hash")
     if not expected_hash:
         # No hash for prompt.md, skip verification
         return
@@ -48,6 +48,37 @@ def verify_prompt_integrity(prompt_file: str, run_metadata: dict[str, Any] | Non
     if not verify_file_integrity(prompt_file, expected_hash):
         raise SystemExit(
             f"integrity check failed for {prompt_file}: file may have been tampered with"
+        )
+
+
+def verify_run_script_integrity(run_script: str, run_metadata: dict[str, Any] | None) -> None:
+    """Verify run.sh script integrity before execution.
+
+    Args:
+        run_script: Path to the run script
+        run_metadata: Run metadata containing integrity hashes
+
+    Raises:
+        SystemExit: If integrity verification fails
+    """
+    if not run_metadata:
+        # No integrity metadata available, skip verification
+        return
+
+    integrity = run_metadata.get("integrity")
+    if not integrity:
+        # No integrity hashes in metadata, skip verification
+        return
+
+    expected_hash = integrity.get("run_sh_hash")
+    if not expected_hash:
+        # No hash for run.sh, skip verification
+        return
+
+    # Verify the run script integrity
+    if not verify_file_integrity(run_script, expected_hash):
+        raise SystemExit(
+            f"integrity check failed for {run_script}: file may have been tampered with"
         )
 
 
@@ -207,6 +238,14 @@ def main() -> None:
         validate_agent_spec(resolved_spec, validate_all_fields=True)
     except (ValidationError, ValueError) as e:
         raise SystemExit(f"Invalid agent configuration: {e}") from e
+
+    # Verify run.sh script integrity before execution
+    if run_json:
+        run_script = run_metadata.get("run_script") if run_metadata else None
+        if not run_script:
+            # Derive run script path from run.json location (run.sh is in same directory)
+            run_script = str(run_json.parent / "run.sh")
+        verify_run_script_integrity(run_script, run_metadata)
 
     os.execvp(command[0], command)
 
