@@ -390,6 +390,19 @@ def validate_slug_safe(slug: str) -> bool:
     return True
 
 
+def get_file_mtime(path: Path) -> float:
+    """
+    Return a file's modification time, or 0.0 when unavailable.
+
+    This supports lightweight cache invalidation for file-hash lookups used by
+    review-state and workflow helpers.
+    """
+    try:
+        return path.stat().st_mtime
+    except (OSError, FileNotFoundError):
+        return 0.0
+
+
 def write_json(path: Path, data: Any) -> None:
     """
     Write data to a JSON file.
@@ -2002,10 +2015,11 @@ def clear_fix_request(spec_slug: str) -> None:
 
 def compute_file_hash(path: Path) -> str:
     """
-    Compute MD5 hash of a file's content.
+    Compute MD5 hash of a file's content with mtime-based caching.
 
-    Reads the file as UTF-8 text and returns its MD5 hash as a hexadecimal string.
-    Returns empty string if the file doesn't exist.
+    The first call reads the file and stores both its hash and last-modified
+    timestamp. Subsequent calls reuse the cached hash while the file's mtime is
+    unchanged.
 
     Args:
         path: Path to the file to hash
@@ -2013,10 +2027,21 @@ def compute_file_hash(path: Path) -> str:
     Returns:
         Hexadecimal MD5 hash string, or empty string if file doesn't exist
     """
+    global _file_hash_cache, _file_mtime_cache
+
     if not path.exists():
         return ""
+
+    current_mtime = get_file_mtime(path)
+    if path in _file_hash_cache and path in _file_mtime_cache:
+        if _file_mtime_cache[path] == current_mtime:
+            return _file_hash_cache[path]
+
     content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    hash_value = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    _file_hash_cache[path] = hash_value
+    _file_mtime_cache[path] = current_mtime
+    return hash_value
 
 
 def generate_integrity_hash(file_path: Path | str, algorithm: str = "sha256") -> str:
@@ -2505,6 +2530,8 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # Cache data structures
 _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
+_file_hash_cache: dict[Path, str] = {}
+_file_mtime_cache: dict[Path, float] = {}
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2619,6 +2646,12 @@ def invalidate_run_cache() -> None:
     global _run_metadata_cache, _cache_loaded_specs
     _run_metadata_cache.clear()
     _cache_loaded_specs.clear()
+
+
+def clear_hash_cache() -> None:
+    """Clear cached file hashes and mtimes."""
+    _file_hash_cache.clear()
+    _file_mtime_cache.clear()
 
 
 def load_run_metadata(run_id: str) -> dict[str, Any]:

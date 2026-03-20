@@ -27,10 +27,11 @@ python3 -m py_compile \
   tests/test_agent_runner.py \
   tests/test_cli_spec.py \
   tests/test_continuous_iteration.py \
+  tests/test_hash_cache.py \
   tests/test_autonomy_orchestrator.py \
   tests/test_phase4d.py
 
-python3 -m unittest tests/test_phase4d.py tests/test_agent_runner.py tests/test_autonomy_orchestrator.py
+python3 -m unittest tests/test_phase4d.py tests/test_agent_runner.py tests/test_autonomy_orchestrator.py tests/test_hash_cache.py
 python3 -m pytest tests/test_cli_spec.py tests/test_continuous_iteration.py tests/autoflow_tests/test_scheduler.py -q
 
 bash -n scripts/run-agent.sh
