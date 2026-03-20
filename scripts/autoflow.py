@@ -383,6 +383,25 @@ def validate_slug_safe(slug: str) -> bool:
     return True
 
 
+def get_file_mtime(path: Path) -> float:
+    """
+    Get the modification time of a file.
+
+    Returns the file's modification time as a Unix timestamp (seconds since epoch).
+    Returns 0.0 if the file doesn't exist or cannot be accessed.
+
+    Args:
+        path: Path to the file
+
+    Returns:
+        float: Modification time as a Unix timestamp, or 0.0 if unavailable
+    """
+    try:
+        return path.stat().st_mtime
+    except (OSError, FileNotFoundError):
+        return 0.0
+
+
 def write_json(path: Path, data: Any) -> None:
     """
     Write data to a JSON file.
@@ -1994,10 +2013,10 @@ def clear_fix_request(spec_slug: str) -> None:
 
 def compute_file_hash(path: Path) -> str:
     """
-    Compute MD5 hash of a file's content.
+    Compute MD5 hash of a file's content with caching.
 
-    Reads the file as UTF-8 text and returns its MD5 hash as a hexadecimal string.
-    Returns empty string if the file doesn't exist.
+    Uses in-memory cache with mtime-based invalidation. First call reads file
+    and computes hash. Subsequent calls return cached hash if file unchanged.
 
     Args:
         path: Path to the file to hash
@@ -2005,10 +2024,27 @@ def compute_file_hash(path: Path) -> str:
     Returns:
         Hexadecimal MD5 hash string, or empty string if file doesn't exist
     """
+    global _file_hash_cache, _file_mtime_cache
+
     if not path.exists():
         return ""
+
+    current_mtime = get_file_mtime(path)
+
+    # Check if we have a cached value and file hasn't changed
+    if path in _file_mtime_cache and path in _file_hash_cache:
+        if _file_mtime_cache[path] == current_mtime:
+            return _file_hash_cache[path]
+
+    # File changed or not cached, recompute hash
     content = path.read_text(encoding="utf-8")
-    return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+    hash_value = hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+    # Update cache
+    _file_hash_cache[path] = hash_value
+    _file_mtime_cache[path] = current_mtime
+
+    return hash_value
 
 
 def planning_contract(spec_slug: str) -> dict[str, Any]:
@@ -2470,6 +2506,12 @@ def sync_discovered_agents(overwrite: bool = False) -> dict[str, Any]:
 # Cache data structures
 _run_metadata_cache: dict[str, list[dict[str, Any]]] = {}
 _cache_loaded_specs: set[str] = set()
+_system_config_cache: dict[str, Any] | None = None
+_agents_config_cache: dict[str, AgentSpec] | None = None
+_tasks_metadata_cache: dict[str, dict[str, Any]] = {}
+_cache_loaded_task_specs: set[str] = set()
+_file_hash_cache: dict[Path, str] = {}
+_file_mtime_cache: dict[Path, float] = {}
 
 
 def _populate_run_cache_for_spec(spec_slug: str) -> None:
@@ -2600,6 +2642,173 @@ def write_run_metadata(run_id: str, metadata: dict[str, Any]) -> Path:
     write_json(metadata_path, metadata)
     invalidate_run_cache()
     return metadata_path
+
+
+def invalidate_system_config_cache() -> None:
+    """Invalidate the system configuration cache.
+
+    Call this function whenever the system configuration is modified to ensure
+    the cache remains consistent with the filesystem state.
+
+    Cache Invalidation Strategy:
+        - Simple: set the cached data to None
+        - Safe: ensures cache consistency after config modification
+        - Lazy: data is reloaded on next access (not immediately)
+
+    Note: System config modifications are rare, so aggressive invalidation
+    is acceptable. The cache will be repopulated on the next access.
+    """
+    global _system_config_cache
+    _system_config_cache = None
+
+
+def _populate_agents_cache() -> None:
+    """Load agents configuration into the cache.
+
+    This implements lazy-loading: agents config is only loaded from disk when needed.
+    Subsequent calls will use the cached data (O(1) lookup).
+
+    Cache Behavior:
+        If _agents_config_cache is not None, we've already loaded the agents,
+        so we return immediately (cache hit). Otherwise, we load the agents from
+        disk using load_agents() and store it in the cache.
+
+    Note: Unlike run metadata cache, there's only one agents config, so this
+    is a simple load-once pattern without opportunistic caching.
+
+    The cached data is a dictionary mapping agent names to AgentSpec objects.
+    """
+    global _agents_config_cache
+
+    # Skip if already loaded (cache hit)
+    if _agents_config_cache is not None:
+        return
+
+    # Load agents config from disk
+    _agents_config_cache = load_agents()
+
+
+def invalidate_agents_cache() -> None:
+    """Invalidate the agents configuration cache.
+
+    Call this function whenever the agents configuration is modified to ensure
+    the cache remains consistent with the filesystem state.
+
+    Cache Invalidation Strategy:
+        - Simple: set the cached data to None
+        - Safe: ensures cache consistency after config modification
+        - Lazy: data is reloaded on next access (not immediately)
+
+    Note: Agents config modifications are rare (e.g., sync-agents command),
+    so aggressive invalidation is acceptable. The cache will be repopulated
+    on the next access.
+    """
+    global _agents_config_cache
+    _agents_config_cache = None
+
+
+def invalidate_config_cache() -> None:
+    """Invalidate all configuration caches.
+
+    Call this function whenever any configuration is modified to ensure
+    all caches remain consistent with the filesystem state. This is a
+    comprehensive invalidation that clears both system and agents caches.
+
+    Cache Invalidation Strategy:
+        - Comprehensive: clears all config-related caches
+        - Safe: ensures cache consistency after any config modification
+        - Lazy: data is reloaded on next access (not immediately)
+        - Called by: commands that modify system or agents configuration
+
+    Note: Configuration modifications are rare (e.g., init-system-config,
+    sync-agents), so aggressive invalidation is acceptable. The caches will
+    be repopulated on the next access.
+    """
+    invalidate_system_config_cache()
+    invalidate_agents_cache()
+
+
+def invalidate_tasks_cache() -> None:
+    """Invalidate the task metadata cache."""
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+    _tasks_metadata_cache.clear()
+    _cache_loaded_task_specs.clear()
+
+
+def clear_hash_cache() -> None:
+    """Clear the file hash cache.
+
+    This function clears the in-memory cache that stores file content hashes.
+    Call this when you need to force recomputation of file hashes, such as after
+    manual file modifications or when cache consistency needs to be ensured.
+
+    The cache will be repopulated on-demand when file hashes are next requested.
+
+    Cache Management Strategy:
+        - Clear on-demand: only when necessary
+        - Lazy: data is reloaded on next access (not immediately)
+        - Efficient: avoids unnecessary filesystem reads
+    """
+    global _file_hash_cache, _file_mtime_cache
+    _file_hash_cache.clear()
+    _file_mtime_cache.clear()
+
+
+def _populate_tasks_cache(spec_slug: str) -> None:
+    """Load task metadata for a specific spec_slug into the cache.
+
+    This implements lazy-loading: tasks are only loaded from disk when needed.
+    Subsequent calls for the same spec_slug will use the cached data (O(1) lookup).
+
+    Opportunistic Caching:
+        Since we must scan all task files to find tasks for the requested spec,
+        we opportunistically cache tasks for ALL specs encountered during the scan.
+        This means the first call for any spec effectively caches tasks for all specs,
+        making subsequent calls for other specs essentially free (O(1) lookup).
+
+    Cache Invalidation:
+        If the spec is already in _cache_loaded_task_specs, we skip the filesystem scan
+        entirely and return immediately. This ensures that after the first load,
+        all subsequent calls are pure memory lookups.
+
+    Args:
+        spec_slug: The spec identifier to load tasks for.
+    """
+    global _tasks_metadata_cache, _cache_loaded_task_specs
+
+    # Skip if this spec has already been loaded (cache hit)
+    if spec_slug in _cache_loaded_task_specs:
+        return
+
+    # Ensure the spec has an entry in the cache
+    if spec_slug not in _tasks_metadata_cache:
+        _tasks_metadata_cache[spec_slug] = {}
+
+    # Load tasks from filesystem for this spec
+    # Note: We must scan all task files to find tasks matching this spec
+    if not TASKS_DIR.exists():
+        _cache_loaded_task_specs.add(spec_slug)
+        return
+
+    # First pass: discover all specs and collect their task data
+    # This enables opportunistic caching of all specs in one scan
+    spec_tasks = {}
+    for task_file_path in sorted(TASKS_DIR.iterdir()):
+        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
+            continue
+        # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
+        file_spec = task_file_path.stem
+        if file_spec:
+            task_data = read_json(task_file_path)
+            if task_data:
+                spec_tasks[file_spec] = task_data
+
+    # Second pass: add all discovered tasks to cache
+    # This implements opportunistic caching for all specs encountered
+    for discovered_spec, tasks in spec_tasks.items():
+        _tasks_metadata_cache[discovered_spec] = tasks
+        _cache_loaded_task_specs.add(discovered_spec)
+>>>>>>> auto-claude/105-cache-file-hashes-for-review-state-validation
 
 
 def run_metadata_iter() -> list[dict[str, Any]]:
