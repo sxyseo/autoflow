@@ -8,7 +8,11 @@ import json
 import os
 import shlex
 import shutil
+<<<<<<< HEAD
 import subprocess
+=======
+import sys
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 from dataclasses import dataclass
 from datetime import UTC, datetime
 =======
@@ -21,6 +25,35 @@ from typing_extensions import TypedDict
 
 ROOT = Path(__file__).resolve().parent.parent
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+if str(ROOT) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(ROOT))
+
+# Always ensure scripts comes AFTER ROOT to avoid import confusion
+# When importing from autoflow.*, we need the package, not scripts/autoflow.py
+scripts_path = str(ROOT / 'scripts')
+if scripts_path in sys.path:
+    sys.path.remove(scripts_path)
+# Re-add scripts at position 1 (after ROOT)
+if str(ROOT) in sys.path:
+    root_index = sys.path.index(str(ROOT))
+    sys.path.insert(root_index + 1, scripts_path)
+else:
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.core.sanitization import sanitize_dict, sanitize_value  # noqa: E402
+from autoflow.utils import run_cmd  # noqa: E402
+
+# Import now_stamp from time_helpers for timestamp generation
+from autoflow.utils.time_helpers import now_stamp  # noqa: E402
+from scripts.integrity import hash_file_content  # noqa: E402
+
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -275,6 +308,7 @@ def now_utc() -> datetime:
     return datetime.now(UTC)
 
 
+<<<<<<< HEAD
 def now_stamp() -> str:
     """
     Get current UTC timestamp in ISO 8601 format.
@@ -283,6 +317,24 @@ def now_stamp() -> str:
         Timestamp string in format YYYYMMDDTHHMMSSZ
     """
     return now_utc().strftime("%Y%m%dT%H%M%SZ")
+=======
+def parse_stamp(value: str) -> datetime | None:
+    """Parse an Autoflow timestamp into a UTC datetime."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def tmux_session_exists(session_name: str) -> bool:
+    """Return True when a tmux session exists."""
+    if not session_name or not shutil.which("tmux"):
+        return False
+    result = run_cmd(["tmux", "has-session", "-t", session_name], check=False)
+    return result.returncode == 0
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 
 def slugify(value: str) -> str:
@@ -350,10 +402,7 @@ def validate_slug_safe(slug: str) -> bool:
         return False
 
     # Check for drive letters (Windows absolute paths like C:)
-    if len(slug) >= 2 and slug[1] == ":":
-        return False
-
-    return True
+    return not (len(slug) >= 2 and slug[1] == ":")
 
 
 def get_file_mtime(path: Path) -> float:
@@ -456,34 +505,6 @@ def ensure_state() -> None:
     """
     for path in [STATE_DIR, SPECS_DIR, TASKS_DIR, RUNS_DIR, LOGS_DIR, WORKTREES_DIR, MEMORY_DIR, STRATEGY_MEMORY_DIR]:
         path.mkdir(parents=True, exist_ok=True)
-
-
-def run_cmd(
-    args: list[str],
-    cwd: Path | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """
-    Run a command as a subprocess.
-
-    Args:
-        args: Command arguments to execute
-        cwd: Working directory for the command (defaults to ROOT if None)
-        check: Whether to raise exception on non-zero exit code
-
-    Returns:
-        Completed process with stdout and stderr captured
-
-    Raises:
-        subprocess.CalledProcessError: If check=True and command fails
-    """
-    return subprocess.run(
-        args,
-        cwd=cwd or ROOT,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
 
 
 @dataclass
@@ -1552,6 +1573,71 @@ def task_lookup(data: TasksData, task_id: str) -> TaskData:
     Raises:
         SystemExit: If no task with the given ID is found
     """
+<<<<<<< HEAD
+=======
+    # Validate repository exists
+    repo_manager = repository_manager()
+    if not repo_manager.repository_exists(repository_id):
+        raise SystemExit(
+            f"cannot load dependency: repository '{repository_id}' not found"
+        )
+
+    # Load repository configuration
+    repo_data = repo_manager.load_repository(repository_id)
+    if not repo_data:
+        raise SystemExit(f"cannot load dependency: repository '{repository_id}' not found")
+
+    # Resolve repository path
+    from autoflow.core.repository import Repository
+    repo = Repository(**repo_data)
+    repo_path = repo.get_resolved_path()
+
+    # Construct path to task file in other repository
+    other_tasks_file = repo_path / ".autoflow" / "tasks" / f"{spec_slug}.json"
+
+    if not other_tasks_file.exists():
+        raise SystemExit(
+            f"cannot load dependency: task file not found for spec '{spec_slug}' "
+            f"in repository '{repository_id}' at {other_tasks_file}"
+        )
+
+    return read_json(other_tasks_file)
+
+
+def task_lookup(data: dict[str, Any], task_id: str, _spec_slug: str | None = None) -> dict[str, Any]:
+    """
+    Look up a task by ID, supporting cross-repository references.
+
+    Args:
+        data: Current spec's tasks data
+        task_id: Task ID, either "T1" or "repo-id/spec-slug/T1"
+        spec_slug: Current spec slug (required for cross-repo lookups)
+
+    Returns:
+        Task dictionary
+
+    Raises:
+        SystemExit: If task is not found
+    """
+    # Check if this is a cross-repo reference (format: repo-id/spec-slug/task-id)
+    if task_id.count("/") >= 2:
+        parts = task_id.split("/")
+        repo_id = parts[0]
+        other_spec_slug = parts[1]
+        other_task_id = "/".join(parts[2:])  # Handle case where task ID contains /
+
+        # Load tasks from other repository
+        other_tasks = load_tasks_from_repository(repo_id, other_spec_slug)
+        for task in other_tasks.get("tasks", []):
+            if task["id"] == other_task_id:
+                return task
+        raise SystemExit(
+            f"unknown task: {task_id} (in spec '{other_spec_slug}' "
+            f"in repository '{repo_id}')"
+        )
+
+    # Same-repo lookup
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
     for task in data.get("tasks", []):
         if task["id"] == task_id:
             return task
@@ -2625,7 +2711,7 @@ def _populate_tasks_cache(spec_slug: str) -> None:
     # This enables opportunistic caching of all specs in one scan
     spec_tasks = {}
     for task_file_path in sorted(TASKS_DIR.iterdir()):
-        if not task_file_path.is_file() or not task_file_path.suffix == ".json":
+        if not task_file_path.is_file() or task_file_path.suffix != ".json":
             continue
         # Extract spec_slug from filename (e.g., "my-spec.json" -> "my-spec")
         file_spec = task_file_path.stem
@@ -4878,9 +4964,18 @@ def remove_worktree(args: argparse.Namespace) -> None:
         run_cmd(["git", "worktree", "remove", "--force", str(path)])
     if args.delete_branch:
         run_cmd(["git", "branch", "-D", branch], check=False)
+<<<<<<< HEAD
     metadata = read_json_or_default(spec_files(args.spec)["metadata"], {})
     metadata["worktree"] = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
     write_json(spec_files(args.spec)["metadata"], metadata)
+=======
+    worktree_metadata = {"path": "", "branch": branch, "base_branch": detect_base_branch()}
+    if repository:
+        worktree_metadata["repository"] = repository
+    metadata = load_spec_metadata(args.spec)
+    metadata["worktree"] = worktree_metadata
+    save_spec_metadata(args.spec, metadata)
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
     record_event(args.spec, "worktree.removed", {"path": str(path), "branch_deleted": args.delete_branch})
     print(json.dumps(metadata["worktree"], indent=2, ensure_ascii=True))
 
@@ -5075,10 +5170,300 @@ def list_runs(args: argparse.Namespace) -> None:
 
 =======
 
+<<<<<<< HEAD
 # =============================================================================
 # Parser and Main Entry Point
 # =============================================================================
 >>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
+=======
+def repo_add_cmd(args: argparse.Namespace) -> None:
+    """Add a repository to the registry."""
+    ensure_state()
+    repo_id = args.id
+    repo_file = REPOSITORIES_DIR / f"{repo_id}.json"
+
+    if repo_file.exists():
+        raise SystemExit(f"repository already exists: {repo_id}")
+
+    # Build repository data
+    repo_data = {
+        "id": repo_id,
+        "name": args.name,
+        "path": args.path,
+        "url": args.url if args.url else None,
+        "description": args.description if args.description else None,
+        "enabled": True,
+        "branch": {
+            "default": args.branch if args.branch else "main",
+            "current": None,
+            "protected": ["main", "master"]
+        }
+    }
+
+    write_json(repo_file, repo_data)
+    print(f"Repository '{repo_id}' added successfully")
+
+
+def repo_list_cmd(_: argparse.Namespace) -> None:
+    """List all registered repositories."""
+    items = []
+    for repo_path in sorted(REPOSITORIES_DIR.glob("*.json")):
+        repo_data = read_json(repo_path)
+        items.append(repo_data)
+    print(json.dumps(items, indent=2, ensure_ascii=True))
+
+
+def repo_validate_cmd(args: argparse.Namespace) -> None:
+    """Validate repositories and dependencies."""
+    ensure_state()
+
+    # Create repository manager
+    manager = repository_manager()
+
+    # Check if validating specific repository or all
+    if args.repo:
+        # Validate single repository
+        errors = manager.validate(args.repo)
+        if errors:
+            print(f"❌ Repository '{args.repo}' validation failed:")
+            for error in errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print(f"✅ Repository '{args.repo}' is valid")
+    else:
+        # Validate all repositories and dependencies
+        print("Validating repositories...")
+        repo_results = manager.validate_all()
+
+        # Count errors
+        total_repos = len(repo_results)
+        invalid_repos = {repo_id: errs for repo_id, errs in repo_results.items() if errs}
+
+        # Print repository results
+        if invalid_repos:
+            print(f"\n❌ Found {len(invalid_repos)} invalid repositories:")
+            for repo_id, errors in invalid_repos.items():
+                print(f"\n  {repo_id}:")
+                for error in errors:
+                    print(f"    - {error}")
+        else:
+            if total_repos > 0:
+                print(f"✅ All {total_repos} repositories are valid")
+            else:
+                print("⚠️  No repositories registered")
+
+        # Validate dependencies
+        print("\nValidating dependencies...")
+        dep_errors = manager.validate_dependencies()
+
+        if dep_errors:
+            print(f"❌ Found {len(dep_errors)} dependency errors:")
+            for error in dep_errors:
+                print(f"  - {error}")
+            raise SystemExit(1)
+        else:
+            print("✅ All dependencies are valid")
+
+        # Exit with error if any repositories are invalid
+        if invalid_repos:
+            raise SystemExit(1)
+
+
+def validate_config_cmd(_: argparse.Namespace) -> None:
+    ensure_state()
+    issues: list[str] = []
+    warnings: list[str] = []
+    system_config = load_system_config()
+    checks: dict[str, Any] = {
+        "system_config_file": {
+            "path": str(SYSTEM_CONFIG_FILE),
+            "exists": SYSTEM_CONFIG_FILE.exists(),
+        },
+        "agents_file": {
+            "path": str(AGENTS_FILE),
+            "exists": AGENTS_FILE.exists(),
+        },
+    }
+    if not AGENTS_FILE.exists():
+        issues.append("missing .autoflow/agents.json")
+        agents_payload = {"agents": {}}
+    else:
+        agents_payload = read_json_or_default(AGENTS_FILE, {"agents": {}})
+    model_profiles = system_config.get("models", {}).get("profiles", {})
+    tool_profiles = system_config.get("tools", {}).get("profiles", {})
+    agent_checks = []
+    for name, spec in agents_payload.get("agents", {}).items():
+        entry = {
+            "name": name,
+            "protocol": spec.get("protocol", "cli"),
+            "command": spec.get("command", ""),
+            "valid": True,
+            "issues": [],
+            "warnings": [],
+        }
+        if not entry["command"]:
+            entry["valid"] = False
+            entry["issues"].append("missing command")
+        if spec.get("model_profile") and spec["model_profile"] not in model_profiles:
+            entry["warnings"].append(f"unknown model_profile: {spec['model_profile']}")
+        if spec.get("tool_profile") and spec["tool_profile"] not in tool_profiles:
+            entry["warnings"].append(f"unknown tool_profile: {spec['tool_profile']}")
+        if spec.get("protocol") == "acp" and not spec.get("transport"):
+            entry["valid"] = False
+            entry["issues"].append("missing ACP transport")
+        if not entry["valid"]:
+            issues.extend(f"{name}: {item}" for item in entry["issues"])
+        warnings.extend(f"{name}: {item}" for item in entry["warnings"])
+        agent_checks.append(entry)
+    checks["agents"] = agent_checks
+    print(
+        json.dumps(
+            {
+                "valid": not issues,
+                "issues": issues,
+                "warnings": warnings,
+                "checks": checks,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+
+def test_agent_cmd(args: argparse.Namespace) -> None:
+    configured = read_json_or_default(AGENTS_FILE, {"agents": {}}).get("agents", {}).get(args.agent)
+    payload = {
+        "agent": args.agent,
+        "configured": bool(configured),
+        "ready": False,
+        "issues": [],
+    }
+    if configured:
+        resolved = resolve_agent_profiles(configured, load_system_config())
+        payload["protocol"] = resolved.get("protocol", "cli")
+        payload["command"] = resolved.get("command", "")
+        payload["model"] = resolved.get("model", "")
+        if payload["protocol"] == "acp":
+            transport = resolved.get("transport", {})
+            payload["transport"] = transport
+            command = transport.get("command", resolved.get("command", ""))
+            payload["path"] = shutil.which(command) or ""
+            payload["ready"] = bool(command) and bool(payload["path"])
+            if not payload["ready"]:
+                payload["issues"].append("ACP transport command is not executable")
+        else:
+            discovered = discover_cli_agent(args.agent, resolved.get("command", ""))
+            if not discovered:
+                payload["issues"].append("CLI agent binary not found")
+            else:
+                payload["path"] = discovered.get("path", "")
+                payload["capabilities"] = discovered.get("capabilities", {})
+                payload["ready"] = True
+    else:
+        discovered = discover_cli_agent(args.agent, args.agent)
+        if not discovered:
+            payload["issues"].append("agent is neither configured nor discoverable by binary name")
+        else:
+            payload.update(
+                {
+                    "protocol": discovered.get("protocol", "cli"),
+                    "command": discovered.get("command", args.agent),
+                    "path": discovered.get("path", ""),
+                    "capabilities": discovered.get("capabilities", {}),
+                    "ready": True,
+                }
+            )
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+
+
+def capture_memory_cmd(args: argparse.Namespace) -> None:
+    run_dir = RUNS_DIR / args.run
+    metadata_path = run_dir / "run.json"
+    if not metadata_path.exists():
+        raise SystemExit(f"unknown run: {args.run}")
+    metadata = read_json(metadata_path)
+    if metadata.get("status") != "completed":
+        raise SystemExit("capture-memory requires a completed run")
+    summary_path = run_dir / "summary.md"
+    summary = summary_path.read_text(encoding="utf-8").strip() if summary_path.exists() else ""
+    scopes = args.scopes or metadata.get("agent_config", {}).get("memory_scopes") or ["spec"]
+    written = []
+    content = "\n".join(
+        [
+            f"run={metadata.get('id', '')}",
+            f"spec={metadata.get('spec', '')}",
+            f"task={metadata.get('task', '')}",
+            f"role={metadata.get('role', '')}",
+            f"result={metadata.get('result', '')}",
+            "",
+            summary or "No summary recorded.",
+        ]
+    )
+    for scope in scopes:
+        written.append(
+            str(
+                append_memory(
+                    scope,
+                    content,
+                    spec_slug=metadata.get("spec", ""),
+                    title=f"{metadata.get('task', '')} {metadata.get('role', '')} {metadata.get('result', '')}".strip(),
+                )
+            )
+        )
+    print(json.dumps({"run": args.run, "scopes": scopes, "written": written}, indent=2, ensure_ascii=True))
+
+
+def cleanup_runs_cmd(args: argparse.Namespace) -> None:
+    cleaned = []
+    tasks = load_tasks(args.spec)
+    task_updates = []
+    for metadata in active_runs_for_spec(args.spec):
+        if metadata.get("status") not in args.include_status:
+            continue
+        run_dir = RUNS_DIR / metadata["id"]
+        run_json = run_dir / "run.json"
+        if not run_json.exists():
+            continue
+        payload = read_json(run_json)
+        payload["status"] = args.target_status
+        payload["cleanup_at"] = now_stamp()
+        payload["cleanup_reason"] = args.reason
+        write_json(run_json, payload)
+        cleaned.append(metadata["id"])
+        task = task_lookup(tasks, payload["task"])
+        if task.get("status") == "in_progress":
+            fallback_status = args.task_status or ("in_review" if payload.get("role") == "reviewer" else "todo")
+            task["status"] = fallback_status
+            task.setdefault("notes", []).append(
+                {
+                    "at": now_stamp(),
+                    "note": f"run {metadata['id']} cleaned up; task returned to {fallback_status}",
+                }
+            )
+            task_updates.append({"task": payload["task"], "status": fallback_status})
+        record_event(
+            args.spec,
+            "run.cleaned",
+            {"run": metadata["id"], "status": args.target_status, "task": payload["task"]},
+        )
+    if task_updates:
+        save_tasks(args.spec, tasks, reason="run_cleanup")
+    invalidate_run_cache()
+    print(
+        json.dumps(
+            {
+                "spec": args.spec,
+                "cleaned_runs": cleaned,
+                "target_status": args.target_status,
+                "task_updates": task_updates,
+            },
+            indent=2,
+            ensure_ascii=True,
+        )
+    )
+
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 def build_parser() -> argparse.ArgumentParser:
     """Build and configure the Autoflow CLI argument parser."""

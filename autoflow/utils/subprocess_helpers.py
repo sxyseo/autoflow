@@ -7,12 +7,11 @@ error handling and output capture.
 
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 
 def run_cmd(
     args: list[str],
-    cwd: Optional[Path] = None,
+    cwd: Path | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """

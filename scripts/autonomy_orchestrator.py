@@ -3,18 +3,43 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-import cli_healthcheck
-import continuous_iteration
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
 
+<<<<<<< HEAD
+=======
+import cli_healthcheck  # noqa: E402
+import continuous_iteration  # noqa: E402
+
+from autoflow.core.commands import (  # noqa: E402
+    get_strategy_summary,
+    get_workflow_state,
+    taskmaster_export,
+    taskmaster_import,
+)
+from autoflow.utils import load_config, load_json  # noqa: E402
+
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
 DISCOVERED_AGENTS_FILE = STATE_DIR / "discovered_agents.json"
 
 
+<<<<<<< HEAD
 def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     if not path.exists():
         return default or {}
@@ -72,6 +97,8 @@ def taskmaster_import(spec: str, input_file: str) -> dict[str, Any]:
     )
 
 
+=======
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 def health_report(required: list[str] | None = None) -> dict[str, Any]:
     report = cli_healthcheck.build_report()
     payload: dict[str, Any] = dict(report)

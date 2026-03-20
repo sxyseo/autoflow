@@ -5,16 +5,40 @@ import argparse
 import json
 import shlex
 import subprocess
+<<<<<<< HEAD
+=======
+import sys
+from dataclasses import dataclass, field
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+<<<<<<< HEAD
+=======
+# Ensure we import from the autoflow package, not scripts/autoflow.py
+# Project root must be in path BEFORE scripts directory
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    # Insert at position 0 to ensure it's found before scripts/autoflow.py
+    sys.path.insert(0, str(_root))
+    # If scripts is already in path, remove and re-add after root
+    scripts_path = str(_root / 'scripts')
+    if scripts_path in sys.path:
+        sys.path.remove(scripts_path)
+    sys.path.insert(1, scripts_path)
+
+# Import shared utilities from autoflow.utils
+from autoflow.utils import load_config, load_json, run_cmd  # noqa: E402
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_DIR = ROOT / ".autoflow"
 AGENTS_FILE = STATE_DIR / "agents.json"
+run = run_cmd
 
 
+<<<<<<< HEAD
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=ROOT, check=check, text=True, capture_output=True)
 
@@ -27,15 +51,150 @@ def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, An
     if not path.exists():
         return default or {}
     return json.loads(path.read_text(encoding="utf-8"))
+=======
+class CommandExecutionError(Exception):
+    """
+    Exception raised for command execution errors.
+
+    Attributes:
+        message: Error message
+        exit_code: Command exit code
+        command: Command that failed
+        spec: Spec slug being processed
+    """
+
+    def __init__(
+        self,
+        message: str,
+        exit_code: int | None = None,
+        command: str | None = None,
+        spec: str | None = None,
+    ):
+        self.message = message
+        self.exit_code = exit_code
+        self.command = command
+        self.spec = spec
+        super().__init__(message)
+
+
+class InvalidCommandError(Exception):
+    """
+    Exception raised for invalid command strings.
+
+    Attributes:
+        message: Error message
+        command: Invalid command string
+        reason: Specific reason for invalidity
+    """
+
+    def __init__(
+        self,
+        message: str,
+        command: str | None = None,
+        reason: str | None = None,
+    ):
+        self.message = message
+        self.command = command
+        self.reason = reason
+        super().__init__(message)
+
+
+@dataclass
+class CommandResult:
+    """
+    Result of a command execution.
+
+    Attributes:
+        command: The command string that was executed
+        success: Whether the command succeeded (exit code 0)
+        exit_code: Process exit code
+        stdout: Standard output (stripped)
+        stderr: Standard error output (stripped)
+        error: Error message if execution failed
+    """
+
+    command: str
+    success: bool = False
+    exit_code: int = 0
+    stdout: str = ""
+    stderr: str = ""
+    error: str | None = None
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        status = "✓" if self.success else "✗"
+        return f"{status} {self.command} (exit={self.exit_code})"
+
+
+@dataclass
+class VerifyCommandsResult:
+    """
+    Result of running verification commands.
+
+    Attributes:
+        commands_run: Number of commands executed
+        all_success: Whether all commands succeeded
+        results: List of individual command results
+        stopped_at: Index of command where execution stopped (if failed early)
+    """
+
+    commands_run: int = 0
+    all_success: bool = True
+    results: list[CommandResult] = field(default_factory=list)
+    stopped_at: int | None = None
+
+
+def validate_slug_safe(slug: str) -> bool:
+    """Validate that a slug does not contain path traversal patterns.
+
+    Returns True if the slug is safe, False if it contains dangerous patterns
+    that could lead to path traversal attacks.
+
+    Checks for:
+    - '..' sequences (parent directory)
+    - './' sequences (current directory)
+    - Absolute paths starting with '/'
+    - Backslash separators (Windows paths)
+    - Null bytes
+
+    Args:
+        slug: The slug string to validate
+
+    Returns:
+        bool: True if safe, False if dangerous
+    """
+    # Check for null bytes
+    if "\0" in slug:
+        return False
+
+    # Check for parent directory patterns
+    if ".." in slug:
+        return False
+
+    # Check for current directory patterns
+    if "./" in slug:
+        return False
+
+    # Check for absolute paths
+    if slug.startswith("/"):
+        return False
+
+    # Check for Windows path separators
+    if "\\" in slug:
+        return False
+
+    # Check for drive letters (Windows absolute paths like C:)
+    return not (len(slug) >= 2 and slug[1] == ":")
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 
 def git_dirty() -> bool:
-    result = run(["git", "status", "--porcelain"])
+    result = run(["git", "status", "--porcelain"], cwd=ROOT)
     return bool(result.stdout.strip())
 
 
 def git_branch() -> str:
-    result = run(["git", "branch", "--show-current"])
+    result = run(["git", "branch", "--show-current"], cwd=ROOT)
     return result.stdout.strip()
 
 
@@ -85,11 +244,11 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     message_prefix = commit_cfg.get("message_prefix", "autoflow")
     message = f"{message_prefix}: {spec} iteration @ {timestamp}"
-    run(["git", "add", "-A"])
-    run(["git", "commit", "-m", message])
+    run(["git", "add", "-A"], cwd=ROOT)
+    run(["git", "commit", "-m", message], cwd=ROOT)
     pushed = False
     if push or commit_cfg.get("push", False):
-        run(["git", "push", "origin", git_branch()])
+        run(["git", "push", "origin", git_branch()], cwd=ROOT)
         pushed = True
     return {
         "committed": True,
@@ -99,6 +258,7 @@ def auto_commit(config: dict, spec: str, push: bool, state: dict) -> dict:
     }
 
 
+<<<<<<< HEAD
 def workflow_state(spec: str) -> dict:
     result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec])
     return json.loads(result.stdout)
@@ -107,18 +267,61 @@ def workflow_state(spec: str) -> dict:
 def task_history(spec: str, task: str) -> list[dict]:
     result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task])
     return json.loads(result.stdout)
+=======
+def workflow_state(spec: str) -> dict[str, Any]:
+    result = run(["python3", "scripts/autoflow.py", "workflow-state", "--spec", spec], cwd=ROOT)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+def task_history(spec: str, task: str) -> list[dict[str, Any]]:
+    result = run(["python3", "scripts/autoflow.py", "task-history", "--spec", spec, "--task", task], cwd=ROOT)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 
 def sync_agents(overwrite: bool = False) -> dict:
     cmd = ["python3", "scripts/autoflow.py", "sync-agents"]
     if overwrite:
         cmd.append("--overwrite")
+<<<<<<< HEAD
     result = run(cmd)
     return json.loads(result.stdout)
 
 
 def load_agent_catalog() -> dict[str, dict]:
     return load_json(AGENTS_FILE, default={"agents": {}}).get("agents", {})
+=======
+    result = run(cmd, cwd=ROOT)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+def sweep_stale_runs(config: dict[str, Any], spec: str, dispatch: bool) -> dict[str, Any]:
+    recovery_cfg = config.get("recovery", {})
+    cmd = [
+        "python3",
+        "scripts/autoflow.py",
+        "sweep-runs",
+        "--spec",
+        spec,
+        "--stale-after",
+        str(recovery_cfg.get("stale_after_seconds", 120)),
+    ]
+    include_status = recovery_cfg.get("include_statuses", ["created", "running"])
+    if include_status:
+        cmd.extend(["--include-status", *include_status])
+    if recovery_cfg.get("auto_recover", True):
+        cmd.append("--auto-recover")
+        if dispatch and recovery_cfg.get("dispatch_recovery", True):
+            cmd.append("--dispatch-recovery")
+    result = run(cmd, cwd=ROOT)
+    return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+
+def load_agent_catalog() -> dict[str, dict[str, Any]]:
+    data = load_json(AGENTS_FILE, default={"agents": {}})
+    agents = data.get("agents", {})
+    return agents  # type: ignore[no-any-return]
+>>>>>>> auto-claude/107-extract-shared-utilities-to-eliminate-code-duplica
 
 
 def default_role_preferences(role: str) -> list[str]:
@@ -210,6 +413,7 @@ def dispatch_next(config: dict, spec: str, dispatch: bool) -> dict:
     if dispatch:
         proc = run(
             ["bash", "scripts/workflow-dispatch.sh", spec, role, agent, next_action["id"]],
+            cwd=ROOT,
             check=True,
         )
         payload["tmux_session"] = proc.stdout.strip()

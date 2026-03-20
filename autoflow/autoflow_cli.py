@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
+from autoflow.utils import load_json, now_stamp
+from autoflow.utils.subprocess_helpers import run_cmd as run_cmd_util
 
 
 class TaskStatus(StrEnum):
@@ -226,7 +228,7 @@ class AutoflowCLI:
         Returns:
             Timestamp in format YYYYMMDDTHHMMSSZ
         """
-        return self.now_utc().strftime("%Y%m%dT%H%M%SZ")
+        return now_stamp()
 
     @staticmethod
     def slugify(value: str) -> str:
@@ -279,7 +281,7 @@ class AutoflowCLI:
             FileNotFoundError: If file doesn't exist
             json.JSONDecodeError: If file contains invalid JSON
         """
-        return json.loads(path.read_text(encoding="utf-8"))
+        return load_json(path)
 
     def read_json_or_default(self, path: Path, default: Any) -> Any:
         """
@@ -292,12 +294,7 @@ class AutoflowCLI:
         Returns:
             Parsed JSON data or default value
         """
-        if not path.exists():
-            return default
-        try:
-            return self.read_json(path)
-        except (json.JSONDecodeError, OSError):
-            return default
+        return load_json(path, default=default)
 
     def ensure_state(self) -> None:
         """
@@ -334,13 +331,7 @@ class AutoflowCLI:
         Returns:
             Completed process result
         """
-        return subprocess.run(
-            args,
-            cwd=cwd or self.root,
-            check=check,
-            capture_output=True,
-            text=True,
-        )
+        return run_cmd_util(args, cwd=cwd or self.root, check=check)
 
     # === Path Resolution Methods ===
 

@@ -7,7 +7,7 @@ This module provides shared utility functions used across the Autoflow codebase:
 - Time Helpers: Timestamp and datetime utilities
 """
 
-from autoflow.utils.file_helpers import load_json, load_config
+from autoflow.utils.file_helpers import load_config, load_config_from_path, load_json
 from autoflow.utils.subprocess_helpers import run_cmd
 from autoflow.utils.time_helpers import now_stamp
 
@@ -15,6 +15,7 @@ __all__ = [
     # File Helpers
     "load_json",
     "load_config",
+    "load_config_from_path",
     # Subprocess Helpers
     "run_cmd",
     # Time Helpers

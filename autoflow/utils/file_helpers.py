@@ -7,10 +7,10 @@ error handling and default values.
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
-def load_json(path: Path, default: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Load a JSON file, returning a default value if the file doesn't exist.
 
@@ -57,4 +57,29 @@ def load_config(path: str) -> dict[str, Any]:
     return json.loads(full_path.read_text(encoding="utf-8"))
 
 
-__all__ = ["load_json", "load_config"]
+def load_config_from_path(root: Path, config_path: str) -> dict[str, Any]:
+    """
+    Load configuration from a path relative to root.
+
+    This function handles both absolute and relative paths, making it
+    suitable for loading configuration files from arbitrary locations.
+
+    Args:
+        root: Project root directory
+        config_path: Path to config file (relative or absolute)
+
+    Returns:
+        Parsed JSON configuration
+
+    Raises:
+        json.JSONDecodeError: If the file contains invalid JSON
+        IOError: If the file cannot be read
+        FileNotFoundError: If the file doesn't exist
+    """
+    path = (
+        root / config_path if not Path(config_path).is_absolute() else Path(config_path)
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+__all__ = ["load_json", "load_config", "load_config_from_path"]

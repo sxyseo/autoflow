@@ -32,74 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from autoflow.core.config import Config, get_state_dir
-
-
-def now_stamp() -> str:
-    """
-    Get current UTC timestamp as a string.
-
-    Returns:
-        Timestamp in format YYYYMMDDTHHMMSSZ
-    """
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-
-
-def run_cmd(
-    args: list[str],
-    root: Path,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """
-    Run a command as a subprocess.
-
-    Args:
-        args: Command arguments
-        root: Working directory
-        check: Whether to raise exception on non-zero exit
-
-    Returns:
-        Completed process result
-    """
-    return subprocess.run(
-        args,
-        cwd=root,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
-
-
-def load_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, Any]:
-    """
-    Load JSON from a file, returning default if not found.
-
-    Args:
-        path: Path to JSON file
-        default: Default value if file doesn't exist
-
-    Returns:
-        Parsed JSON data or default value
-    """
-    if not path.exists():
-        return default or {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def load_config_from_path(root: Path, config_path: str) -> dict[str, Any]:
-    """
-    Load configuration from a path relative to root.
-
-    Args:
-        root: Project root directory
-        config_path: Path to config file (relative or absolute)
-
-    Returns:
-        Parsed JSON configuration
-    """
-    path = (
-        root / config_path if not Path(config_path).is_absolute() else Path(config_path)
-    )
-    return json.loads(path.read_text(encoding="utf-8"))
+from autoflow.utils import load_config_from_path, load_json, now_stamp, run_cmd
 
 
 def probe_binary(name: str) -> dict[str, Any]:
