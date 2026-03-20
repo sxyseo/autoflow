@@ -2,8 +2,13 @@
 set -euo pipefail
 
 if ! python3 -c "import pytest, click, apscheduler" >/dev/null 2>&1; then
-  echo "missing Python test dependencies. Create a virtualenv and run: pip install -e '.[dev]'" >&2
-  exit 1
+  if [[ "${CI:-}" == "true" ]]; then
+    python3 -m pip install --upgrade pip
+    python3 -m pip install -e ".[dev]"
+  else
+    echo "missing Python test dependencies. Create a virtualenv and run: pip install -e '.[dev]'" >&2
+    exit 1
+  fi
 fi
 
 python3 -m py_compile \
