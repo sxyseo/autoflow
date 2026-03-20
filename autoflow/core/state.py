@@ -1294,6 +1294,40 @@ class StateManager:
             return True
         return False
 
+    def search_memory(
+        self,
+        query: str,
+        category: Optional[str] = None,
+    ) -> list[MemoryData]:
+        """
+        Search memory entries by query string.
+
+        Searches through keys and values for matching entries,
+        optionally filtered by category.
+
+        Args:
+            query: Search query string
+            category: Filter by category
+
+        Returns:
+            List of matching memory entries
+
+        Example:
+            >>> results = state.search_memory("project", category="git")
+        """
+        query_lower = query.lower()
+        matching_memories: list[MemoryData] = []
+        memories = self.list_memory(category=category)
+
+        for memory in memories:
+            key = memory.get("key", "")
+            value = str(memory.get("value", ""))
+
+            if query_lower in key.lower() or query_lower in value.lower():
+                matching_memories.append(memory)
+
+        return matching_memories
+
     # === Utility Methods ===
 
     def get_status(self) -> dict[str, Any]:
