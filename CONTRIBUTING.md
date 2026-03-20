@@ -7,8 +7,8 @@
 This document provides guidelines and instructions for contributing to the Autoflow project.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Linted with Ruff](https://img.shields.io/badge/linted%20with-ruff-ff69b4.svg)](https://github.com/astral-sh/ruff)
 
 </div>
 
@@ -37,7 +37,7 @@ We welcome contributions from everyone, whether you're fixing bugs, adding featu
 
 Before contributing, ensure you have the following installed:
 
-- **Python 3.10 or higher**: Required for running Autoflow
+- **Python 3.11 or higher**: Required for running Autoflow
 - **Git**: For version control
 - **tmux**: For background agent execution
 - **AI Agent Backend**: At least one of Claude Code, Codex, or a custom ACP-compatible agent
@@ -176,41 +176,44 @@ git push origin feature/your-feature-name
 
 ### Python Code Style
 
-We follow **PEP 8** with these specific tools:
+We follow **PEP 8** using **Ruff** for fast Python linting and formatting:
 
 ```bash
-# Format code with Black
-black .
-
-# Sort imports with isort
-isort .
-
-# Lint with flake8
-flake8 .
+# Format and lint code with Ruff
+ruff check .           # Lint code
+ruff format .          # Format code
 
 # Type check with mypy (optional for now)
 mypy .
 ```
 
-**Black configuration** (pyproject.toml):
+**Ruff configuration** (pyproject.toml):
 ```toml
-[tool.black]
-line-length = 100
-target-version = ['py310']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-)/
-'''
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "ARG",    # flake8-unused-arguments
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # do not perform function calls in argument defaults
+    "B905",   # zip without explicit strict
+]
+
+[tool.ruff.isort]
+known-first-party = ["autoflow"]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["ARG001", "S101", "SIM117"]
 ```
 
 ### Code Quality Guidelines
