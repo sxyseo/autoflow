@@ -1,0 +1,235 @@
+{
+  "feature": "Add list-specs CLI command for spec enumeration",
+  "description": "Add a dedicated list-specs CLI command that enumerates all specs with their metadata including status, worktree info, and review state. Currently the status command only provides spec names without details.",
+  "workflow_type": "simple",
+  "workflow_rationale": "This is a simple enhancement task. The list-specs command already exists in the legacy CLI (scripts/autoflow.py) and works correctly. The task is to: (1) verify the existing implementation works correctly, (2) enhance the modern Click CLI (autoflow/cli.py) to show the same detailed metadata, and (3) add comprehensive tests. No multi-phase workflow or service dependencies are needed.",
+  "phases": [
+    {
+      "id": "phase-1-verify-existing",
+      "name": "Verify Existing Implementation",
+      "type": "implementation",
+      "description": "Verify that the existing list-specs command in the legacy CLI works correctly and outputs all required metadata fields (status, worktree, review state).",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-1-1",
+          "description": "Verify list-specs command outputs all required metadata",
+          "service": "cli",
+          "files_to_modify": [],
+          "files_to_create": [],
+          "patterns_from": [],
+          "verification": {
+            "type": "command",
+            "command": "python3 scripts/autoflow.py list-specs | python3 -c \"import sys, json; data = json.load(sys.stdin); assert all('slug' in s and 'title' in s and 'status' in s and 'worktree' in s and 'review' in s for s in data), 'Missing required fields'; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed",
+          "notes": "The legacy CLI command at scripts/autoflow.py lines 5015-5038 already implements this feature. This task verifies it works correctly. Verification passed - all 2 specs have all required fields: slug, title, status, worktree, review."
+        }
+      ]
+    },
+    {
+      "id": "phase-2-enhance-modern-cli",
+      "name": "Enhance Modern Click CLI",
+      "type": "implementation",
+      "description": "Enhance the spec list command in the modern Click CLI (autoflow/cli.py) to output detailed metadata including status, worktree info, and review state, matching the legacy CLI functionality.",
+      "depends_on": [],
+      "parallel_safe": true,
+      "subtasks": [
+        {
+          "id": "subtask-2-1",
+          "description": "Add helper functions to load worktree and review metadata",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py (normalize_worktree_metadata, load_review_state)"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -c \"from autoflow.cli import _get_worktree_metadata, _get_review_state_metadata; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed",
+          "notes": "Added helper functions to autoflow/cli/utils.py and exported them from autoflow/cli/__init__.py:\n- _get_worktree_metadata(spec_slug, config) -> dict with path, branch, base_branch\n- _get_review_state_metadata(spec_slug, config) -> dict with approval state\n- Supporting utilities: _slugify, _read_json_or_default, _spec_dir, _worktree_path, _worktree_branch, _detect_base_branch\nPattern follows scripts/autoflow.py normalize_worktree_metadata and load_review_state.\nVerification passed: functions are importable from autoflow.cli package."
+        },
+        {
+          "id": "subtask-2-2",
+          "description": "Update spec list command to include detailed metadata",
+          "service": "cli",
+          "files_to_modify": [
+            "autoflow/cli.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "scripts/autoflow.py (list_specs function)"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m autoflow.cli spec list --output-json 2>&1 | python3 -c \"import sys, json; data = json.load(sys.stdin); specs = data.get('specs', []); assert len(specs) > 0, 'No specs found'; assert all('status' in s and 'worktree' in s and 'review' in s for s in specs), 'Missing metadata fields'; print('OK')\"",
+            "expected": "OK"
+          },
+          "status": "completed",
+          "notes": "Enhanced spec_list() function in autoflow/cli.py to:\n- Read metadata from .autoflow/specs/*/metadata.json files\n- Load review state from review_state.json files\n- Return detailed metadata for each spec: slug, title, summary, status, created_at, updated_at, worktree, review\n- Updated both JSON and human-readable output formats\n\nVerification passed: Found 2 specs, all with required fields (status, worktree, review). The implementation matches the legacy CLI's list-specs functionality.\n\nCommitted as: b8784b8"
+        }
+      ]
+    },
+    {
+      "id": "phase-3-add-tests",
+      "name": "Add Comprehensive Tests",
+      "type": "implementation",
+      "description": "Add comprehensive tests for the list-specs command to ensure it works correctly and handles edge cases.",
+      "depends_on": [
+        "phase-2-enhance-modern-cli"
+      ],
+      "parallel_safe": false,
+      "subtasks": [
+        {
+          "id": "subtask-3-1",
+          "description": "Add test for legacy CLI list-specs command",
+          "service": "cli",
+          "files_to_modify": [
+            "tests/test_cli_status.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_state.py (test_list_specs_all)"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m pytest tests/test_cli_status.py -k list_specs -v",
+            "expected": "PASSED"
+          },
+          "status": "completed",
+          "notes": "Added TestLegacyCliListSpecs class with 4 comprehensive tests:\n- test_list_specs_outputs_all_required_fields: Verifies all required fields (slug, title, summary, status, created_at, updated_at, worktree, review) with subfields (path, branch, base_branch, approved, approved_by, review_count)\n- test_list_specs_with_empty_specs_dir: Verifies empty array returned when no specs exist\n- test_list_specs_sorts_by_created_at_descending: Verifies specs sorted by created_at descending (newest first)\n- test_list_specs_handles_missing_fields_gracefully: Verifies missing optional fields get default values\n\nVerification passed: All 4 tests PASSED.\n\nCommitted as: eb3fe08"
+        },
+        {
+          "id": "subtask-3-2",
+          "description": "Add test for modern CLI spec list command",
+          "service": "cli",
+          "files_to_modify": [
+            "tests/test_cli_status.py"
+          ],
+          "files_to_create": [],
+          "patterns_from": [
+            "tests/test_state.py (test_list_specs_all)"
+          ],
+          "verification": {
+            "type": "command",
+            "command": "python3 -m pytest tests/test_cli_status.py -k spec_list -v",
+            "expected": "PASSED"
+          },
+          "status": "pending",
+          "notes": "Add tests to verify the modern CLI spec list command outputs all required metadata fields. Test both JSON and human-readable output formats."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_phases": 3,
+    "total_subtasks": 5,
+    "services_involved": [
+      "cli"
+    ],
+    "parallelism": {
+      "max_parallel_phases": 2,
+      "parallel_groups": [
+        {
+          "phases": [
+            "phase-1-verify-existing",
+            "phase-2-enhance-modern-cli"
+          ],
+          "reason": "Phase 1 verifies existing implementation, Phase 2 enhances modern CLI - they can run in parallel since they work on different codebases."
+        }
+      ],
+      "recommended_workers": 1,
+      "speedup_estimate": "1.2x faster than sequential (minimal parallelism benefit due to dependencies)"
+    },
+    "startup_command": "source .auto-claude/.venv/bin/activate && python .auto-claude/run.py --spec 086 --parallel 1"
+  },
+  "verification_strategy": {
+    "risk_level": "low",
+    "skip_validation": false,
+    "test_creation_phase": "post_implementation",
+    "test_types_required": [
+      "unit"
+    ],
+    "security_scanning_required": false,
+    "staging_deployment_required": false,
+    "acceptance_criteria": [
+      "Legacy CLI list-specs command outputs all required metadata (status, worktree, review state)",
+      "Modern CLI spec list command outputs all required metadata (status, worktree, review state)",
+      "All tests pass",
+      "Both JSON and human-readable output formats work correctly"
+    ],
+    "verification_steps": [
+      {
+        "name": "Verify Legacy CLI Command",
+        "command": "python3 scripts/autoflow.py list-specs | python3 -c \"import sys, json; data = json.load(sys.stdin); assert all('slug' in s and 'title' in s and 'status' in s and 'worktree' in s and 'review' in s for s in data)\"",
+        "expected_outcome": "All specs have required metadata fields",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Verify Modern CLI Command",
+        "command": "python3 -m autoflow.cli spec list --output-json | python3 -c \"import sys, json; data = json.load(sys.stdin); specs = data.get('specs', []); assert all('status' in s and 'worktree' in s and 'review' in s for s in specs)\"",
+        "expected_outcome": "All specs have required metadata fields",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      },
+      {
+        "name": "Run Unit Tests",
+        "command": "python3 -m pytest tests/test_cli_status.py -v",
+        "expected_outcome": "All tests pass",
+        "type": "test",
+        "required": true,
+        "blocking": true
+      }
+    ],
+    "reasoning": "Low risk change - adding metadata output to an existing command. The legacy CLI already has this functionality, so we're essentially porting it to the modern CLI and adding tests. Unit tests are sufficient to verify the functionality."
+  },
+  "qa_acceptance": {
+    "unit_tests": {
+      "required": true,
+      "commands": [
+        "python3 -m pytest tests/test_cli_status.py -v",
+        "python3 -m pytest tests/test_state.py::TestStateManager::test_list_specs_all -v"
+      ],
+      "minimum_coverage": null
+    },
+    "integration_tests": {
+      "required": false,
+      "commands": [],
+      "services_to_test": []
+    },
+    "e2e_tests": {
+      "required": false,
+      "commands": [],
+      "flows": []
+    },
+    "cli_verification": {
+      "required": true,
+      "commands": [
+        {
+          "command": "python3 scripts/autoflow.py list-specs",
+          "expected_output": "JSON array with specs containing slug, title, status, worktree, review fields"
+        },
+        {
+          "command": "python3 -m autoflow.cli spec list --output-json",
+          "expected_output": "JSON object with specs array containing slug, title, status, worktree, review fields"
+        }
+      ]
+    }
+  },
+  "qa_signoff": null,
+  "status": "in_progress",
+  "planStatus": "in_progress",
+  "xstateState": "backlog",
+  "executionPhase": "coding",
+  "updated_at": "2026-03-16T00:25:00.000Z"
+}

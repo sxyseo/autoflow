@@ -1,0 +1,122 @@
+=== AUTO-BUILD PROGRESS ===
+
+Project: Add list-specs CLI command for spec enumeration
+Workspace: managed by orchestrator
+Started: 2026-03-16
+
+Workflow Type: simple
+Rationale: This is a simple enhancement task. The list-specs command already exists in the legacy CLI (scripts/autoflow.py) and works correctly. The task is to: (1) verify the existing implementation works correctly, (2) enhance the modern Click CLI (autoflow/cli.py) to show the same detailed metadata, and (3) add comprehensive tests. No multi-phase workflow or service dependencies are needed.
+
+Session 1 (Planner):
+- Created implementation_plan.json
+- Created project_index.json
+- Created context.json
+- Created init.sh
+- Phases: 3
+- Total subtasks: 5
+
+Phase Summary:
+- Phase 1 - Verify Existing Implementation: 1 subtask, depends on []
+  - subtask-1-1: Verify list-specs command outputs all required metadata
+
+- Phase 2 - Enhance Modern Click CLI: 2 subtasks, depends on []
+  - subtask-2-1: Add helper functions to load worktree and review metadata
+  - subtask-2-2: Update spec list command to include detailed metadata
+
+- Phase 3 - Add Comprehensive Tests: 2 subtasks, depends on [phase-2-enhance-modern-cli]
+  - subtask-3-1: Add test for legacy CLI list-specs command
+  - subtask-3-2: Add test for modern CLI spec list command
+
+Services Involved:
+- cli: Command-line interface (legacy and modern)
+
+Key Findings from Investigation:
+- The list-specs command ALREADY EXISTS in the legacy CLI (scripts/autoflow.py lines 5015-5038)
+- Legacy command outputs: slug, title, summary, status, created_at, updated_at, worktree (path, branch, base_branch), review (approved, approved_by, review_count)
+- Modern Click CLI (autoflow/cli.py) has 'spec list' command but only shows: id, title, tags
+- Modern CLI needs enhancement to match legacy CLI functionality
+- Spec metadata stored in .autoflow/specs/{slug}/metadata.json
+- Review state stored in .autoflow/specs/{slug}/review_state.json
+
+Parallelism Analysis:
+- Max parallel phases: 2
+- Recommended workers: 1
+- Parallel groups:
+  - [phase-1-verify-existing, phase-2-enhance-modern-cli] - Can run in parallel since they work on different aspects
+- Speedup estimate: 1.2x faster than sequential
+
+=== STARTUP COMMAND ===
+
+To continue building this spec, run:
+
+  source .auto-claude/.venv/bin/activate && python .auto-claude/run.py --spec 086 --parallel 1
+
+Example:
+  source .auto-claude/.venv/bin/activate && python .auto-claude/run.py --spec 086 --parallel 1
+
+=== NEXT STEPS ===
+
+The implementation plan has been created. A separate coder agent will:
+1. Read implementation_plan.json for subtask list
+2. Find next pending subtask (respecting dependencies)
+3. Implement the actual code changes
+
+DO NOT implement any code in this session - planning only.
+
+=== END SESSION 1 ===
+
+Session 2 (Coder - subtask-1-1):
+- Task: Verify list-specs command outputs all required metadata
+- Status: COMPLETED ✓
+- Verification: Passed - All 2 specs have all required fields
+- Commit: cdfa248b88f730ec072c4dda31cc0d9e3e0c8560
+- Findings:
+  * Legacy CLI list-specs command works correctly
+  * Outputs all required fields: slug, title, status, worktree, review
+  * Implementation located at scripts/autoflow.py lines 5015-5038
+  * Uses helper functions: normalize_worktree_metadata(), load_review_state()
+  * Format: JSON array with sorted specs (newest first)
+
+=== END SESSION 2 ===
+
+Session 3 (Coder - subtask-2-1):
+- Task: Add helper functions to load worktree and review metadata
+- Status: COMPLETED ✓
+- Verification: Passed - Functions are importable from autoflow.cli
+- Commit: a89e778c8c03b5cf2c23f3aa8f50311b642ecc27
+- Implementation:
+  * Added helper functions to autoflow/cli/utils.py:
+    - _get_worktree_metadata(spec_slug, config) -> dict with path, branch, base_branch
+    - _get_review_state_metadata(spec_slug, config) -> dict with approval state
+  * Supporting utilities:
+    - _slugify(value) -> URL-friendly slug
+    - _read_json_or_default(path, default) -> Safe JSON loading
+    - _spec_dir(slug, state_dir) -> Spec directory path
+    - _worktree_path(spec_slug, state_dir) -> Worktree directory path
+    - _worktree_branch(spec_slug) -> Branch name for worktree
+    - _detect_base_branch() -> Detect main/master branch
+  * Exported functions from autoflow/cli/__init__.py
+  * Pattern follows scripts/autoflow.py normalize_worktree_metadata and load_review_state
+
+=== END SESSION 3 ===
+
+Session 4 (Coder - subtask-2-2):
+- Task: Update spec list command to include detailed metadata
+- Status: COMPLETED ✓
+- Verification: Passed - All 2 specs have required fields (status, worktree, review)
+- Commit: b8784b8
+- Implementation:
+  * Enhanced spec_list() function in autoflow/cli.py
+  * Now reads from .autoflow/specs/*/metadata.json files
+  * Loads review state from review_state.json files
+  * Returns detailed metadata for each spec:
+    - slug, title, summary
+    - status (draft, in_progress, etc.)
+    - created_at, updated_at
+    - worktree (path, branch, base_branch)
+    - review (approved, approved_by, review_count)
+  * Updated both JSON and human-readable output formats
+  * Human output now shows: status, branch, review status
+  * Matches legacy CLI's list-specs functionality
+
+=== END SESSION 4 ===

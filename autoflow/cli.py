@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,8 @@ from typing import Any, Optional
 import click
 
 from autoflow import __version__
+from autoflow.utils.subprocess_helpers import run_cmd
+from autoflow.analytics.cli import analytics
 from autoflow.core.config import Config, load_config, load_system_config, get_state_dir
 from autoflow.core.state import StateManager, TaskStatus, RunStatus
 
@@ -73,6 +76,249 @@ def _format_datetime(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _load_all_tasks_from_specs(config: Optional[Config] = None) -> list[dict[str, Any]]:
+    """
+    Load all tasks from all spec task files.
+
+    Scans .autoflow/tasks/ directory and loads tasks from each spec's task file.
+    Each spec's tasks are stored in .autoflow/tasks/{spec_slug}.json
+
+    Args:
+        config: Optional config object
+
+    Returns:
+        List of all tasks with added 'spec' field indicating source spec
+    """
+    state_dir = get_state_dir(config)
+    tasks_dir = state_dir / "tasks"
+
+    all_tasks = []
+
+    if not tasks_dir.exists():
+        return all_tasks
+
+    for task_file in tasks_dir.glob("*.json"):
+        try:
+            with open(task_file, encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Extract spec slug from filename
+            spec_slug = task_file.stem
+
+            # Add tasks with spec information
+            for task in data.get("tasks", []):
+                task_with_spec = task.copy()
+                task_with_spec["spec"] = spec_slug
+                all_tasks.append(task_with_spec)
+
+        except (json.JSONDecodeError, IOError):
+            # Skip invalid files
+            continue
+
+    # Sort by spec and then by task order
+    all_tasks.sort(key=lambda t: (t.get("spec", ""), t.get("id", "")))
+    return all_tasks
+
+
+def _slugify(value: str) -> str:
+    """
+    Convert a string to a URL-friendly slug.
+
+    Converts to lowercase, replaces non-alphanumeric characters with hyphens,
+    and removes consecutive hyphens.
+
+    Args:
+        value: Input string to convert
+
+    Returns:
+        URL-friendly slug string, or "spec" if result is empty
+    """
+    output = []
+    for ch in value.lower():
+        if ch.isalnum():
+            output.append(ch)
+        elif ch in {" ", "_", "-", "/", "."}:
+            output.append("-")
+    slug = "".join(output).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "spec"
+
+
+def _read_json_or_default(path: Path, default: Any) -> Any:
+    """
+    Read a JSON file, returning a default value if the file doesn't exist or is invalid.
+
+    This is a safe version of JSON reading that handles missing files and JSON parse
+    errors by returning a provided default value instead of raising an exception.
+
+    Args:
+        path: Path to the JSON file to read
+        default: Default value to return if file doesn't exist or is invalid JSON
+
+    Returns:
+        Parsed JSON data if file exists and is valid, otherwise the default value
+    """
+    if not path.exists():
+        return default
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return default
+
+
+def _spec_dir(slug: str, state_dir: Path) -> Path:
+    """
+    Get the directory path for a spec.
+
+    Args:
+        slug: Spec slug identifier
+        state_dir: Path to the state directory
+
+    Returns:
+        Path to the spec directory
+    """
+    return state_dir / "specs" / slug
+
+
+def _worktree_path(spec_slug: str, state_dir: Path) -> Path:
+    """
+    Get the worktree path for a spec.
+
+    Args:
+        spec_slug: Spec slug identifier
+        state_dir: Path to the state directory
+
+    Returns:
+        Path to the worktree directory
+    """
+    return state_dir / "worktrees" / "tasks" / spec_slug
+
+
+def _worktree_branch(spec_slug: str) -> str:
+    """
+    Get the git branch name for a spec's worktree.
+
+    Args:
+        spec_slug: Spec slug identifier
+
+    Returns:
+        Branch name for the worktree (format: codex/{slugified_spec_slug})
+    """
+    return f"codex/{_slugify(spec_slug)}"
+
+
+def _detect_base_branch() -> str:
+    """
+    Detect the git repository's base branch.
+
+    Attempts to identify the primary branch by checking for common branch names
+    (main, master) in order. Falls back to the current branch if neither is found,
+    or defaults to "main" as a last resort.
+
+    Returns:
+        Name of the detected base branch ("main", "master", or current branch)
+    """
+    for branch in ["main", "master"]:
+        result = run_cmd(["git", "rev-parse", "--verify", branch], check=False)
+        if result.returncode == 0:
+            return branch
+    try:
+        current = run_cmd(["git", "branch", "--show-current"])
+        return current.stdout.strip() or "main"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "main"
+
+
+def _get_worktree_metadata(spec_slug: str, config: Optional[Config] = None) -> dict[str, Any]:
+    """
+    Get normalized worktree metadata for a spec.
+
+    Loads the spec's metadata and normalizes the worktree information,
+    including path, branch, and base branch. Resolves the actual worktree
+    path by checking if the expected path exists.
+
+    Args:
+        spec_slug: Spec slug identifier
+        config: Optional config object
+
+    Returns:
+        Dictionary containing worktree metadata with keys:
+            - path: Resolved path to the worktree (empty string if not found)
+            - branch: Branch name for the worktree
+            - base_branch: Detected base branch name
+    """
+    state_dir = get_state_dir(config)
+    spec_dir_path = _spec_dir(spec_slug, state_dir)
+    metadata_path = spec_dir_path / "metadata.json"
+
+    # Load spec metadata
+    metadata = _read_json_or_default(metadata_path, {})
+    worktree = dict(metadata.get("worktree", {}))
+
+    # Get expected worktree path and current path from metadata
+    expected_path = _worktree_path(spec_slug, state_dir)
+    current_path = worktree.get("path", "")
+    branch = worktree.get("branch", _worktree_branch(spec_slug))
+    base_branch = worktree.get("base_branch", _detect_base_branch())
+
+    # Resolve actual worktree path
+    resolved_path = ""
+    if expected_path.exists():
+        resolved_path = str(expected_path)
+    elif current_path:
+        current = Path(current_path)
+        if current.exists():
+            resolved_path = str(current)
+
+    return {
+        "path": resolved_path,
+        "branch": branch,
+        "base_branch": base_branch,
+    }
+
+
+def _get_review_state_metadata(spec_slug: str, config: Optional[Config] = None) -> dict[str, Any]:
+    """
+    Get review state metadata for a spec.
+
+    Loads the review state from disk, returning a default state if the file
+    doesn't exist or is invalid. The review state tracks approval status,
+    reviewer information, and approval metadata.
+
+    Args:
+        spec_slug: Spec slug identifier
+        config: Optional config object
+
+    Returns:
+        Review state dictionary with the following keys:
+            - approved: Whether the review is approved (bool)
+            - approved_by: Username of the approver (str)
+            - approved_at: ISO timestamp of approval (str)
+            - spec_hash: Hash of the spec at approval time (str)
+            - review_count: Number of reviews performed (int)
+            - invalidated_at: ISO timestamp of invalidation (str)
+            - invalidated_reason: Reason for invalidation (str)
+    """
+    state_dir = get_state_dir(config)
+    spec_dir_path = _spec_dir(spec_slug, state_dir)
+    review_state_path = spec_dir_path / "review_state.json"
+
+    default_state = {
+        "approved": False,
+        "approved_by": "",
+        "approved_at": "",
+        "spec_hash": "",
+        "review_count": 0,
+        "invalidated_at": "",
+        "invalidated_reason": "",
+    }
+
+    return _read_json_or_default(review_state_path, default_state)
+
+
+>>>>>>> auto-claude/086-add-list-specs-cli-command-for-spec-enumeration
 @click.group(
     context_settings=CONTEXT_SETTINGS,
     invoke_without_command=True,
@@ -1099,6 +1345,273 @@ def memory_delete(ctx: click.Context, key: str) -> None:
     else:
         click.echo(f"Error: Memory '{key}' not found.", err=True)
         ctx.exit(1)
+
+
+# === Spec Commands ===
+
+@main.group()
+def spec() -> None:
+    """Manage specifications."""
+    pass
+
+
+def _get_state_manager_from_ctx(ctx: click.Context) -> StateManager:
+    """Get StateManager from click context."""
+    config: Config = ctx.obj["config"]
+    return _get_state_manager(config)
+
+
+@spec.command("list")
+@click.option(
+    "--archived",
+    "-a",
+    is_flag=True,
+    help="Include archived specifications.",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=20,
+    help="Maximum number of specs to show.",
+)
+@click.pass_context
+def spec_list(
+    ctx: click.Context,
+    archived: bool,
+    limit: int,
+) -> None:
+    """
+    List specifications.
+
+    Shows specifications, optionally including archived ones.
+    Includes detailed metadata: status, worktree, and review information.
+    """
+    state_manager = _get_state_manager_from_ctx(ctx)
+    state_dir = state_manager.state_dir
+
+    # Specs are stored as directories with metadata.json files
+    specs_dir = state_dir / "specs"
+
+    specs = []
+
+    if specs_dir.exists():
+        for spec_dir in sorted(specs_dir.iterdir()):
+            if not spec_dir.is_dir():
+                continue
+
+            # Load metadata.json
+            metadata_path = spec_dir / "metadata.json"
+            if not metadata_path.exists():
+                continue
+
+            try:
+                with open(metadata_path, encoding="utf-8") as f:
+                    metadata = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                continue
+
+            spec_slug = metadata.get("slug", spec_dir.name)
+
+            # Load review_state.json
+            review_state_path = spec_dir / "review_state.json"
+            review_state = {
+                "approved": False,
+                "approved_by": "",
+                "review_count": 0,
+            }
+
+            if review_state_path.exists():
+                try:
+                    with open(review_state_path, encoding="utf-8") as f:
+                        loaded_review = json.load(f)
+                        review_state = {
+                            "approved": loaded_review.get("approved", False),
+                            "approved_by": loaded_review.get("approved_by", ""),
+                            "review_count": loaded_review.get("review_count", 0),
+                        }
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+            # Build spec entry with detailed metadata
+            spec_entry = {
+                "slug": spec_slug,
+                "title": metadata.get("title", ""),
+                "summary": metadata.get("summary", ""),
+                "status": metadata.get("status", ""),
+                "created_at": metadata.get("created_at", ""),
+                "updated_at": metadata.get("updated_at", ""),
+                "worktree": metadata.get("worktree", {}),
+                "review": review_state,
+            }
+
+            specs.append(spec_entry)
+
+    # Sort by created_at descending
+    specs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    # Apply limit
+    specs = specs[:limit]
+
+    if ctx.obj["output_json"]:
+        _print_json({"specs": specs, "count": len(specs)})
+        return
+
+    click.echo("Specifications")
+    click.echo("=" * 60)
+
+    if not specs:
+        click.echo("No specifications found.")
+        return
+
+    for spec_data in specs:
+        spec_slug = spec_data.get("slug", "unknown")
+        spec_title = spec_data.get("title", "N/A")
+        spec_status = spec_data.get("status", "N/A")
+
+        click.echo(f"\n[{spec_slug}] {spec_title}")
+        click.echo(f"  Status: {spec_status}")
+
+        # Show worktree info if available
+        worktree = spec_data.get("worktree", {})
+        if worktree.get("branch"):
+            click.echo(f"  Branch: {worktree.get('branch')}")
+
+        # Show review status
+        review = spec_data.get("review", {})
+        review_status = "✓ Approved" if review.get("approved") else "Pending"
+        click.echo(f"  Review: {review_status}")
+
+
+@spec.command("archive")
+@click.argument("spec_id", type=str)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force archiving without confirmation.",
+)
+@click.pass_context
+def spec_archive(ctx: click.Context, spec_id: str, force: bool) -> None:
+    """
+    Archive a completed specification.
+
+    Moves a specification to the archive directory.
+    Requires the specification to be in a completed state.
+    """
+    state_manager = _get_state_manager_from_ctx(ctx)
+
+    try:
+        spec_data = state_manager.load_spec(spec_id)
+
+        if spec_data is None:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": f"Specification '{spec_id}' not found.",
+                })
+            else:
+                click.echo(f"Error: Specification '{spec_id}' not found.", err=True)
+            ctx.exit(1)
+
+        status = spec_data.get("status", "unknown")
+        if status != "completed" and not force:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "current_status": status,
+                    "message": f"Specification is not completed (status: {status}). Use --force to archive anyway.",
+                })
+            else:
+                click.echo(f"Error: Specification is not completed (status: {status}).", err=True)
+                click.echo("Use --force to archive anyway.")
+            ctx.exit(1)
+
+        if state_manager.archive_spec(spec_id):
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "archived",
+                    "spec_id": spec_id,
+                })
+            else:
+                click.echo(f"Archived: {spec_id}")
+        else:
+            if ctx.obj["output_json"]:
+                _print_json({
+                    "status": "error",
+                    "spec_id": spec_id,
+                    "message": "Failed to archive specification.",
+                })
+            else:
+                click.echo(f"Error: Failed to archive specification '{spec_id}'.", err=True)
+            ctx.exit(1)
+
+    except Exception as e:
+        if ctx.obj["output_json"]:
+            _print_json({
+                "status": "error",
+                "spec_id": spec_id,
+                "message": str(e),
+            })
+        else:
+            click.echo(f"Error: {e}", err=True)
+        ctx.exit(1)
+
+
+# === Workspace Commands ===
+
+@main.group()
+def workspace() -> None:
+    """Manage workspaces for team collaboration."""
+    pass
+
+
+@workspace.command("create")
+@click.argument("workspace_id", type=str)
+@click.argument("name", type=str)
+@click.argument("team_id", type=str)
+@click.option(
+    "--description",
+    "-d",
+    type=str,
+    default="",
+    help="Workspace description.",
+)
+@click.option(
+    "--settings",
+    "-s",
+    type=str,
+    default=None,
+    help="Workspace settings as JSON.",
+)
+@click.pass_context
+def workspace_create(
+    ctx: click.Context,
+    workspace_id: str,
+    name: str,
+    team_id: str,
+    description: str,
+    settings: Optional[str],
+) -> None:
+    """
+    Create a new workspace.
+
+    Creates a workspace for team collaboration.
+    """
+    if ctx.obj["output_json"]:
+        _print_json({
+            "status": "placeholder",
+            "workspace_id": workspace_id,
+            "name": name,
+            "team_id": team_id,
+            "message": "Workspace creation requires backend. This is a placeholder.",
+        })
+    else:
+        click.echo(f"Creating workspace: {workspace_id}")
+        click.echo(f"  Name: {name}")
+        click.echo(f"  Team: {team_id}")
 
 
 # === Cluster Commands ===
