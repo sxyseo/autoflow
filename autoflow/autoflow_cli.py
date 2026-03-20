@@ -1383,6 +1383,49 @@ class AutoflowCLI:
                 findings=findings,
             )
 
+        # Capture memory from successful runs
+        memory_capture_result: dict[str, Any] = {}
+        if args.result == "success" and _memory_manager_lazy.available:
+            try:
+                memory_manager = _memory_manager_lazy.manager
+                if memory_manager:
+                    # Prepare execution data for consolidation
+                    execution_data = {
+                        "run_id": args.run,
+                        "spec_id": spec_slug,
+                        "task_id": task_id,
+                        "task_title": metadata.get("task_title", ""),
+                        "role": metadata["role"],
+                        "agent": metadata["agent"],
+                        "result": args.result,
+                        "summary": args.summary,
+                        "duration_seconds": metadata.get("duration_seconds", 0),
+                        "findings": findings or [],
+                        "completed_at": metadata.get("completed_at", ""),
+                    }
+
+                    # Determine scope based on spec
+                    from autoflow.memory.models import MemoryScope
+                    scope = MemoryScope.SPEC if spec_slug else MemoryScope.PROJECT
+
+                    # Consolidate memories from this run
+                    consolidation_result = memory_manager.consolidate_run(
+                        run_id=args.run,
+                        spec_id=spec_slug,
+                        execution_data=execution_data,
+                        scope=scope,
+                        auto_embed=True,
+                    )
+                    memory_capture_result = {
+                        "status": consolidation_result.get("status", "completed"),
+                        "memories_created": consolidation_result.get("memories_created", 0),
+                        "patterns_identified": consolidation_result.get("patterns_identified", 0),
+                        "conventions_detected": consolidation_result.get("conventions_detected", 0),
+                    }
+            except Exception:
+                # Memory capture failed, but don't fail the run completion
+                memory_capture_result = {"status": "failed", "error": "Memory capture failed"}
+
         result = {
             "run": args.run,
             "result": args.result,
@@ -1393,6 +1436,7 @@ class AutoflowCLI:
                 else None
             ),
             "strategy_memory": [str(p) for p in strategy_memory_paths],
+            "memory_capture": memory_capture_result,
         }
 
         print(json.dumps(result, indent=2))
