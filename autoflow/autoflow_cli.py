@@ -1242,6 +1242,46 @@ class AutoflowCLI:
         run_path = self.runs_dir / run_id
         run_path.mkdir(parents=True, exist_ok=True)
 
+        # Load agent configuration to determine context injection
+        agents = self.load_agents()
+        agent_spec = agents.get(args.agent)
+        memory_scopes = agent_spec.memory_scopes if agent_spec else None
+
+        # Build context injected metadata
+        context_injected = {
+            "memory_scopes": memory_scopes or [],
+            "semantic_context_available": _memory_manager_lazy.available,
+            "semantic_context_items": [],
+        }
+
+        # Retrieve semantic context items if available
+        if _memory_manager_lazy.available and args.task:
+            try:
+                memory_manager = _memory_manager_lazy.manager
+                if memory_manager:
+                    semantic_items = memory_manager.get_context_for_run(
+                        task_id=args.task,
+                        spec_id=args.spec,
+                        max_items=5,
+                        relevance_threshold=0.3,
+                        include_spec=True,
+                        include_global=True,
+                    )
+                    # Store summary of injected context
+                    context_injected["semantic_context_items"] = [
+                        {
+                            "content": item.get("content", "")[:100],  # Truncate for metadata
+                            "score": item.get("score", 0.0),
+                            "scope": item.get("scope", "global"),
+                            "type": item.get("type", "context"),
+                        }
+                        for item in semantic_items
+                    ]
+                    context_injected["semantic_context_count"] = len(semantic_items)
+            except Exception:
+                # Silently fall back if context retrieval fails
+                context_injected["semantic_context_error"] = True
+
         metadata = {
             "id": run_id,
             "spec": args.spec,
@@ -1254,9 +1294,11 @@ class AutoflowCLI:
             "attempt_count": 1,
             "status": "started",
             "created_at": self.now_stamp(),
+            "context_injected": context_injected,
         }
 
         self.write_json(run_path / "run.json", metadata)
+        self.write_json(run_path / "context_injected.json", context_injected)
 
         # Create output symlink
         link_path = files["runs"] / f"{args.role}_{args.task}"
