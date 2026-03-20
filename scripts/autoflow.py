@@ -1,46 +1,18 @@
 #!/usr/bin/env python3
-"""
-Autoflow CLI - Control Plane Interface
-
-Provides the command-line interface for managing Autoflow specs, tasks, agents,
-and git worktrees. This is the main entry point for interacting with the Autoflow
-workflow system.
-
-Features:
-    - Spec and task lifecycle management
-    - Git worktree isolation for parallel development
-    - Agent discovery and configuration
-    - Memory and strategy tracking
-    - Review and approval workflows
-    - Run execution and history tracking
-
-Usage:
-    # Initialize Autoflow state
-    python scripts/autoflow.py init
-
-    # Create a new spec
-    python scripts/autoflow.py new-spec --title "Add Feature" --summary "Description"
-
-    # Show available tasks
-    python scripts/autoflow.py list-tasks --spec my-spec
-
-    # Create a worktree for isolated development
-    python scripts/autoflow.py create-worktree --spec my-spec
-
-    # Show overall status
-    python scripts/autoflow.py status
-"""
+"""Autoflow CLI - Control Plane Interface."""
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
+<<<<<<< HEAD
 import os
 import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
+=======
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,6 +20,7 @@ from typing_extensions import TypedDict
 
 
 ROOT = Path(__file__).resolve().parent.parent
+<<<<<<< HEAD
 STATE_DIR = ROOT / ".autoflow"
 SPECS_DIR = STATE_DIR / "specs"
 TASKS_DIR = STATE_DIR / "tasks"
@@ -1412,96 +1385,64 @@ def add_planner_note(
         ... )
         >>> print(f"Note saved to {path}")
     """
+=======
+if str(ROOT) not in __import__("sys").path:
+    __import__("sys").path.insert(0, str(ROOT))
+
+from scripts.cli.utils import (
+    EVENTS_FILE, QA_FIX_REQUEST_FILE, QA_FIX_REQUEST_JSON_FILE, RUNS_DIR, SPECS_DIR,
+    ensure_state, load_tasks, now_stamp, print_json, read_json_or_default,
+    review_status_summary, save_strategy_memory, spec_files, stale_runs_for_spec,
+)
+from scripts.cli import worktree, memory, review, agent, system, integration
+from scripts.cli import spec, task, run, repository
+
+
+# =============================================================================
+# Strategy Functions
+# =============================================================================
+
+def add_planner_note(spec_slug: str, title: str, content: str, category: str = "strategy", scope: str = "spec") -> Path:
+    from scripts.cli.utils import load_strategy_memory
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
     memory = load_strategy_memory(scope, spec_slug if scope == "spec" else None)
     notes = memory.setdefault("planner_notes", [])
-    notes.append(
-        {
-            "at": now_stamp(),
-            "title": title,
-            "category": category,
-            "content": content.strip(),
-        }
-    )
+    notes.append({"at": now_stamp(), "title": title, "category": category, "content": content.strip()})
     memory["planner_notes"] = notes[-25:]
     return save_strategy_memory(scope, memory, spec_slug if scope == "spec" else None)
 
 
 def strategy_summary(spec_slug: str) -> dict[str, Any]:
-    """
-    Generate a summary of strategy memory for a spec.
-
-    Loads the strategy memory for the given spec and extracts the most relevant
-    information including playbook entries, planner notes, recent reflections,
-    and statistics.
-
-    Args:
-        spec_slug: URL-friendly slug identifying the spec
-
-    Returns:
-        Dictionary containing:
-            - updated_at: Last update timestamp
-            - playbook: List of playbook rules with evidence
-            - planner_notes: Last 5 planner notes with metadata
-            - recent_reflections: Last 5 reflection entries
-            - stats: Strategy statistics and metrics
-    """
+    from scripts.cli.utils import load_strategy_memory
     spec_memory = load_strategy_memory("spec", spec_slug)
-    recent = spec_memory.get("reflections", [])[-5:]
     return {
         "updated_at": spec_memory.get("updated_at", ""),
         "playbook": spec_memory.get("playbook", []),
         "planner_notes": spec_memory.get("planner_notes", [])[-5:],
-        "recent_reflections": recent,
+        "recent_reflections": spec_memory.get("reflections", [])[-5:],
         "stats": spec_memory.get("stats", {}),
     }
 
 
 def render_strategy_context(spec_slug: str) -> str:
-    """
-    Render strategy memory as formatted markdown for context injection.
-
-    Generates a markdown representation of strategy memory for use in prompts
-    and context windows. Includes playbook entries, planner notes, and recent
-    reflections with their recommended actions.
-
-    The output includes:
-    - Playbook: Top 5 rules with evidence counts
-    - Planner notes: Last 3 notes with titles and categories
-    - Recent reflections: Last 3 reflections with outcomes and actions
-
-    Args:
-        spec_slug: URL-friendly slug identifying the spec
-
-    Returns:
-        Formatted markdown string containing strategy context, or a message
-        indicating no strategy memory has been recorded yet
-    """
     summary = strategy_summary(spec_slug)
     lines = ["## Strategy memory", ""]
-    playbook = summary.get("playbook", [])
-    if playbook:
-        lines.append("### Playbook")
-        lines.append("")
-        for item in playbook[:5]:
+    if summary.get("playbook"):
+        lines.extend(["### Playbook", ""])
+        for item in summary["playbook"][:5]:
             target = item.get("category") or item.get("file") or "general"
             lines.append(f"- {target}: {item['rule']} (evidence={item['evidence_count']})")
         lines.append("")
-    notes = summary.get("planner_notes", [])
-    if notes:
-        lines.append("### Planner notes")
-        lines.append("")
-        for note in notes[-3:]:
+    if summary.get("planner_notes"):
+        lines.extend(["### Planner notes", ""])
+        for note in summary["planner_notes"][-3:]:
             lines.append(f"- {note['title']} [{note['category']}]")
             lines.append(f"  {note['content']}")
         lines.append("")
-    reflections = summary.get("recent_reflections", [])
-    if reflections:
-        lines.append("### Recent reflections")
-        lines.append("")
-        for item in reflections[-3:]:
-            lines.append(
-                f"- {item['task']} / {item['role']} -> {item['result']}: {item['summary']}"
-            )
+    if summary.get("recent_reflections"):
+        lines.extend(["### Recent reflections", ""])
+        for item in summary["recent_reflections"][-3:]:
+            lines.append(f"- {item['task']} / {item['role']} -> {item['result']}: {item['summary']}")
             for action in item.get("recommended_actions", [])[:2]:
                 lines.append(f"  action: {action}")
         lines.append("")
@@ -1510,6 +1451,7 @@ def render_strategy_context(spec_slug: str) -> str:
     return "\n".join(lines).strip()
 
 
+<<<<<<< HEAD
 def load_review_state(spec_slug: str) -> dict[str, Any]:
     """
     Load the review state for a spec.
@@ -1646,27 +1588,13 @@ def record_event(spec_slug: str, event_type: str, payload: dict[str, Any]) -> No
     with open(files["events"], "a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
 
+=======
+# =============================================================================
+# Event and Fix Request Functions
+# =============================================================================
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
-    """
-    Load events from the spec's event log.
-
-    Reads the events.jsonl file and returns the most recent events.
-    Events are stored in reverse chronological order (newest last),
-    so the last N lines are retrieved.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-        limit: Maximum number of events to return (default: 20)
-
-    Returns:
-        List of event dictionaries, each containing:
-        - "at": UTC timestamp string
-        - "type": Event type identifier
-        - "payload": Event-specific data dictionary
-
-        Returns empty list if the event log doesn't exist.
-    """
     events_path = spec_files(spec_slug)["events"]
     if not events_path.exists():
         return []
@@ -1676,30 +1604,12 @@ def load_events(spec_slug: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def load_fix_request(spec_slug: str) -> str:
-    """
-    Load the QA fix request markdown file for a spec.
-
-    Reads the fix request markdown file that contains structured feedback
-    for implementation revisions. Returns an empty string if the file doesn't exist.
-
-    Args:
-        spec_slug: Slug identifier for the spec
-
-    Returns:
-        Contents of the fix request markdown file, or empty string if not found
-
-    Examples:
-        >>> content = load_fix_request("my-feature")
-        >>> print(content[:50])
-        # QA Fix Request: task-001
-    """
     path = spec_files(spec_slug)["qa_fix_request"]
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
+    return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
 def load_fix_request_data(spec_slug: str) -> dict[str, Any]:
+<<<<<<< HEAD
     """
     Load the QA fix request JSON data for a spec.
 
@@ -1813,118 +1723,39 @@ def normalize_findings(summary: str, findings: list[dict[str, Any]] | None) -> l
     ]
 
 
-def format_fix_request_markdown(task_id: str, summary: str, result: str, findings: list[dict[str, Any]]) -> str:
-    """
-    Format a QA fix request as structured markdown.
-
-    Generates a comprehensive markdown document containing review findings in a
-    structured format suitable for developer review and implementation revisions.
-    Includes a summary table, detailed findings with metadata, and retry policy.
-
-    Args:
-        task_id: Identifier for the task requiring fixes
-        summary: High-level summary of the review feedback
-        result: Review result status (e.g., "needs_changes", "blocked")
-        findings: List of normalized finding dictionaries
-
-    Returns:
-        Formatted markdown string with sections:
-        - Header with task ID and metadata
-        - Summary section with overall feedback
-        - Findings table with ID, severity, category, file, line, and title
-        - Details section with full information for each finding
-        - Retry policy section with guidance for implementation
-
-    Examples:
-        >>> findings = [
-        ...     {
-        ...         "id": "F1",
-        ...         "title": "Add tests",
-        ...         "severity": "high",
-        ...         "category": "tests",
-        ...         "file": "src/test.py",
-        ...         "line": 42,
-        ...         "end_line": 50,
-        ...         "body": "Add unit tests for edge cases",
-        ...         "suggested_fix": "Add tests in test suite",
-        ...         "source_run": "run-123"
-        ...     }
-        ... ]
-        >>> markdown = format_fix_request_markdown("task-001", "Tests needed", "needs_changes", findings)
-        >>> print(markdown[:100])
-        # QA Fix Request: task-001
-        <BLANKLINE>
-        - created_at: 20260309T120000Z
-        - result: needs_changes
-    """
-    lines = [
-        f"# QA Fix Request: {task_id}",
-        "",
-        f"- created_at: {now_stamp()}",
-        f"- result: {result}",
-        f"- finding_count: {len(findings)}",
-        "",
-        "## Summary",
-        "",
-        summary,
-        "",
-        "## Findings",
-        "",
-        "| ID | Severity | Category | File | Line | Title |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for finding in findings:
-        line_display = ""
-        if finding.get("line") is not None:
-            line_display = str(finding["line"])
-            if finding.get("end_line") is not None and finding["end_line"] != finding["line"]:
-                line_display = f"{line_display}-{finding['end_line']}"
-        lines.append(
-            f"| {finding['id']} | {finding['severity']} | {finding['category']} | "
-            f"{finding.get('file', '')} | {line_display} | {finding['title']} |"
-        )
-    lines.extend(["", "## Details", ""])
-    for finding in findings:
-        lines.extend(
-            [
-                f"### {finding['id']}: {finding['title']}",
-                "",
-                f"- severity: {finding['severity']}",
-                f"- category: {finding['category']}",
-                f"- file: {finding.get('file', '')}",
-                f"- line: {finding.get('line', '')}",
-                f"- end_line: {finding.get('end_line', '')}",
-                f"- suggested_fix: {finding.get('suggested_fix', '')}",
-                f"- source_run: {finding.get('source_run', '')}",
-                "",
-                finding["body"],
-                "",
-            ]
-        )
-    lines.extend(
-        [
-            "## Retry policy",
-            "",
-            "- Read this file before retrying the implementation task.",
-            "- Address findings in severity order where possible.",
-            "- Change approach instead of repeating the same edits.",
-            "- Leave a handoff note explaining what changed in the retry.",
-            "",
-        ]
+=======
+    return read_json_or_default(
+        spec_files(spec_slug)["qa_fix_request_json"],
+        {"task": "", "result": "", "summary": "", "finding_count": 0, "findings": []},
     )
+
+
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
+def format_fix_request_markdown(task_id: str, summary: str, result: str, findings: list[dict[str, Any]]) -> str:
+    lines = [f"# QA Fix Request: {task_id}", "", f"**Result:** {result}", "", "## Summary", "", summary, "", f"**Findings:** {len(findings)}", ""]
+    if findings:
+        lines.extend(["## Findings", ""])
+        for idx, finding in enumerate(findings, 1):
+            lines.append(f"### {idx}. {finding.get('title', 'Untitled')}\n")
+            if finding.get("file"):
+                location = f"{finding['file']}:{finding['line']}" if finding.get("line") else finding["file"]
+                lines.append(f"**Location:** `{location}`\n")
+            if finding.get("severity") or finding.get("category"):
+                meta = " ".join([f"**{k.title()}:** {v}" for k, v in [("severity", finding["severity"]), ("category", finding["category"])] if v])
+                if meta:
+                    lines.append(meta + "\n")
+            if finding.get("body"):
+                lines.append(finding["body"] + "\n")
+            if finding.get("suggested_fix"):
+                lines.append("**Suggested fix:**\n\n" + finding["suggested_fix"] + "\n")
     return "\n".join(lines)
 
 
-def write_fix_request(
-    spec_slug: str,
-    task_id: str,
-    reviewer_summary: str,
-    result: str,
-    findings: list[dict[str, Any]] | None = None,
-) -> Path:
-    """
-    Write a QA fix request to both markdown and JSON files.
+# =============================================================================
+# Run-related Helper Functions
+# =============================================================================
 
+<<<<<<< HEAD
     Creates structured fix request documentation by normalizing findings, formatting
     them as markdown, and saving both human-readable (markdown) and machine-readable
     (JSON) versions. Records an event in the spec's event log.
@@ -3509,51 +3340,31 @@ def write_handoff(
     Returns:
         Path to the created handoff markdown file
     """
+=======
+def write_handoff(spec_slug: str, task_id: str, role: str, summary: str, next_role: str, result: str) -> Path:
+    from scripts.cli.utils import record_event, slugify
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
     files = spec_files(spec_slug)
     files["handoffs_dir"].mkdir(parents=True, exist_ok=True)
     handoff_path = files["handoffs_dir"] / f"{now_stamp()}-{task_id}-{slugify(role)}.md"
-    handoff_text = "\n".join(
-        [
-            f"# Handoff: {task_id}",
-            "",
-            f"- role: {role}",
-            f"- next_role: {next_role}",
-            f"- result: {result}",
-            f"- created_at: {now_stamp()}",
-            "",
-            "## Summary",
-            "",
-            summary,
-            "",
-        ]
-    )
+    handoff_text = f"# Handoff: {task_id}\n\n- role: {role}\n- next_role: {next_role}\n- result: {result}\n- created_at: {now_stamp()}\n\n## Summary\n\n{summary}\n"
     handoff_path.write_text(handoff_text, encoding="utf-8")
     files["handoff"].write_text(handoff_text, encoding="utf-8")
     record_event(spec_slug, "handoff.created", {"task": task_id, "role": role, "result": result})
     return handoff_path
 
 
-def create_handoff(args: argparse.Namespace) -> None:
-    """
-    Create a handoff document from CLI arguments.
-
-    Command-line interface wrapper for write_handoff(). Extracts handoff
-    parameters from args namespace, creates the handoff document, and
-    prints the resulting file path.
-
-    Args:
-        args: Command-line arguments containing:
-            - spec: Spec identifier (slug or ID)
-            - task: Task identifier for the handoff
-            - role: Current role handing off
-            - summary: Summary of work completed
-            - next_role: Next role to receive the handoff
-            - result: Result status of current work
-    """
-    path = write_handoff(args.spec, args.task, args.role, args.summary, args.next_role, args.result)
-    print(str(path))
+def clear_fix_request(spec_slug: str) -> None:
+    from scripts.cli.utils import record_event
+    files = spec_files(spec_slug)
+    if files["qa_fix_request"].exists():
+        files["qa_fix_request"].unlink()
+    if files["qa_fix_request_json"].exists():
+        files["qa_fix_request_json"].unlink()
+    record_event(spec_slug, "fix_request.cleared", {})
 
 
+<<<<<<< HEAD
 def approve_spec(args: argparse.Namespace) -> None:
     """
     Approve a spec and record approval metadata.
@@ -3665,39 +3476,105 @@ def build_prompt(
 ) -> str:
     """
     Build a comprehensive execution prompt for an AI agent.
+=======
+def record_reflection(spec_slug: str, task_id: str, role: str, result: str, summary: str, actions: list[str]) -> Path:
+    from scripts.cli.utils import load_strategy_memory
+    memory = load_strategy_memory("spec", spec_slug)
+    reflections = memory.setdefault("reflections", [])
+    reflections.append({"at": now_stamp(), "task": task_id, "role": role, "result": result, "summary": summary, "recommended_actions": actions})
+    memory["reflections"] = reflections[-25:]
+    return save_strategy_memory("spec", memory, spec_slug)
 
-    Assembles all context needed for an AI agent to execute a task, including
-    the spec definition, task details, agent configuration, memory context,
-    strategy context, review state, recovery information, resume context,
-    QA fix requests, and recent handoffs.
 
-    The prompt is structured to provide the agent with complete situational
-    awareness and all necessary metadata to perform its role effectively.
+def write_fix_request(spec_slug: str, task_id: str, summary: str, result: str, findings: list[dict[str, Any]] | None = None) -> Path:
+    from scripts.cli.utils import normalize_findings, record_event
+    if findings is None:
+        findings = []
+    normalized = normalize_findings(summary, findings)
+    files = spec_files(spec_slug)
+    files["qa_fix_request"].parent.mkdir(parents=True, exist_ok=True)
+    markdown = format_fix_request_markdown(task_id, summary, result, normalized)
+    files["qa_fix_request"].write_text(markdown, encoding="utf-8")
+    payload = {"task": task_id, "result": result, "summary": summary, "finding_count": len(normalized), "findings": normalized}
+    files["qa_fix_request_json"].write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    record_event(spec_slug, "fix_request.created", payload)
+    return files["qa_fix_request"]
 
+
+def parse_findings(args: argparse.Namespace) -> list[dict[str, Any]]:
+    from scripts.cli.utils import normalize_findings
+    findings = None
+    if hasattr(args, "findings_json") and args.findings_json:
+        findings = json.loads(args.findings_json)
+    elif hasattr(args, "findings_file") and args.findings_file:
+        findings = json.loads(Path(args.findings_file).read_text(encoding="utf-8"))
+    return normalize_findings(args.summary, findings)
+
+
+def task_run_history(spec_slug: str, task_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    runs = []
+    for run_dir in sorted(RUNS_DIR.iterdir(), reverse=True):
+        if not run_dir.is_dir():
+            continue
+        metadata_file = run_dir / "metadata.json"
+        if not metadata_file.exists():
+            continue
+        try:
+            metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            if metadata.get("spec") == spec_slug and metadata.get("task") == task_id:
+                runs.append(metadata)
+                if len(runs) >= limit:
+                    break
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return runs
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
+
+
+def native_resume_preview(agent: dict) -> list[str]:
+    lines = []
+    if agent.get("resume"):
+        resume_cfg = agent["resume"]
+        if resume_cfg.get("mode") == "subcommand" and resume_cfg.get("subcommand"):
+            subcmd = resume_cfg["subcommand"]
+            args_str = " ".join(resume_cfg.get("args", []))
+            lines.append(f"  {agent['name']} supports native resume via '{subcmd} {args_str}'")
+        else:
+            lines.append(f"  {agent['name']} supports native resume (check docs for usage)")
+    return lines
+
+<<<<<<< HEAD
     Args:
         spec_slug: Slug identifier for the spec to execute
         role: Role name the agent should assume (e.g., "developer", "reviewer")
         task_id: Specific task ID to execute, or None to auto-select next task
         agent: Agent specification with configuration, tools, and memory scopes
         resume_from: Optional run ID to resume from for recovery
+=======
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
-    Returns:
-        Complete prompt string with all context sections for agent execution
-
-    Raises:
-        SystemExit: If the specified spec does not exist
-    """
+def build_prompt(spec_slug: str, role: str, task_id: str | None, agent: dict, resume_from: str | None = None, run_id: str | None = None) -> str:
+    from autoflow.core.sanitization import sanitize_dict, sanitize_value
+    from scripts.cli.utils import (
+        AGENT_RESULT_FILE, load_memory_context, load_review_state, load_strategy_memory,
+        normalize_findings, planning_contract, sanitize_dict, task_lookup, spec_files, load_tasks,
+    )
     files = spec_files(spec_slug)
     if not files["spec"].exists():
         raise SystemExit(f"unknown spec: {spec_slug}")
     tasks = load_tasks(spec_slug)
+<<<<<<< HEAD
     selected_task = task_lookup(tasks, task_id) if task_id else next_task_data(spec_slug, role)
+=======
+    selected_task = task_lookup(tasks, task_id, spec_slug=spec_slug) if task_id else task.next_task_data(spec_slug, role)
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
     review_summary = review_status_summary(spec_slug)
     fix_request = load_fix_request(spec_slug)
     fix_request_data = load_fix_request_data(spec_slug)
-    memory_context = load_memory_context(spec_slug, agent.memory_scopes)
+    memory_context = load_memory_context(spec_slug, agent.get("memory_scopes"))
     strategy_context = render_strategy_context(spec_slug)
     handoff_sections = []
+<<<<<<< HEAD
     for handoff_path in latest_handoffs(spec_slug):
         handoff_sections.append(f"### {handoff_path.name}\n")
         handoff_sections.append(handoff_path.read_text(encoding="utf-8"))
@@ -4365,51 +4242,146 @@ def finalize_run_cmd(args: argparse.Namespace) -> None:
             summary = f"Run {args.run} exited with code {args.exit_code} and did not write agent_result.json."
     payload = complete_run_record(args.run, result, summary, findings=findings, result_source=result_source)
     print(json.dumps(payload, indent=2, ensure_ascii=True))
+=======
+    for handoff_path in sorted(files["handoffs_dir"].glob("*.md"), reverse=True)[:3]:
+        handoff_sections.append(f"### {handoff_path.name}\n" + handoff_path.read_text(encoding="utf-8"))
+    recovery = f"Recovery context for task {selected_task['id']}" if selected_task else "No task selected."
+
+    return "\n".join([
+        f"Role: {role}",
+        f"Spec slug: {spec_slug}",
+        f"Task id: {selected_task['id'] if selected_task else 'none'}",
+        "",
+        "Read the repository state and execute the role carefully.",
+        "Follow the selected task acceptance criteria.",
+        "Keep changes scoped and leave a concise handoff summary.",
+        "",
+        "## Backend configuration",
+        json.dumps(sanitize_dict({
+            "agent": agent.get("name"), "protocol": agent.get("protocol"), "command": agent.get("command"),
+            "model": agent.get("model"), "model_profile": agent.get("model_profile"), "tools": agent.get("tools") or [],
+            "tool_profile": agent.get("tool_profile"), "memory_scopes": agent.get("memory_scopes") or [],
+            "native_resume_supported": bool(agent.get("resume")), "transport": agent.get("transport") or {},
+        }), indent=2, ensure_ascii=True),
+        "",
+        "## Spec", files["spec"].read_text(encoding="utf-8"),
+        "",
+        "## Tasks", json.dumps(tasks, indent=2),
+        "",
+        "## Selected task", json.dumps(selected_task, indent=2) if selected_task else "none",
+        "",
+        "## Review approval status", json.dumps(review_summary, indent=2),
+        "",
+        "## QA fix request" if fix_request else "## QA fix request (none)", fix_request if fix_request else "none",
+        "",
+        "## QA fix request data", json.dumps(fix_request_data, indent=2),
+        "",
+        "## Memory context", memory_context,
+        "",
+        strategy_context,
+        "",
+        "## Handoffs", "\n".join(handoff_sections) if handoff_sections else "none",
+        "",
+        f"## Agent result output path: {agent_result_path}" if agent_result_path else "",
+        "",
+        "## Recovery context", recovery,
+        "",
+        f"## Resume from run: {resume_from}" if resume_from else "",
+    ]).strip()
 
 
-def cancel_run(args: argparse.Namespace) -> None:
-    run_dir = RUNS_DIR / args.run
-    metadata_path = run_dir / "run.json"
-    if not metadata_path.exists():
-        raise SystemExit(f"unknown run: {args.run}")
-    metadata = read_json(metadata_path)
-    if metadata["status"] == "completed":
-        raise SystemExit(f"cannot cancel run with status {metadata['status']}")
-    reason = args.reason or f"Run {args.run} cancelled."
-    metadata["status"] = "cancelled"
-    metadata["cancelled_at"] = now_stamp()
-    write_json(metadata_path, metadata)
-    (run_dir / "summary.md").write_text(f"# Run Summary\n\n{reason}\n", encoding="utf-8")
-
-    tasks = load_tasks(metadata["spec"])
-    task = task_lookup(tasks, metadata["task"])
-    task["status"] = "todo"
-    task.setdefault("notes", []).append({"at": now_stamp(), "note": reason})
-    save_tasks(metadata["spec"], tasks, reason="task_status_updated")
-    record_event(
-        metadata["spec"],
-        "run.cancelled",
-        {
-            "run": metadata["id"],
-            "task": metadata["task"],
-            "role": metadata["role"],
-            "reason": reason,
-        },
-    )
-    print(
-        json.dumps(
-            {
-                "run": metadata["id"],
-                "task_status": task["status"],
-                "cancelled_at": metadata["cancelled_at"],
-                "reason": reason,
-            },
-            indent=2,
-            ensure_ascii=True,
-        )
-    )
+def complete_run_record(run_id: str, task_id: str, result: str, summary: str, findings: list[dict] | None = None, agent_output: str = "") -> dict:
+    from scripts.cli.utils import load_run_metadata, write_run_metadata
+    metadata = load_run_metadata(run_id)
+    metadata["completed_at"] = now_stamp()
+    metadata["task"] = task_id
+    metadata["result"] = result
+    metadata["summary"] = summary
+    if findings:
+        metadata["findings"] = findings
+    if agent_output:
+        metadata["agent_output"] = agent_output
+    write_run_metadata(run_id, metadata)
+    return metadata
 
 
+def finalize_run_record(run_id: str, commit_hash: str | None = None) -> dict:
+    from scripts.cli.utils import load_run_metadata, write_run_metadata
+    metadata = load_run_metadata(run_id)
+    metadata["finalized_at"] = now_stamp()
+    if commit_hash:
+        metadata["commit_hash"] = commit_hash
+    write_run_metadata(run_id, metadata)
+    return metadata
+
+
+def recover_run_record(run_id: str, reason: str, dispatch: bool = False) -> dict:
+    from scripts.cli.utils import load_run_metadata, write_run_metadata, slugify
+    old_metadata = load_run_metadata(run_id)
+    new_run_id = f"{now_stamp()}-recover-{slugify(old_metadata['spec'][:20])}"
+    new_metadata = {
+        **old_metadata, "run_id": new_run_id, "created_at": now_stamp(), "resume_from": run_id,
+        "recovery_reason": reason, "dispatch": dispatch, "completed_at": "", "result": "",
+    }
+    write_run_metadata(new_run_id, new_metadata)
+    return new_metadata
+
+
+def run_metadata_iter() -> list[dict[str, Any]]:
+    """Iterate over all run metadata."""
+    runs = []
+    for run_dir in RUNS_DIR.iterdir():
+        if not run_dir.is_dir():
+            continue
+        metadata_file = run_dir / "metadata.json"
+        if metadata_file.exists():
+            try:
+                runs.append(json.loads(metadata_file.read_text(encoding="utf-8")))
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return sorted(runs, key=lambda r: r.get("created_at", ""), reverse=True)
+
+
+def active_runs_for_spec(spec_slug: str) -> list[dict[str, Any]]:
+    """Get active runs for a spec."""
+    return [r for r in run_metadata_iter() if r.get("spec") == spec_slug and r.get("status") in {"created", "running", "stale"}]
+
+
+# =============================================================================
+# Workflow and Status Functions
+# =============================================================================
+
+def workflow_state(args: argparse.Namespace) -> None:
+    from scripts.cli.utils import normalize_worktree_metadata
+    from scripts.cli.task import task_lookup
+    data = load_tasks(args.spec)
+    review_summary = review_status_summary(args.spec)
+    active_runs = run.active_runs_for_spec(args.spec)
+    stale_runs = stale_runs_for_spec(args.spec)
+    ready, blocked = [], []
+    for t in data.get("tasks", []):
+        deps_done = all(task_lookup(data, d, spec_slug=args.spec)["status"] == "done" for d in t.get("depends_on", []))
+        entry = {"id": t["id"], "title": t["title"], "status": t["status"], "owner_role": t["owner_role"]}
+        is_ready = (t["status"] in {"todo", "needs_changes"} and deps_done) or (t["status"] == "in_review" and (entry.update({"owner_role": "reviewer"}), True)[1])
+        if is_ready:
+            ready.append(entry)
+        elif t["status"] != "done":
+            blocked.append(entry)
+    next_entry = ready[0] if ready else None
+    blocking_reason = ""
+    if next_entry and next_entry["owner_role"] in {"implementation-runner", "maintainer"} and not review_summary["valid"]:
+        blocking_reason = "review_approval_required"
+        next_entry = None
+    print_json({"spec": args.spec, "review_status": review_summary, "worktree": normalize_worktree_metadata(args.spec).get("worktree", {}), "fix_request_present": bool(load_fix_request(args.spec)), "fix_request": load_fix_request_data(args.spec), "strategy_summary": strategy_summary(args.spec), "active_runs": active_runs, "stale_runs": stale_runs, "ready_tasks": ready, "blocked_or_active_tasks": blocked, "blocking_reason": blocking_reason, "recommended_next_action": None if active_runs else next_entry})
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
+
+
+def show_status(_: argparse.Namespace) -> None:
+    ensure_state()
+    print_json({"specs": sorted(p.name for p in SPECS_DIR.iterdir() if p.is_dir()), "runs": sorted(p.name for p in RUNS_DIR.iterdir() if p.is_dir())})
+
+
+<<<<<<< HEAD
 def show_task_history(args: argparse.Namespace) -> None:
     """
     Display execution history for a specific task.
@@ -4457,30 +4429,23 @@ def show_fix_request(args: argparse.Namespace) -> None:
         Returns a default empty structure if the fix request file doesn't exist.
     """
     print(json.dumps(load_fix_request_data(args.spec), indent=2, ensure_ascii=True))
+=======
+# =============================================================================
+# Command Handler Wrappers
+# =============================================================================
+
+def show_events(args: argparse.Namespace) -> None:
+    print_json(load_events(args.spec, args.limit))
+
+
+def show_fix_request(args: argparse.Namespace) -> None:
+    print_json(load_fix_request_data(args.spec))
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 
 def create_fix_request_cmd(args: argparse.Namespace) -> None:
-    """
-    Create a QA fix request artifact for a spec and task.
-
-    Parses QA findings from command-line arguments and writes a structured
-    fix request file to the spec's review directory. The file captures
-    issues that must be addressed before the spec can be approved.
-
-    Args:
-        args: Namespace containing:
-            - spec: Spec slug identifier
-            - task: Task ID requiring fixes
-            - summary: Brief summary of issues
-            - result: QA result status (e.g., "needs_changes")
-            - findings_json: JSON string with findings (optional)
-            - findings_file: Path to JSON file with findings (optional)
-
-    Side Effects:
-        - Creates .autoflow/specs/{spec}/QA_FIX_REQUEST.md
-        - Records event in spec's event log
-    """
     findings = parse_findings(args)
+<<<<<<< HEAD
     path = write_fix_request(args.spec, args.task, args.summary, args.result, findings=findings)
     print(str(path))
 
@@ -4635,6 +4600,13 @@ def show_strategy_cmd(args: argparse.Namespace) -> None:
             - stats: Strategy statistics and metrics
     """
     print(json.dumps(strategy_summary(args.spec), indent=2, ensure_ascii=True))
+=======
+    print(str(write_fix_request(args.spec, args.task, args.summary, args.result, findings=findings)))
+
+
+def show_strategy_cmd(args: argparse.Namespace) -> None:
+    print_json(strategy_summary(args.spec))
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 
 def add_planner_note_cmd(args: argparse.Namespace) -> None:
@@ -4660,15 +4632,19 @@ def add_planner_note_cmd(args: argparse.Namespace) -> None:
     content = getattr(args, "content", "") or getattr(args, "note", "")
     if not content:
         raise SystemExit("planner note content is required")
+<<<<<<< HEAD
     title = getattr(args, "title", "") or "Planner note"
     path = add_planner_note(args.spec, title, content, category=args.category, scope=args.scope)
     print(str(path))
+=======
+    print(str(add_planner_note(args.spec, args.title or "Planner note", content, category=args.category, scope=args.scope)))
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 
-def taskmaster_payload(spec_slug: str) -> dict[str, Any]:
-    """
-    Build Taskmaster-compatible export payload from spec tasks.
+def create_handoff(args: argparse.Namespace) -> None:
+    print(str(write_handoff(args.spec, args.task, args.role, args.summary, args.next_role, args.result)))
 
+<<<<<<< HEAD
     Transforms Autoflow task data into the Taskmaster JSON format, mapping
     Autoflow field names to Taskmaster conventions. The payload includes
     project metadata and a list of tasks with their dependencies.
@@ -5097,62 +5073,23 @@ def list_runs(args: argparse.Namespace) -> None:
 
     print(json.dumps(runs, indent=2, ensure_ascii=True))
 
+=======
+
+# =============================================================================
+# Parser and Main Entry Point
+# =============================================================================
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 def build_parser() -> argparse.ArgumentParser:
-    """
-    Build and configure the Autoflow CLI argument parser.
-
-    Creates the main ArgumentParser and all subcommands for interacting with
-    the Autoflow workflow system. Each subcommand is configured with its
-    respective arguments and bound to a handler function.
-
-    Returns:
-        Configured ArgumentParser with all Autoflow subcommands registered.
-
-    Subcommands:
-        init: Create .autoflow state directories
-        new-spec: Create a spec scaffold with slug, title, and summary
-        list-tasks: Print the task graph for a spec
-        next-task: Print the next ready task for a role
-        set-task-status: Update a task lifecycle state
-        create-handoff: Write a handoff artifact between roles
-        create-fix-request: Write a structured QA fix request artifact
-        show-fix-request: Show the structured QA fix request data
-        review-status: Show hash-based review approval status
-        approve-spec: Approve the current spec/task contract hash
-        invalidate-review: Manually invalidate approval state
-        create-worktree: Create or reuse an isolated git worktree for a spec
-        remove-worktree: Remove a spec worktree
-        list-worktrees: Show known spec worktrees
-        init-system-config: Write the local system config scaffold
-        show-system-config: Show system memory/model/tool config
-        discover-agents: Probe local agents and merge ACP registry entries
-        sync-agents: Merge discovered CLI/ACP agents into .autoflow/agents.json
-        write-memory: Append to global or spec memory
-        show-memory: Show stored memory context
-        show-strategy: Show accumulated planner/reflection strategy memory
-        add-planner-note: Append a planner strategy note to strategy memory
-        export-taskmaster: Export Autoflow tasks in Taskmaster-friendly JSON
-        import-taskmaster: Import task data from Taskmaster-style JSON
-        new-run: Create a runnable agent job
-        resume-run: Create a retry run from an earlier run record
-        complete-run: Close a run and update task state
-        task-history: Show run history for a task
-        show-events: Show recent event records for a spec
-        workflow-state: Show ready tasks and next suggested action
-        status: Print current specs and runs
-
-    Examples:
-        >>> parser = build_parser()
-        >>> args = parser.parse_args(["status"])
-        >>> args.func(args)
-    """
+    """Build and configure the Autoflow CLI argument parser."""
     parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # Core system command
     init_cmd = sub.add_parser("init", help="create .autoflow state directories")
     init_cmd.set_defaults(func=lambda _: ensure_state())
 
+<<<<<<< HEAD
     spec_cmd = sub.add_parser("new-spec", help="create a spec scaffold")
     spec_cmd.add_argument("--slug", default="")
     spec_cmd.add_argument("--title", required=True)
@@ -5207,21 +5144,21 @@ def build_parser() -> argparse.ArgumentParser:
     reset_task_parser.add_argument("--task", required=True)
     reset_task_parser.add_argument("--note", default="")
     reset_task_parser.set_defaults(func=reset_task_cmd)
+=======
+    # Register modular CLI subcommands
+    spec.add_subparser(sub)
+    task.add_subparser(sub)
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
+    # Handoff and fix request commands
     handoff_cmd = sub.add_parser("create-handoff", help="write a handoff artifact")
-    handoff_cmd.add_argument("--spec", required=True)
-    handoff_cmd.add_argument("--task", required=True)
-    handoff_cmd.add_argument("--role", required=True)
-    handoff_cmd.add_argument("--summary", required=True)
-    handoff_cmd.add_argument("--next-role", required=True)
-    handoff_cmd.add_argument("--result", required=True)
+    for arg, req in [("--spec", True), ("--task", True), ("--role", True), ("--summary", True), ("--next-role", True), ("--result", True)]:
+        handoff_cmd.add_argument(arg, required=req)
     handoff_cmd.set_defaults(func=create_handoff)
 
     fix_request_cmd = sub.add_parser("create-fix-request", help="write a structured QA fix request artifact")
-    fix_request_cmd.add_argument("--spec", required=True)
-    fix_request_cmd.add_argument("--task", required=True)
-    fix_request_cmd.add_argument("--summary", required=True)
-    fix_request_cmd.add_argument("--result", required=True)
+    for arg, req in [("--spec", True), ("--task", True), ("--summary", True), ("--result", True)]:
+        fix_request_cmd.add_argument(arg, required=req)
     fix_request_cmd.add_argument("--findings-json", default="")
     fix_request_cmd.add_argument("--findings-file", default="")
     fix_request_cmd.set_defaults(func=create_fix_request_cmd)
@@ -5230,6 +5167,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_fix_cmd.add_argument("--spec", required=True)
     show_fix_cmd.set_defaults(func=show_fix_request)
 
+<<<<<<< HEAD
     review_status_cmd = sub.add_parser("review-status", help="show hash-based review approval status")
     review_status_cmd.add_argument("--spec", required=True)
     review_status_cmd.set_defaults(func=show_review_status)
@@ -5290,7 +5228,16 @@ def build_parser() -> argparse.ArgumentParser:
     capture_memory.add_argument("--run", required=True)
     capture_memory.add_argument("--scopes", default="")
     capture_memory.set_defaults(func=capture_memory_cmd)
+=======
+    worktree.add_subparser(sub)
+    repository.add_subparser(sub)
+    system.add_subparser(sub)
+    agent.add_subparser(sub)
+    memory.add_subparser(sub)
+    review.add_subparser(sub)
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
+    # Strategy and planner commands
     strategy_cmd = sub.add_parser("show-strategy", help="show accumulated planner/reflection strategy memory")
     strategy_cmd.add_argument("--spec", required=True)
     strategy_cmd.set_defaults(func=show_strategy_cmd)
@@ -5304,6 +5251,7 @@ def build_parser() -> argparse.ArgumentParser:
     planner_cmd.add_argument("--scope", choices=["global", "spec"], default="spec")
     planner_cmd.set_defaults(func=add_planner_note_cmd)
 
+<<<<<<< HEAD
     validate_config = sub.add_parser("validate-config", help="validate local Autoflow configuration")
     validate_config.set_defaults(func=validate_config_cmd)
 
@@ -5389,6 +5337,12 @@ def build_parser() -> argparse.ArgumentParser:
     history_cmd.add_argument("--task", required=True)
     history_cmd.set_defaults(func=show_task_history)
 
+=======
+    integration.add_subparser(sub)
+    run.add_subparser(sub)
+
+    # Event and workflow commands
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
     events_cmd = sub.add_parser("show-events", help="show recent event records for a spec")
     events_cmd.add_argument("--spec", required=True)
     events_cmd.add_argument("--limit", type=int, default=20)
@@ -5401,46 +5355,11 @@ def build_parser() -> argparse.ArgumentParser:
     status_cmd = sub.add_parser("status", help="print current specs and runs")
     status_cmd.set_defaults(func=show_status)
 
-    list_runs_cmd = sub.add_parser("list-runs", help="list runs with optional filtering")
-    list_runs_cmd.add_argument("--spec", default="", help="filter by spec slug")
-    list_runs_cmd.add_argument("--status", default="", help="filter by run status")
-    list_runs_cmd.add_argument("--role", default="", help="filter by role")
-    list_runs_cmd.add_argument("--agent", default="", help="filter by agent name")
-    list_runs_cmd.set_defaults(func=list_runs)
-
     return parser
 
 
 def main() -> None:
-    """
-    Main entry point for the Autoflow CLI.
-
-    Parses command-line arguments and dispatches to the appropriate command handler.
-    Each command is implemented as a separate function that receives the parsed arguments.
-
-    The CLI uses argparse for argument parsing, with subcommands for each major operation:
-    - init: Initialize Autoflow state directories
-    - new-spec: Create a new specification
-    - list-tasks: Show tasks for a spec
-    - create-worktree: Create a git worktree for isolated development
-    - status: Show overall Autoflow status
-    - And many more...
-
-    Error Handling:
-        - Argument parsing errors are handled by argparse and display usage information
-        - Command-specific errors are handled by individual command functions
-        - Unhandled exceptions will propagate and display a traceback
-
-    Example:
-        # Initialize Autoflow
-        python scripts/autoflow.py init
-
-        # Create a new spec
-        python scripts/autoflow.py new-spec --title "Add Feature" --summary "Description"
-
-        # Show status
-        python scripts/autoflow.py status
-    """
+    """Main entry point for the Autoflow CLI."""
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)

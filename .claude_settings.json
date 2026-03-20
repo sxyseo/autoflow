@@ -11,6 +11,7 @@
       "Edit(./**)",
       "Glob(./**)",
       "Grep(./**)",
+<<<<<<< HEAD
       "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/**)",
@@ -19,6 +20,16 @@
       "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/.auto-claude/specs/084-intelligent-task-prioritization/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/.auto-claude/specs/084-intelligent-task-prioritization/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/084-intelligent-task-prioritization/.auto-claude/specs/084-intelligent-task-prioritization/**)",
+=======
+      "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Glob(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Grep(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Read(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/.auto-claude/specs/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Write(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/.auto-claude/specs/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+      "Edit(/Users/abel/dev/autoflow/.auto-claude/worktrees/tasks/106-split-monolithic-autoflow-py-cli-into-modular-subc/.auto-claude/specs/106-split-monolithic-autoflow-py-cli-into-modular-subc/**)",
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
       "Read(/Users/abel/dev/autoflow/.auto-claude/**)",
       "Write(/Users/abel/dev/autoflow/.auto-claude/**)",
       "Edit(/Users/abel/dev/autoflow/.auto-claude/**)",

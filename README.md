@@ -287,40 +287,79 @@ Autoflow features a **modular CLI architecture** that separates concerns into fo
 ### Modular Structure
 
 ```
-autoflow/cli/
+scripts/cli/
 ├── __init__.py           # Package initialization
-├── main.py               # Main Click group and entry point
+├── base.py               # Base Subcommand class and interfaces
 ├── utils.py              # Shared utility functions
-├── init.py               # Initialization commands
-├── status.py             # System status commands
-├── run.py                # Task execution commands
-├── agent.py              # Agent management commands
-├── skill.py              # Skill management commands
-├── task.py               # Task lifecycle commands
-├── scheduler.py          # Scheduler control commands
-├── ci.py                 # CI/CD verification commands
+├── spec.py               # Spec-related commands
+├── task.py               # Task-related commands
+├── run.py                # Run-related commands
+├── worktree.py           # Worktree management commands
+├── memory.py             # Memory and learning commands
 ├── review.py             # Review and QA commands
-├── config.py             # Configuration management
-└── memory.py             # Memory and learning commands
+├── agent.py              # Agent management commands
+├── repository.py         # Repository-level commands
+├── system.py             # System configuration commands
+└── integration.py        # Integration and scheduler commands
 ```
 
-### Command Groups
+### Command Organization
 
-The CLI is organized into logical command groups:
+The CLI is built with **argparse** and organized into logical command groups:
 
-| Command Group | Purpose | Example Commands |
-|--------------|---------|------------------|
-| **init** | System initialization | `autoflow init`, `autoflow init --config` |
-| **status** | System health checks | `autoflow status`, `autoflow status --json` |
-| **run** | Execute tasks | `autoflow run "Fix bug"`, `autoflow run --agent codex` |
-| **agent** | Manage AI agents | `autoflow agent list`, `autoflow agent check all` |
-| **skill** | Manage skills | `autoflow skill list`, `autoflow skill show SPEC_WRITER` |
-| **task** | Task lifecycle | `autoflow task list`, `autoflow task show <id>` |
-| **scheduler** | Control scheduler | `autoflow scheduler start`, `autoflow scheduler status` |
-| **ci** | CI/CD operations | `autoflow ci verify --all`, `autoflow ci verify --fix` |
-| **review** | Code review | `autoflow review run`, `autoflow review run --agent claude-code` |
-| **config** | Configuration | `autoflow config show`, `autoflow config validate` |
-| **memory** | Learning system | `autoflow memory list`, `autoflow memory get <key>` |
+| Module | Purpose | Example Commands |
+|--------|---------|------------------|
+| **spec.py** | Spec lifecycle | `new-spec`, `show-spec`, `update-spec` |
+| **task.py** | Task management | `init-tasks`, `list-tasks`, `update-task`, `task-history` |
+| **run.py** | Run execution | `new-run`, `complete-run`, `show-runs` |
+| **worktree.py** | Worktree operations | `create-worktree`, `refresh-worktree` |
+| **memory.py** | Memory operations | `show-memory`, `capture-memory`, `consolidate-memory` |
+| **review.py** | Review and QA | `show-fix-request`, `create-handoff`, `create-fix-request` |
+| **agent.py** | Agent management | `sync-agents`, `test-agent`, `validate-config` |
+| **repository.py** | Repository operations | Repository-level commands |
+| **system.py** | System configuration | `init-system-config`, system-level operations |
+| **integration.py** | Integration | `workflow-dispatch`, `workflow-state` |
+
+### Base Subcommand Pattern
+
+All CLI modules inherit from the `Subcommand` base class:
+
+```python
+from scripts.cli.base import Subcommand
+
+class MyCommand(Subcommand):
+    """My command group."""
+
+    name = "my-group"
+    help_text = "Manage my operations"
+
+    def register(self, subparsers) -> None:
+        """Register subcommands with argparse."""
+        # Register your subcommands here
+        pass
+```
+
+### Main Entry Point
+
+The main `autoflow.py` script serves as the entry point:
+
+```python
+from scripts.cli import spec, task, run, worktree, memory, review
+from scripts.cli import agent, repository, system, integration
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build and configure the Autoflow CLI argument parser."""
+    parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # Register modular CLI subcommands
+    spec.add_subparser(sub)
+    task.add_subparser(sub)
+    run.add_subparser(sub)
+    # ... etc
+
+    return parser
+```
 
 ### Design Principles
 
@@ -328,10 +367,10 @@ The modular CLI follows these principles:
 
 1. **Single Responsibility**: Each module handles one command group
 2. **Shared Utilities**: Common functions in `cli/utils.py`
-3. **Context Management**: Click context passes config and state
-4. **Backward Compatibility**: Old import paths still work
-5. **Type Safety**: Full type annotations with mypy
-6. **Testability**: Each module tested independently
+3. **Base Classes**: Consistent interface via `Subcommand` base class
+4. **Type Safety**: Full type annotations
+5. **Testability**: Each module tested independently
+6. **Lightweight**: Uses argparse (no external CLI framework dependencies)
 
 ### Extending the CLI
 
@@ -339,54 +378,74 @@ Adding a new command group is straightforward:
 
 #### 1. Create the Module
 
-Create a new file in `autoflow/cli/`:
+Create a new file in `scripts/cli/`:
 
 ```python
-"""autoflow/cli/mygroup.py
+"""scripts/cli/mygroup.py
 
 Autoflow CLI - My Command Group
 
 Manage custom operations.
 
 Usage:
-    autoflow mygroup list
-    autoflow mygroup run <name>
+    python3 scripts/autoflow.py mygroup list
+    python3 scripts/autoflow.py mygroup run <name>
 """
 
 from __future__ import annotations
 
-import click
+import argparse
+from scripts.cli.base import Subcommand
 
-@click.group()
-def mygroup() -> None:
-    """Manage custom operations."""
-    pass
+class MyCommand(Subcommand):
+    """My command group."""
 
-@mygroup.command("list")
-@click.pass_context
-def mygroup_list(ctx: click.Context) -> None:
-    """List all items."""
-    # Your implementation here
-    pass
+    name = "mygroup"
+    help_text = "Manage custom operations"
 
-@mygroup.command("run")
-@click.argument("name", type=str)
-@click.pass_context
-def mygroup_run(ctx: click.Context, name: str) -> None:
-    """Run a specific item."""
-    # Your implementation here
-    pass
+    def register(self, subparsers) -> None:
+        """Register mygroup subcommands."""
+        parser = subparsers.add_parser(self.name, help=self.help_text)
+        subgroup = parser.add_subparsers(dest="action", required=True)
+
+        # List command
+        list_cmd = subgroup.add_parser("list", help="List all items")
+        list_cmd.set_defaults(func=self.handle_list)
+
+        # Run command
+        run_cmd = subgroup.add_parser("run", help="Run a specific item")
+        run_cmd.add_argument("name", type=str, help="Item name")
+        run_cmd.set_defaults(func=self.handle_run)
+
+    def handle_list(self, args: argparse.Namespace) -> None:
+        """Handle list command."""
+        # Your implementation here
+        pass
+
+    def handle_run(self, args: argparse.Namespace) -> None:
+        """Handle run command."""
+        # Your implementation here
+        pass
+
+# Create instance for import
+mygroup = MyCommand()
 ```
 
 #### 2. Register in Main
 
-Import and register in `autoflow/cli/main.py`:
+Import and register in `scripts/autoflow.py`:
 
 ```python
-from autoflow.cli.mygroup import mygroup
+from scripts.cli import mygroup
 
-# Add to the main group
-main.add_command(mygroup)
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Autoflow control-plane CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # Register your new command group
+    mygroup.add_subparser(sub)
+
+    return parser
 ```
 
 #### 3. Add Tests
@@ -396,27 +455,45 @@ Create tests in `tests/test_cli_mygroup.py`:
 ```python
 """Tests for mygroup CLI commands."""
 
-from click.testing import CliRunner
+import pytest
+from scripts.cli.mygroup import mygroup
 
-def test_mygroup_list(cli_runner):
-    """Test 'autoflow mygroup list' command."""
-    result = cli_runner.invoke(["mygroup", "list"])
-    assert result.exit_code == 0
+def test_mygroup_list():
+    """Test 'mygroup list' command."""
+    # Test implementation
+    pass
+
+def test_mygroup_run():
+    """Test 'mygroup run' command."""
+    # Test implementation
+    pass
 ```
 
-### Backward Compatibility
+### Usage Examples
 
-The old monolithic `autoflow/cli.py` is maintained as a thin wrapper for backward compatibility:
+```bash
+# Spec management
+python3 scripts/autoflow.py new-spec --slug my-spec --title "My Spec"
+python3 scripts/autoflow.py show-spec --slug my-spec
 
-```python
-# Old import path still works
-from autoflow.cli import main
+# Task management
+python3 scripts/autoflow.py init-tasks --spec my-spec
+python3 scripts/autoflow.py list-tasks --spec my-spec
 
-# Old script invocation still works
-python3 -m autoflow.cli --help
+# Run management
+python3 scripts/autoflow.py new-run --spec my-spec --role implementation-runner --agent claude
+python3 scripts/autoflow.py complete-run --run <run-id> --result success
+
+# Worktree operations
+python3 scripts/autoflow.py create-worktree --spec my-spec
+
+# Memory operations
+python3 scripts/autoflow.py show-memory --scope global
+python3 scripts/autoflow.py capture-memory --run <run-id>
+
+# Review operations
+python3 scripts/autoflow.py show-fix-request --spec my-spec
 ```
-
-This ensures existing scripts and integrations continue to work without modification.
 
 ## Features
 
@@ -514,37 +591,15 @@ cd autoflow
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install in editable mode (includes CLI entry point)
-pip install -e .
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Migration from Old CLI
-
-If you're upgrading from the old monolithic CLI:
-
-**Old Command:**
-```bash
-python3 scripts/autoflow.py init
-```
-
-**New Command:**
-```bash
-autoflow init
-```
-
-**Backward Compatibility:**
-The old import path still works for existing scripts:
-```python
-# This still works
-from autoflow.cli import main
-main()
-```
-
-All existing functionality is preserved—only the interface has changed. See the [CLI Architecture](#cli-architecture) section for details.
 
 ### Initialization
 
 ```bash
+<<<<<<< HEAD
 # Recommended today: use the script-based control plane
 python3 scripts/doctor.py
 python3 scripts/autoflow.py init
@@ -553,23 +608,47 @@ python3 scripts/autoflow.py sync-agents
 
 # Check overall status
 python3 scripts/autoflow.py status
+=======
+# Setup local state directories
+python3 scripts/autoflow.py init
+
+# Initialize system config
+python3 scripts/autoflow.py init-system-config
+
+# Copy and customize agent configuration
+cp config/agents.example.json .autoflow/agents.json
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 ```
 
 ### Create Your First Spec
 
 ```bash
+<<<<<<< HEAD
 # Create a new spec and inspect the generated task graph
 python3 scripts/autoflow.py new-spec \
   --slug my-first-project \
   --title "My First AI Project" \
   --summary "Build an AI-driven application"
 python3 scripts/autoflow.py init-tasks --spec my-first-project
+=======
+# Create a new spec
+python3 scripts/autoflow.py new-spec \
+  --slug my-first-project \
+  --title "My First Project" \
+  --summary "Build a new feature using Autoflow"
+
+# Initialize tasks for the spec
+python3 scripts/autoflow.py init-tasks --spec my-first-project
+
+# Check workflow state
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 python3 scripts/autoflow.py workflow-state --spec my-first-project
 ```
 
 ### Start Autonomous Development
 
 ```bash
+<<<<<<< HEAD
 # Start with a single safe tick. Do not commit/push on first run.
 python3 scripts/continuous_iteration.py \
   --spec my-first-project \
@@ -592,6 +671,23 @@ Important:
 - `continuous_iteration.py` is a single tick, not a long-running daemon
 - repeated execution comes from `scheduler.py`
 - avoid `--commit-if-dirty` and `--push` until the smoke path is green
+=======
+# Run one iteration tick (commit and/or dispatch)
+python3 scripts/continuous_iteration.py \
+  --spec my-first-project \
+  --config config/continuous-iteration.example.json \
+  --commit-if-dirty \
+  --dispatch \
+  --push
+```
+
+That's it! Autoflow will now:
+1. Check workflow state for ready tasks
+2. Create runs for tasks and launch agents in background
+3. Monitor execution and verify results
+4. Auto-commit changes with descriptive messages
+5. Repeat autonomously (if run via cron/scheduler)
+>>>>>>> auto-claude/106-split-monolithic-autoflow-py-cli-into-modular-subc
 
 ### Validate the Runtime Loop
 
@@ -899,206 +995,199 @@ This ensures sensitive data is protected regardless of how it's output.
 
 ```bash
 # Initialize Autoflow
-autoflow init [--config /path/to/config.yaml]
+python3 scripts/autoflow.py init
+
+# Initialize system config
+python3 scripts/autoflow.py init-system-config
 
 # Check system status
-autoflow status [--json] [--verbose]
-
-# Run a task
-autoflow run "Task description" \
-  --spec <spec-slug> \
-  --agent <agent-name> \
-  --skill <skill-name>
+python3 scripts/autoflow.py status
 ```
 
-#### Agent Management
+#### Spec Management
 
 ```bash
-# List available agents
-autoflow agent list
+# Create a new spec
+python3 scripts/autoflow.py new-spec \
+  --slug <spec-slug> \
+  --title "<title>" \
+  --summary "<summary>"
 
-# Check agent availability
-autoflow agent check claude-code
-autoflow agent check codex
-autoflow agent check all
-```
+# Update spec
+python3 scripts/autoflow.py update-spec --slug <spec-slug>
 
-#### Skill Management
-
-```bash
-# List available skills
-autoflow skill list
-
-# Show skill details
-autoflow skill show SPEC_WRITER
-autoflow skill show CONTINUOUS_ITERATOR
+# Show spec
+python3 scripts/autoflow.py show-spec --slug <spec-slug>
 ```
 
 #### Task Management
 
 ```bash
+# Initialize tasks for a spec
+python3 scripts/autoflow.py init-tasks --spec <spec-slug>
+
 # List tasks
-autoflow task list \
-  --status pending \
-  --agent claude-code \
-  --limit 20
+python3 scripts/autoflow.py list-tasks --spec <spec-slug>
 
 # Show task details
-autoflow task show <task-id>
+python3 scripts/autoflow.py show-task --spec <spec-slug> --task <task-id>
 
 # Update task status
-autoflow task update <task-id> --status <status>
-```
-
-#### Scheduler Control
-
-```bash
-# Start scheduler
-autoflow scheduler start \
+python3 scripts/autoflow.py update-task \
   --spec <spec-slug> \
-  --max-concurrent 3
+  --task <task-id> \
+  --status <status>
 
-# Stop scheduler
-autoflow scheduler stop
-
-# Check scheduler status
-autoflow scheduler status
+# Show task history
+python3 scripts/autoflow.py task-history --spec <spec-slug> --task <task-id>
 ```
 
-#### CI/CD Operations
+#### Run Management
 
 ```bash
-# Run verification
-autoflow ci verify --all
-
-# Verify and auto-fix
-autoflow ci verify --fix --agent claude-code
-```
-
-#### Code Review
-
-```bash
-# Run review
-autoflow review run \
+# Create a new run
+python3 scripts/autoflow.py new-run \
   --spec <spec-slug> \
-  --agent claude-code
+  --role <role> \
+  --agent <agent-name> \
+  --task <task-id>
 
-# Run with strategy
-autoflow review run \
-  --strategy comprehensive \
-  --category security
+# Complete a run
+python3 scripts/autoflow.py complete-run \
+  --run <run-id> \
+  --result <success|needs_changes|blocked|failed> \
+  --summary "<summary>"
+
+# Show runs
+python3 scripts/autoflow.py show-runs --spec <spec-slug>
 ```
 
-#### Configuration
+#### Worktree Management
 
 ```bash
-# Show configuration
-autoflow config show
-
-# Validate configuration
-autoflow config validate
+# Create or refresh worktree
+python3 scripts/autoflow.py create-worktree --spec <spec-slug>
 ```
 
 #### Memory and Learning
 
 ```bash
-# List memory entries
-autoflow memory list [--scope global|spec|strategy]
+# Show scoped memory
+python3 scripts/autoflow.py show-memory --scope <global|spec> [--spec <spec-slug>]
 
-# Get memory value
-autoflow memory get <key> [--scope global]
+# Capture memory from a completed run
+python3 scripts/autoflow.py capture-memory --run <run-id>
 
-# Set memory value
-autoflow memory set <key> <value> [--scope global]
+# Consolidate memory
+python3 scripts/autoflow.py consolidate-memory --global
+```
 
-# Delete memory entry
-autoflow memory delete <key> [--scope global]
+#### Review and QA
+
+```bash
+# Show fix request from reviewer
+python3 scripts/autoflow.py show-fix-request --spec <spec-slug>
+
+# Show workflow state
+python3 scripts/autoflow.py workflow-state --spec <spec-slug>
+```
+
+#### Agent Management
+
+```bash
+# Sync discovered agents
+python3 scripts/autoflow.py sync-agents [--overwrite]
+
+# Test agent availability
+python3 scripts/autoflow.py test-agent --agent <agent-name>
+
+# Validate configuration
+python3 scripts/autoflow.py validate-config
 ```
 
 ### Common Patterns
 
-#### Quick Task Execution
+#### Quick Spec Creation
 
 ```bash
-# Run a quick task with defaults
-autoflow run "Fix login bug"
+# Create a new spec quickly
+python3 scripts/autoflow.py new-spec \
+  --slug my-project \
+  --title "My Project" \
+  --summary "Build a new feature"
 
-# Run with specific agent and skill
-autoflow run "Add user profile" \
-  --agent claude-code \
-  --skill FEATURE_DEVELOPER
+# Initialize tasks
+python3 scripts/autoflow.py init-tasks --spec my-project
+
+# Check workflow state
+python3 scripts/autoflow.py workflow-state --spec my-project
 ```
 
 #### Monitoring Autonomous Development
 
 ```bash
-# Start scheduler in background
-autoflow scheduler start --spec my-project &
+# Check workflow state
+python3 scripts/autoflow.py workflow-state --spec my-project
 
-# Monitor status
-watch -n 5 "autoflow task list --status in_progress"
+# Show fix requests if any
+python3 scripts/autoflow.py show-fix-request --spec my-project
 
-# View scheduler status
-autoflow scheduler status
+# View task history
+python3 scripts/autoflow.py task-history --spec my-project --task T3
 ```
 
 #### Debugging Failed Tasks
 
 ```bash
-# Show failed tasks
-autoflow task list --status failed
+# Show task details
+python3 scripts/autoflow.py show-task --spec my-project --task T3
 
-# View task details
-autoflow task show <task-id>
+# View task history
+python3 scripts/autoflow.py task-history --spec my-project --task T3
 
-# Review findings
-autoflow review run --spec <spec> --strategy diagnostic
+# Check for fix requests
+python3 scripts/autoflow.py show-fix-request --spec my-project
+
+# List recent runs
+python3 scripts/autoflow.py show-runs --spec my-project
+```
+
+#### Continuous Iteration
+
+```bash
+# Run one iteration tick
+python3 scripts/continuous_iteration.py \
+  --spec my-project \
+  --config config/continuous-iteration.example.json \
+  --commit-if-dirty \
+  --dispatch \
+  --push
 ```
 
 ## Advanced Topics
 
 ### CLI Architecture Deep Dive
 
-Autoflow's CLI is built on **Click**, a Python package for creating beautiful command-line interfaces. The modular architecture provides:
+Autoflow's CLI is built with **argparse**, Python's built-in argument parsing library. This provides a lightweight, dependency-free CLI with modular organization.
 
 #### Module Organization
 
-Each command group is a separate Python module:
+Each command group is a separate Python module inheriting from `Subcommand`:
 
 ```python
-# autoflow/cli/agent.py
-@click.group()
-def agent() -> None:
-    """Manage AI agents."""
-    pass
+# scripts/cli/spec.py
+from scripts.cli.base import Subcommand
+import argparse
 
-@agent.command("list")
-@click.pass_context
-def agent_list(ctx: click.Context) -> None:
-    """List available agents."""
-    config = ctx.obj.get("config")
-    # Implementation...
-```
+class SpecCommand(Subcommand):
+    """Spec-related commands."""
 
-#### Context Management
+    name = "spec"
+    help_text = "Manage specifications"
 
-Configuration and state are passed through Click context:
-
-```python
-# Main group sets up context
-@click.group()
-@click.pass_context
-def main(ctx: click.Context) -> None:
-    config = load_config()
-    ctx.obj["config"] = config
-    ctx.obj["verbose"] = verbose
-
-# Subcommands access context
-@agent.command("check")
-@click.pass_context
-def agent_check(ctx: click.Context, name: str) -> None:
-    config = ctx.obj.get("config")
-    # Use config...
+    def register(self, subparsers) -> None:
+        """Register spec subcommands."""
+        # Implementation...
 ```
 
 #### Shared Utilities
@@ -1107,35 +1196,37 @@ Common functions in `cli/utils.py`:
 
 ```python
 # State management
-def _get_state_manager(config: Config) -> StateManager:
-    """Get initialized state manager from config."""
-    return StateManager(config.state_dir)
+def ensure_state() -> Path:
+    """Ensure .autoflow state directory exists."""
+    # Implementation...
+
+# File operations
+def spec_files(spec_slug: str) -> dict[str, Path]:
+    """Get paths to spec-related files."""
+    # Implementation...
 
 # Output formatting
-def _print_json(data: dict) -> None:
-    """Print data as JSON."""
-    click.echo(json.dumps(data, indent=2))
-
-# Async handling
-def _run_async(coro: Coroutine) -> Any:
-    """Run async coroutine in sync context."""
-    return asyncio.run(coro)
+def print_json(data: dict) -> None:
+    """Print data as formatted JSON."""
+    # Implementation...
 ```
 
-#### Testing Infrastructure
+#### Base Subcommand Pattern
 
-Each CLI module has comprehensive tests:
+All CLI modules inherit from the `Subcommand` base class:
 
 ```python
-# tests/test_cli_agent.py
-class TestAgentCommands:
-    def test_agent_list(self, cli_runner):
-        result = cli_runner.invoke(["agent", "list"])
-        assert result.exit_code == 0
+from scripts.cli.base import Subcommand
 
-    def test_agent_check(self, cli_runner):
-        result = cli_runner.invoke(["agent", "check", "all"])
-        assert "claude-code" in result.output
+class MyCommand(Subcommand):
+    name = "mygroup"
+    help_text = "Manage my operations"
+
+    def register(self, subparsers) -> None:
+        """Register subcommands."""
+        parser = subparsers.add_parser(self.name, help=self.help_text)
+        subgroup = parser.add_subparsers(dest="action", required=True)
+        # Add your subcommands here
 ```
 
 ### Review Gate System
@@ -1143,8 +1234,11 @@ class TestAgentCommands:
 Autoflow implements hash-based review approval:
 
 ```bash
-# Reviewer generates findings
-autoflow review run --spec <spec-slug>
+# Reviewer generates findings (via review skill run)
+# Findings are stored in QA_FIX_REQUEST.md and QA_FIX_REQUEST.json
+
+# Show fix request from reviewer
+python3 scripts/autoflow.py show-fix-request --spec <spec-slug>
 
 # Implementation hash stored in review_state.json
 # System gates implementation until review approves
@@ -1215,46 +1309,38 @@ Run multiple agents in parallel:
 
 ### Custom Skills
 
-Autoflow includes a comprehensive framework for creating, validating, and sharing custom skills beyond the built-in roles.
+Autoflow supports custom skills through the skills directory structure. Each skill is defined in `skills/<role>/SKILL.md` and can include custom workflows, templates, and rules.
 
-#### Quick Example
+#### Skill Structure
 
-```bash
-# Create a custom skill interactively
-autoflow skill create
+Skills are organized as:
 
-# Or create non-interactively
-autoflow skill create --name my-custom-skill --template implementer
-
-# Validate your skill
-autoflow skill validate my-custom-skill
-
-# Export to share with your team
-autoflow skill export my-custom-skill --version 1.0.0
-
-# Import skills from your team
-autoflow skill import team-skills.tar.gz
+```
+skills/
+├── spec-writer/
+│   └── SKILL.md
+├── task-graph-manager/
+│   └── SKILL.md
+├── implementation-runner/
+│   └── SKILL.md
+├── reviewer/
+│   └── SKILL.md
+└── maintainer/
+    └── SKILL.md
 ```
 
-#### Key Features
+#### Creating Custom Skills
 
-- **Skill Templates**: Built-in templates for common patterns (planner, implementer, reviewer)
-- **Interactive Builder**: Guided skill creation with prompts and validation
-- **Validation System**: Ensure skills meet structure and content requirements
-- **Sharing & Versioning**: Export/import skills with version tracking and conflict resolution
-- **CLI & Python API**: Use from command line or programmatically
+To create a custom skill:
+
+1. Create a new directory in `skills/<your-skill-name>/`
+2. Add a `SKILL.md` file with the skill definition
+3. Include workflow description, rules, and output format
+4. Reference the skill in agent configuration
 
 #### Documentation
 
 For comprehensive documentation on creating and managing custom skills, see [**Custom Skills Guide**](docs/custom_skills.md).
-
-Topics covered:
-- Creating skills from templates
-- Validating skill structure
-- Sharing skills across teams
-- Version management
-- CLI reference and Python API
-- Best practices and examples
 
 ## Best Practices
 
@@ -1301,68 +1387,61 @@ tmux attach -t autoflow-run-<timestamp>
 
 # Kill stuck session
 tmux kill-session -t autoflow-run-<timestamp>
-
-# Check scheduler status
-autoflow scheduler status
 ```
 
 ### Tasks Keep Failing
 
 ```bash
 # Examine task details
-autoflow task show <task-id>
+python3 scripts/autoflow.py show-task --spec <spec> --task <task-id>
 
-# List failed tasks
-autoflow task list --status failed
+# View task history
+python3 scripts/autoflow.py task-history --spec <spec> --task <task-id>
 
 # Check for fix requests
-autoflow review run --spec <spec> --strategy diagnostic
+python3 scripts/autoflow.py show-fix-request --spec <spec>
+
+# View recent runs
+python3 scripts/autoflow.py show-runs --spec <spec>
 
 # Update task status manually
-autoflow task update <task-id> --status todo
+python3 scripts/autoflow.py update-task --spec <spec> --task <task-id> --status todo
 ```
 
 ### Configuration Issues
 
 ```bash
 # Validate configuration
-autoflow config validate
-
-# Show current configuration
-autoflow config show
+python3 scripts/autoflow.py validate-config
 
 # Test agent availability
-autoflow agent check all
+python3 scripts/autoflow.py test-agent --agent <agent-name>
 
-# Check system status
-autoflow status --verbose
+# Sync discovered agents
+python3 scripts/autoflow.py sync-agents --overwrite
 ```
 
 ### Memory and State Issues
 
 ```bash
 # Check memory state
-autoflow memory list --scope global
+python3 scripts/autoflow.py show-memory --scope global
 
-# Clear specific memory entry
-autoflow memory delete <key> --scope global
+# Capture memory from a run
+python3 scripts/autoflow.py capture-memory --run <run-id>
 
-# Reinitialize system
-autoflow init --force
+# Consolidate memory
+python3 scripts/autoflow.py consolidate-memory --global
 ```
 
-### CLI Issues
+### Worktree Issues
 
 ```bash
-# Check CLI version
-autoflow --version
+# Create or refresh worktree
+python3 scripts/autoflow.py create-worktree --spec <spec> --force
 
-# Verify CLI installation
-python -c "from autoflow.cli import main; print('OK')"
-
-# Test basic commands
-autoflow --help
-autoflow status --help
+# Check workflow state
+python3 scripts/autoflow.py workflow-state --spec <spec>
 ```
 
 ## Contributing
