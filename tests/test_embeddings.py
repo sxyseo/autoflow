@@ -40,14 +40,16 @@ def mock_model():
         if isinstance(text, list):
             embeddings = []
             for t in text:
-                seed = hash(t) % 1000
+                # Use a more deterministic seed based on string content
+                seed = sum(ord(c) * (i + 1) for i, c in enumerate(t[:100])) % 10000
                 np.random.seed(seed)
                 embedding = np.random.randn(384).astype(np.float32)
                 embeddings.append(embedding)
             result = np.array(embeddings)
         else:
             # Single text processing
-            seed = hash(text) % 1000
+            # Use a more deterministic seed based on string content
+            seed = sum(ord(c) * (i + 1) for i, c in enumerate(text[:100])) % 10000
             np.random.seed(seed)
             result = np.random.randn(384).astype(np.float32)
 
