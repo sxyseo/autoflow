@@ -24,6 +24,7 @@ from autoflow.cli.init import init
 from autoflow.cli.memory import memory
 from autoflow.cli.review import review
 from autoflow.cli.run import run
+from autoflow.cli.run_context import run_context
 from autoflow.cli.scheduler import scheduler
 from autoflow.cli.skill import skill
 from autoflow.cli.status import status
@@ -138,6 +139,7 @@ def main(
 # Register subcommands
 main.add_command(init)
 main.add_command(run)
+main.add_command(run_context)
 main.add_command(status)
 main.add_command(agent)
 main.add_command(skill)
